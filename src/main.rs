@@ -1,10 +1,11 @@
-use std::{error::Error, io::{Cursor, SeekFrom}};
+use std::{error::Error, io::{Cursor, SeekFrom}, vec};
 
 use binrw::{
-    helpers::{read_u24, write_u24}, BinRead, BinWrite, NullWideString
+    binwrite, helpers::{read_u24, write_u24}, BinRead, BinResult, BinWrite, NullWideString, PosValue
 };
 
-type Guid = u128;
+mod pos_marker;
+use pos_marker::PosMarker;
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16), big)]
@@ -32,8 +33,8 @@ enum SMBCommand {
 
 #[derive(BinRead, BinWrite, Debug)]
 #[brw(big)]
+#[brw(magic(b"\xfeSMB"))]
 struct SMB2MessageHeader {
-    protocol_id: u32,
     structure_size: u16,
     credit_charge: u16,
     status: u32,
@@ -162,7 +163,14 @@ struct SigningCapabilities {
     signing_algorithms: Vec<u16>
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[binrw::writer(writer, endian)]
+fn write_from_current_position(value: &u32, offset: u32) -> BinResult<()> {
+    let value = writer.stream_position().unwrap() as u32 + offset;
+    return value.write_options(writer,endian,());
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
 #[brw(little)]
 struct SMBNegotiateRequest {
     structure_size: u16,
@@ -170,16 +178,18 @@ struct SMBNegotiateRequest {
     security_mode: u16,
     reserved: u16,
     capabilities: u32,
-    client_guid: Guid,
+    client_guid: u128,
     // TODO: The 3 fields below are possibly a union in older versions of SMB.
-    negotiate_context_offset: u32,
+    negotiate_context_offset: PosMarker<u32>,
     negotiate_context_count: u16,
     reserved2: u16,
     #[br(count = dialect_count)]
     dialects: Vec<SMBDialect>,
     // Only on SMB 3.1.1 we have negotiate contexts.
+    #[bw(write_with = PosMarker::fill, args(&negotiate_context_offset))]
+    negotiate_context_list_start: PosValue<()>,
     #[brw(if(dialects.contains(&SMBDialect::Smb0311)))]
-    #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset as u64))]
+    #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.pos.get() as u64))]
     negotiate_context_list: Option<Vec<SMBNegotiateContext>>
 }
 
@@ -196,6 +206,45 @@ struct SMB2Message {
     header: SMB2MessageHeader,
     #[br(args(&header.command))]
     content: SMBMessageContent
+}
+
+impl SMB2Message {
+    fn build() -> SMB2Message {
+        SMB2Message {
+            header: SMB2MessageHeader {
+                structure_size: 64,
+                credit_charge: 0,
+                status: 0,
+                command: SMBCommand::Negotiate,
+                credit_request: 0,
+                flags: 0,
+                next_command: 0,
+                message_id: 1,
+                reserved: 0,
+                tree_id: 0,
+                session_id: 0,
+                signature: 0
+            },
+            content: SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest {
+                structure_size: 0x24,
+                dialect_count: 5,
+                security_mode: 0x1,
+                reserved: 0,
+                capabilities: 0x7f,
+                client_guid: 0xf760d952a6b7ef118b78000c29801682,
+                negotiate_context_count: 0,
+                reserved2: 0,
+                dialects: vec![
+                    SMBDialect::Smb0202,
+                    SMBDialect::Smb021,
+                    SMBDialect::Smb030,
+                    SMBDialect::Smb0302,
+                    SMBDialect::Smb0311
+                ],
+                negotiate_context_list: Some(vec![])
+            })
+        }
+    }
 }
 
 #[derive(BinRead, BinWrite, Debug)]
@@ -226,6 +275,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let packet = NetBiosTcpMessage::read(&mut Cursor::new(raw_packet));
     let mut message_cursor = Cursor::new(packet?.message);
     _ = dbg!(SMB2Message::read(&mut message_cursor));
+
+    let mut writer = Cursor::new(Vec::new());
+    SMB2Message::build().write(&mut writer)?;
+    
+    dbg!(writer.into_inner());
 
     Ok(())
 }
