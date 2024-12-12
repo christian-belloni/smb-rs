@@ -1,8 +1,10 @@
 use std::{default, error::Error, io::{Cursor, Read, SeekFrom, Write}, net::TcpStream, vec};
 
 use binrw::{
-    binwrite, helpers::{read_u24, write_u24}, BinRead, BinResult, BinWrite, NullWideString, PosValue
+    binwrite, helpers::{read_u24, until_eof, write_u24}, BinRead, BinResult, BinWrite, NullString, NullWideString, PosValue
 };
+
+use binrw::io::TakeSeekExt;
 
 mod pos_marker;
 use pos_marker::PosMarker;
@@ -136,7 +138,16 @@ struct PreauthIntegrityCapabilities {
 struct EncryptionCapabilities {
     cipher_count: u16,
     #[br(count = cipher_count)]
-    ciphers: Vec<u16>
+    ciphers: Vec<EncryptionCapabilitiesCipher>
+}
+
+#[derive(BinRead, BinWrite, Debug)]
+#[brw(little, repr(u16))]
+enum EncryptionCapabilitiesCipher {
+    Aes128Ccm = 0x0001,
+    Aes128Gcm = 0x0002,
+    Aes256Ccm = 0x0003,
+    Aes256Gcm = 0x0004
 }
 
 #[derive(BinRead, BinWrite, Debug)]
@@ -177,7 +188,15 @@ struct RdmaTransformCapabilities {
 struct SigningCapabilities {
     signing_algorithm_count: u16,
     #[br(count = signing_algorithm_count)]
-    signing_algorithms: Vec<u16>
+    signing_algorithms: Vec<SigningAlgorithmId>
+}
+
+#[derive(BinRead, BinWrite, Debug)]
+#[brw(little, repr(u16))]
+enum SigningAlgorithmId {
+    HmacSha256 = 0x0000,
+    AesCmac = 0x0001,
+    AesGmac = 0x0002
 }
 
 #[binrw::writer(writer, endian)]
@@ -213,7 +232,7 @@ struct SMBNegotiateRequest {
     // Only on SMB 3.1.1 we have negotiate contexts.
     // Align to 8 bytes.
     // #[brw(align_before = 8)]
-    #[brw(if(dialects.contains(&SMBDialect::Smb0311)))]
+    #[brw(if(dialects.contains(&SMBDialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
     negotiate_context_list: Option<Vec<SMBNegotiateContext>>
@@ -234,6 +253,62 @@ struct SMB2Message {
     content: SMBMessageContent
 }
 
+
+#[binrw::binrw]
+#[derive(Debug)]
+#[brw(little, magic(b"\xffSMB"))]
+struct SMB1NegotiateMessage {
+    command: u8,
+    status: u32,
+    flags: u8,
+    flags2: u16,
+    pid_high: u16,
+    security_features: [u8; 8],
+    reserved: u16,
+    tid: u16,
+    pid_low: u16,
+    uid: u16,
+    mid: u16,
+    #[bw(calc = 0)]
+    word_count: u8,
+    byte_count: u16,
+    #[br(map_stream = |s| s.take_seek(byte_count.into()), parse_with = until_eof)]
+    dialects: Vec<Smb1Dialect>
+}
+
+#[derive(BinRead, BinWrite, Debug)]
+#[brw(little, magic(b"\x02"))]
+struct Smb1Dialect {
+    name: NullString
+}
+
+/* SMB1 Header:
+UCHAR  Command;
+   SMB_ERROR Status;
+   UCHAR  Flags;
+   USHORT Flags2;
+   USHORT PIDHigh;
+   UCHAR  SecurityFeatures[8];
+   USHORT Reserved;
+   USHORT TID;
+   USHORT PIDLow;
+   USHORT UID;
+   USHORT MID; 
+Negotiate message conten:
+SMB_Parameters
+   {
+   UCHAR  WordCount;
+   }
+ SMB_Data
+   {
+   USHORT ByteCount;
+   Bytes
+     {
+     UCHAR Dialects[];
+     }
+   }
+   */
+
 impl SMB2Message {
     fn build() -> SMB2Message {
         SMB2Message {
@@ -246,7 +321,7 @@ impl SMB2Message {
                 flags: 0,
                 next_command: 0,
                 message_id: 1,
-                reserved: 0,
+                reserved: 0x0000feff,
                 tree_id: 0,
                 session_id: 0,
                 signature: 0
@@ -276,15 +351,55 @@ impl SMB2Message {
                         )
                     },
                     SMBNegotiateContext {
-                        context_type: SMBNegotiateContextType::RdmaTransformCapabilities,
+                        context_type: SMBNegotiateContextType::EncryptionCapabilities,
+                        data_length: 10,
+                        reserved: 0,
+                        data: SMBNegotiateContextValue::EncryptionCapabilities(
+                            EncryptionCapabilities {
+                                cipher_count: 4,
+                                ciphers: vec![
+                                    EncryptionCapabilitiesCipher::Aes128Ccm,
+                                    EncryptionCapabilitiesCipher::Aes128Gcm,
+                                    EncryptionCapabilitiesCipher::Aes256Ccm,
+                                    EncryptionCapabilitiesCipher::Aes256Gcm
+                                ]
+                            }
+                        )
+                    },
+                    SMBNegotiateContext {
+                        context_type: SMBNegotiateContextType::CompressionCapabilities,
+                        data_length: 10,
+                        reserved: 0,
+                        data: SMBNegotiateContextValue::CompressionCapabilities(
+                            CompressionCapabilities {
+                                compression_algorithm_count: 1,
+                                padding: 0,
+                                flags: 0,
+                                compression_algorithms: vec![0]
+                            }
+                        )
+                    },
+                    SMBNegotiateContext {
+                        context_type: SMBNegotiateContextType::SigningCapabilities,
+                        data_length: 6,
+                        reserved: 0,
+                        data: SMBNegotiateContextValue::SigningCapabilities(
+                            SigningCapabilities {
+                                signing_algorithm_count: 2,
+                                signing_algorithms: vec![
+                                    SigningAlgorithmId::AesGmac,
+                                    SigningAlgorithmId::AesCmac
+                                ]
+                            }
+                        )
+                    },
+                    SMBNegotiateContext {
+                        context_type: SMBNegotiateContextType::NetnameNegotiateContextId,
                         data_length: 12,
                         reserved: 0,
-                        data: SMBNegotiateContextValue::RdmaTransformCapabilities(
-                            RdmaTransformCapabilities {
-                                transform_count: 2,
-                                reserved1: 0,
-                                reserved2: 0,
-                                transforms: vec![1, 2]
+                        data: SMBNegotiateContextValue::NetnameNegotiateContextId(
+                            NetnameNegotiateContextId {
+                                netname: NullWideString::from("AVIVVM")
                             }
                         )
                     }
@@ -320,6 +435,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         0x07, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00
     ];
 
+    // Well, it appears that you must always do the multi-protocol negotiation dance with Windows.
+    let raw_smb1_packet: &[u8] = &[
+        0x00, 0x00, 0x00, 0x45, 0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00, 0x00, 0x00, 0x08, 0x01, 0xc8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x01, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x22, 0x00, 0x02, 0x4e, 0x54, 0x20, 0x4c, 0x4d, 0x20, 0x30, 0x2e, 0x31, 0x32, 0x00, 0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x30, 0x30, 0x32, 0x00, 0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x3f, 0x3f, 0x3f, 0x00, 
+    ];
+
+    // parse raw smb1 packet -- first netBiod header, then SMB1NegotiateMessage:
+    let mut packet = NetBiosTcpMessage::read(&mut Cursor::new(raw_smb1_packet));
+    let mut message_cursor = Cursor::new(packet?.message);
+    let smb1 = SMB1NegotiateMessage::read(&mut message_cursor)?;
+    println!("{:?}", smb1);
+    assert!(smb1.dialects.iter().any(|dialect| dialect.name.to_string() == "SMB 2.002"));
+
     let packet = NetBiosTcpMessage::read(&mut Cursor::new(raw_packet));
     let mut message_cursor = Cursor::new(packet?.message);
     _ = dbg!(SMB2Message::read(&mut message_cursor));
@@ -330,11 +457,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let output_vec = writer.into_inner();
 
     // Now try to parse the output:
-    // let mut reader = Cursor::new(&output_vec);
-    // let parsed = SMB2Message::read(&mut reader)?;
-    // println!("{:?}", parsed);
+    let mut reader = Cursor::new(&output_vec);
+    let parsed = SMB2Message::read(&mut reader)?;
+    println!("{:?}", parsed);
 
     let mut tcp_connection = TcpStream::connect("172.16.204.128:445")?;
+
+    // first send the raw smb1 packet:
+    tcp_connection.write_all(raw_smb1_packet)?;
+
+    // trim last 2 bytes of the output_vec and copy to a new vec:
+    let output_vec = output_vec[..output_vec.len()-2].to_vec();
     // Write netbios header first:
     let netbios_message = NetBiosTcpMessage {
         stream_protocol_length: output_vec.len() as u32,
