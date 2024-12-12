@@ -1,4 +1,4 @@
-use std::{error::Error, io::{Cursor, SeekFrom}, vec};
+use std::{default, error::Error, io::{Cursor, Read, SeekFrom, Write}, net::TcpStream, vec};
 
 use binrw::{
     binwrite, helpers::{read_u24, write_u24}, BinRead, BinResult, BinWrite, NullWideString, PosValue
@@ -6,6 +6,14 @@ use binrw::{
 
 mod pos_marker;
 use pos_marker::PosMarker;
+use rand::Rng;
+
+fn pos_value_default<T: default::Default>() -> PosValue<T> {
+    PosValue {
+        pos: u64::default(),
+        val: T::default()
+    }
+}
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16), big)]
@@ -32,7 +40,7 @@ enum SMBCommand {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(big)]
+#[brw(little)]
 #[brw(magic(b"\xfeSMB"))]
 struct SMB2MessageHeader {
     structure_size: u16,
@@ -103,13 +111,22 @@ enum SMBNegotiateContextValue {
     SigningCapabilities(SigningCapabilities)
 }
 
+// u16 enum hash algorithms binrw 0x01 is sha512.
 #[derive(BinRead, BinWrite, Debug)]
+#[brw(little, repr(u16))]
+enum HashAlgorithm {
+    Sha512 = 0x01
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
 #[brw(little)]
 struct PreauthIntegrityCapabilities {
     hash_algorithm_count: u16,
+    #[bw(try_calc(u16::try_from(salt.len())))]
     salt_length: u16,
     #[br(count = hash_algorithm_count)]
-    hash_algorithms: Vec<u16>,
+    hash_algorithms: Vec<HashAlgorithm>,
     #[br(count = salt_length)]
     salt: Vec<u8>
 }
@@ -173,23 +190,32 @@ fn write_from_current_position(value: &u32, offset: u32) -> BinResult<()> {
 #[derive(Debug)]
 #[brw(little)]
 struct SMBNegotiateRequest {
+    #[bw(calc = 0x24)]
+    #[br(assert(structure_size == 0x24))]
     structure_size: u16,
+    #[bw(try_calc(u16::try_from(dialects.len())))]
     dialect_count: u16,
     security_mode: u16,
+    #[bw(calc = 0)]
+    #[br(assert(reserved == 0))]
     reserved: u16,
     capabilities: u32,
     client_guid: u128,
     // TODO: The 3 fields below are possibly a union in older versions of SMB.
     negotiate_context_offset: PosMarker<u32>,
+    #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
     negotiate_context_count: u16,
+    #[bw(calc = 0)]
+    #[br(assert(reserved2 == 0))]
     reserved2: u16,
     #[br(count = dialect_count)]
     dialects: Vec<SMBDialect>,
     // Only on SMB 3.1.1 we have negotiate contexts.
-    #[bw(write_with = PosMarker::fill, args(&negotiate_context_offset))]
-    negotiate_context_list_start: PosValue<()>,
+    // Align to 8 bytes.
+    // #[brw(align_before = 8)]
     #[brw(if(dialects.contains(&SMBDialect::Smb0311)))]
-    #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.pos.get() as u64))]
+    #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
+    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
     negotiate_context_list: Option<Vec<SMBNegotiateContext>>
 }
 
@@ -226,14 +252,9 @@ impl SMB2Message {
                 signature: 0
             },
             content: SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest {
-                structure_size: 0x24,
-                dialect_count: 5,
                 security_mode: 0x1,
-                reserved: 0,
                 capabilities: 0x7f,
-                client_guid: 0xf760d952a6b7ef118b78000c29801682,
-                negotiate_context_count: 0,
-                reserved2: 0,
+                client_guid: rand::rngs::OsRng.gen(),
                 dialects: vec![
                     SMBDialect::Smb0202,
                     SMBDialect::Smb021,
@@ -241,7 +262,34 @@ impl SMB2Message {
                     SMBDialect::Smb0302,
                     SMBDialect::Smb0311
                 ],
-                negotiate_context_list: Some(vec![])
+                negotiate_context_list: Some(vec![
+                    SMBNegotiateContext {
+                        context_type: SMBNegotiateContextType::PreauthIntegrityCapabilities,
+                        data_length: 38,
+                        reserved: 0,
+                        data: SMBNegotiateContextValue::PreauthIntegrityCapabilities(
+                            PreauthIntegrityCapabilities {
+                                hash_algorithm_count: 1,
+                                hash_algorithms: vec![HashAlgorithm::Sha512],
+                                salt: (0..32).map(|_| rand::random::<u8>()).collect()
+                            }
+                        )
+                    },
+                    SMBNegotiateContext {
+                        context_type: SMBNegotiateContextType::RdmaTransformCapabilities,
+                        data_length: 12,
+                        reserved: 0,
+                        data: SMBNegotiateContextValue::RdmaTransformCapabilities(
+                            RdmaTransformCapabilities {
+                                transform_count: 2,
+                                reserved1: 0,
+                                reserved2: 0,
+                                transforms: vec![1, 2]
+                            }
+                        )
+                    }
+                ]),
+                negotiate_context_offset: PosMarker::default()
             })
         }
     }
@@ -279,7 +327,26 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut writer = Cursor::new(Vec::new());
     SMB2Message::build().write(&mut writer)?;
     
-    dbg!(writer.into_inner());
+    let output_vec = writer.into_inner();
+
+    // Now try to parse the output:
+    // let mut reader = Cursor::new(&output_vec);
+    // let parsed = SMB2Message::read(&mut reader)?;
+    // println!("{:?}", parsed);
+
+    let mut tcp_connection = TcpStream::connect("172.16.204.128:445")?;
+    // Write netbios header first:
+    let netbios_message = NetBiosTcpMessage {
+        stream_protocol_length: output_vec.len() as u32,
+        message: output_vec
+    };
+
+    let mut netbios_message_bytes = Cursor::new(Vec::new());
+    netbios_message.write(&mut netbios_message_bytes)?;
+
+    tcp_connection.write_all(&netbios_message_bytes.into_inner())?;
+    let mut response : Vec<u8>= vec![];
+    tcp_connection.read_to_end(&mut response)?;
 
     Ok(())
 }

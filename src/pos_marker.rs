@@ -53,13 +53,19 @@ where
 {
     /// Call this write to fill a PosMarker value to the position of the written value.
     #[binrw::writer(writer, endian)]
-    pub fn fill<U>(_: &U, this: &Self) -> BinResult<()> {
+    pub fn write_and_fill_start_offset<U>(value: &U, this: &Self) -> BinResult<()>
+    where U : BinWrite<Args<'static> = ()> {
         let pos = writer.stream_position()?;
-        let value = T::try_from(pos).map_err(|err| binrw::error::Error::Custom {
+        let offset_value = T::try_from(pos).map_err(|err| binrw::error::Error::Custom {
             pos,
             err: Box::new(err),
         })?;
         writer.seek(SeekFrom::Start(this.pos.get()))?;
+        // Write back the offset value
+        offset_value.write_options(writer, endian, ());
+        // Get back to the end of the file
+        writer.seek(SeekFrom::End(0))?;
+        // Continue writing the real value this writer is specified for
         value.write_options(writer, endian, ())
     }
 }
@@ -70,5 +76,17 @@ impl Debug for PosMarker<u32> {
             .field("pos", &self.pos)
             .field("value", &self.value)
             .finish()
+    }
+}
+
+impl<T> Default for PosMarker<T>
+where
+    T: Default,
+{
+    fn default() -> Self {
+        Self {
+            pos: core::cell::Cell::new(0),
+            value: T::default(),
+        }
     }
 }
