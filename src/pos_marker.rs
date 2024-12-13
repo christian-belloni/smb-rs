@@ -24,7 +24,7 @@ where
         let pos = reader.stream_position()?;
         T::read_options(reader, endian, args).map(|value| Self {
             pos: core::cell::Cell::new(pos),
-            value,
+            value
         })
     }
 }
@@ -90,23 +90,6 @@ where
 }
 
 
-impl PosMarker<u32> {
-    #[binrw::writer(writer, endian)]
-    pub fn write_u24(self: &PosMarker<u32>) -> BinResult<()> {
-        self.pos.set(writer.stream_position()?);
-        binrw::helpers::write_u24(&self.value, writer, endian, ())
-    }
-
-    #[binrw::parser(reader, endian)]
-    pub fn read_u24() -> BinResult<PosMarker<u32>> {
-        let pos = reader.stream_position()?;
-        binrw::helpers::read_u24(reader, endian, ()).map(|value| Self {
-            pos: core::cell::Cell::new(pos),
-            value,
-        })
-    }
-}
-
 impl<T> Debug for PosMarker<T>
     where T: Debug {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -129,3 +112,4 @@ where
         }
     }
 }
+

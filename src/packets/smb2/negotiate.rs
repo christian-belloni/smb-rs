@@ -1,6 +1,5 @@
 use binrw::prelude::*;
 use binrw::io::SeekFrom;
-use rand::Rng;
 
 use crate::pos_marker::PosMarker;
 
@@ -31,7 +30,6 @@ pub struct SMBNegotiateRequest {
     pub dialects: Vec<SMBDialect>,
     // Only on SMB 3.1.1 we have negotiate contexts.
     // Align to 8 bytes.
-    // #[brw(align_before = 8)]
     #[brw(if(dialects.contains(&SMBDialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
@@ -39,11 +37,11 @@ pub struct SMBNegotiateRequest {
 }
 
 impl SMBNegotiateRequest {
-    pub fn build() -> SMBNegotiateRequest {
+    pub fn build(client_guid: u128) -> SMBNegotiateRequest {
         SMBNegotiateRequest {
             security_mode: 0x1,
             capabilities: 0x7f,
-            client_guid: rand::rngs::OsRng.gen(),
+            client_guid: client_guid,
             dialects: vec![
                 SMBDialect::Smb0202,
                 SMBDialect::Smb021,
@@ -123,6 +121,37 @@ impl SMBNegotiateRequest {
     }
 }
 
+#[binrw::binrw]
+#[derive(Debug)]
+#[brw(little)]
+pub struct SMBNegotiateResponse {
+    #[br(assert(structure_size == 0x41))]
+    #[bw(calc = 0x41)]
+    structure_size: u16,
+    security_mode: u16,
+    dialect_revision: SMBNegotiateResponseDialect,
+    #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
+    negotiate_context_count: u16, // TODO: if dialect contains 0x0311
+    server_guid: u128,
+    capabilities: u32,
+    max_transact_size: u32,
+    max_read_size: u32,
+    max_write_size: u32,
+    system_time: u64,
+    server_start_time: u64,
+    security_buffer_offset: PosMarker<u16>,
+    #[bw(try_calc(u16::try_from(buffer.len())))]
+    security_buffer_length: u16,
+    negotiate_context_offset: PosMarker<u32>,
+    #[br(count = security_buffer_length)]
+    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&security_buffer_offset))]
+    buffer: Vec<u8>,
+
+    #[brw(if(matches!(dialect_revision, SMBNegotiateResponseDialect::Smb0311)), align_before = 8)]
+    #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
+    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
+    negotiate_context_list: Option<Vec<SMBNegotiateContext>>
+}
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16), little)]
@@ -132,6 +161,17 @@ pub enum SMBDialect {
     Smb030 = 0x0300,
     Smb0302 = 0x0302,
     Smb0311 = 0x0311
+}
+
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[brw(repr(u16), little)]
+pub enum SMBNegotiateResponseDialect {
+    Smb0202 = SMBDialect::Smb0202 as isize,
+    Smb021 = SMBDialect::Smb021 as isize,
+    Smb030 = SMBDialect::Smb030 as isize,
+    Smb0302 = SMBDialect::Smb0302 as isize,
+    Smb0311 = SMBDialect::Smb0311 as isize,
+    Smb02Wildcard = 0x02FF,
 }
 
 #[derive(BinRead, BinWrite, Debug)]

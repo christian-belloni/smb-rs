@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 binrw = "0.14.1"
 rand = "0.8.5"
+modular-bitfield = "0.11.2"

@@ -1,15 +1,5 @@
-use std::{default, error::Error, io::{Cursor, Read, SeekFrom, Write}, net::TcpStream, vec};
-
-use binrw::{
-    binwrite, helpers::{read_u24, until_eof, write_u24}, BinRead, BinResult, BinWrite, NullString, NullWideString, PosValue
-};
-
-use binrw::io::TakeSeekExt;
-
-mod pos_marker;
-use pos_marker::PosMarker;
-use rand::Rng;
-use smb::packets::{netbios::{NetBiosTcpMessage, NetBiosTcpMessageContent}, smb1::SMB1NegotiateMessage};
+use std::error::Error;
+use smb::smb_client::SMBClient;
 
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -26,42 +16,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         0x05, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x00, 0x32, 0x00, 0x37, 0x00, 0x2e, 0x00, 0x30, 0x00, 0x2e, 0x00, 0x30, 0x00, 0x2e, 0x00, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x07, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00
     ];
-
-    // Well, it appears that you must always do the multi-protocol negotiation dance with Windows.
-    let raw_smb1_packet: &[u8] = &[
-        0x00, 0x00, 0x00, 0x45, 0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00, 0x00, 0x00, 0x08, 0x01, 0xc8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x01, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x22, 0x00, 0x02, 0x4e, 0x54, 0x20, 0x4c, 0x4d, 0x20, 0x30, 0x2e, 0x31, 0x32, 0x00, 0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x30, 0x30, 0x32, 0x00, 0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x3f, 0x3f, 0x3f, 0x00, 
-    ];
-
-    // parse raw smb1 packet -- first netBiod header, then SMB1NegotiateMessage:
-    let packet = NetBiosTcpMessage::read(&mut Cursor::new(raw_smb1_packet))?;
-    let smb1 = match &packet.message {
-        NetBiosTcpMessageContent::SMB1Message(msg) => {msg},
-        NetBiosTcpMessageContent::SMB2Message(_) => {panic!("Expected SMB1 message, got SMB2 message.")}
-    };
-    println!("{:?}", smb1);
-    assert!(smb1.is_smb2_supported());
-
-    // let packet = NetBiosTcpMessage::read(&mut Cursor::new(raw_packet));
-    // let mut message_cursor = Cursor::new(packet?.message);
-    // _ = dbg!(SMB2Message::read(&mut message_cursor));
-
-    // let mut writer = Cursor::new(Vec::new());
-    // SMB2Message::build().write(&mut writer)?;
     
-    // let output_vec = writer.into_inner();
+    let mut smb = SMBClient::new();
+    smb.connect("172.16.204.128:445")?;
+    smb.negotiate()?;
 
-    // // Now try to parse the output:
-    // let mut reader = Cursor::new(&output_vec);
-    // let parsed = SMB2Message::read(&mut reader)?;
-    // println!("{:?}", parsed);
 
-    let mut tcp_connection = TcpStream::connect("172.16.204.128:445")?;
-
-    // first send the raw smb1 packet:
-    tcp_connection.write_all(raw_smb1_packet)?;
-    let mut ns = binrw::io::NoSeek::new(&mut tcp_connection);
-    let nb_msg = NetBiosTcpMessage::read(&mut ns)?;
-    dbg!(&nb_msg);
     // and expect smb2 response:
     // let mut smb2_first_response: Vec<u8> = vec![];
     // tcp_connection.read_to_end(&mut smb2_first_response)?;
