@@ -1,32 +1,37 @@
 use binrw::prelude::*;
+use crate::pos_marker::PosMarker;
+
 use super::header::*;
 use super::negotiate;
 
 #[derive(BinRead, BinWrite, Debug)]
-#[br(import(smb_command: &SMBCommand, flags_server_to_redir: bool))]
+#[brw(import(smb_command: &SMB2Command, flags_server_to_redir: bool, header_start: u64))]
 pub enum SMBMessageContent {
-    #[br(pre_assert(smb_command == &SMBCommand::Negotiate && !flags_server_to_redir))]
+    #[br(pre_assert(smb_command == &SMB2Command::Negotiate && !flags_server_to_redir))]
     SMBNegotiateRequest(negotiate::SMBNegotiateRequest),
-    #[br(pre_assert(smb_command == &SMBCommand::Negotiate && flags_server_to_redir))]
+    #[br(pre_assert(smb_command == &SMB2Command::Negotiate && flags_server_to_redir))]
     SMBNegotiateResponse(negotiate::SMBNegotiateResponse)
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[binrw::binrw]
+#[derive(Debug)]
 #[brw(big)]
 pub struct SMB2Message {
-    header: SMB2MessageHeader,
-    #[br(args(&header.command, header.flags.server_to_redir()))]
-    content: SMBMessageContent
+    #[brw(calc = PosMarker::default())]
+    pub header_start: PosMarker<()>,
+    pub header: SMB2MessageHeader,
+    #[brw(args(&header.command, header.flags.server_to_redir(), header_start.pos.get()))]
+    pub content: SMBMessageContent
 }
 
 
 impl SMB2Message {
-    pub fn build(content: SMBMessageContent) -> SMB2Message {
+    pub fn new(content: SMBMessageContent) -> SMB2Message {
         SMB2Message {
             header: SMB2MessageHeader {
                 credit_charge: 0,
                 status: 0,
-                command: SMBCommand::Negotiate,
+                command: SMB2Command::Negotiate,
                 credit_request: 0,
                 flags: SMB2HeaderFlags::new(),
                 next_command: 0,

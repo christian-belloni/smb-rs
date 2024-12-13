@@ -1,9 +1,9 @@
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u16), big)]
-pub enum SMBCommand {
+pub enum SMB2Command {
     Negotiate = 00,
     SessionSetup = 01,
     Logoff = 02,
@@ -35,7 +35,7 @@ pub struct SMB2MessageHeader {
     _structure_size: u16,
     pub credit_charge: u16,
     pub status: u32,
-    pub command: SMBCommand,
+    pub command: SMB2Command,
     pub credit_request: u16,
     pub flags: SMB2HeaderFlags,
     pub next_command: u32,

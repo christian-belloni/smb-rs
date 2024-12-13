@@ -3,7 +3,7 @@ use std::{io::{Read, Write}, net::TcpStream};
 use binrw::prelude::*;
 use binrw::io::NoSeek;
 
-use crate::packets::netbios::{NetBiosTcpMessage, NetBiosTcpMessageContent, NetBiosTcpMessageHeader};
+use crate::packets::netbios::{NetBiosTcpMessage, NetBiosMessageContent, NetBiosTcpMessageHeader};
 
 pub struct NetBiosClient {
     session: Option<TcpStream>
@@ -21,8 +21,8 @@ impl NetBiosClient {
         Ok(())
     }
 
-    pub fn send(&mut self, data: NetBiosTcpMessageContent) -> Result<(), Box<dyn std::error::Error>> {
-        let netbios_message = NetBiosTcpMessage::new(data);
+    pub fn send(&mut self, data: NetBiosMessageContent) -> Result<(), Box<dyn std::error::Error>> {
+        let netbios_message = NetBiosTcpMessage::build(data)?;
         let mut netbios_message_bytes = std::io::Cursor::new(Vec::new());
         netbios_message.write(&mut netbios_message_bytes)?;
         self.session.as_ref()
@@ -32,7 +32,7 @@ impl NetBiosClient {
         Ok(())
     }
 
-    pub fn receive(&mut self) -> Result<NetBiosTcpMessage, Box<dyn std::error::Error>> {
+    pub fn receive(&mut self) -> Result<NetBiosMessageContent, Box<dyn std::error::Error>> {
         let mut tcp = self.session.as_ref()
             .ok_or("NetBiosClient is not connected")?;
         

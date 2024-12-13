@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::{error::Error, io::Cursor};
 
 use binrw::prelude::*;
 use binrw::io::TakeSeekExt;
@@ -10,11 +10,12 @@ use super::{smb1, smb2};
 #[derive(Debug)]
 #[brw(big)]
 pub struct NetBiosTcpMessage {
+    #[bw(calc = NetBiosTcpMessageHeader::default())]
     pub header: NetBiosTcpMessageHeader,
     // use stream_protocol_length to determine the length of the stream_protocol:
-    #[br(map_stream = |s| s.take_seek(header.stream_protocol_length.value.into()))]
+    #[br(map_stream = |s| s.take_seek(header.stream_protocol_length.value.into()), parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = PosMarker3Byte::write_and_fill_size, args(&header.stream_protocol_length))]
-    pub message: NetBiosTcpMessageContent
+    pub message: Vec<u8>
 }
 
 #[binrw::binrw]
@@ -33,24 +34,22 @@ impl Default for NetBiosTcpMessageHeader {
 }
 
 impl NetBiosTcpMessage {
-    pub fn new(message: NetBiosTcpMessageContent) -> NetBiosTcpMessage {
-        NetBiosTcpMessage {
-            header: NetBiosTcpMessageHeader::default(),
-            message
-        }
+    pub fn build(message: NetBiosMessageContent) -> Result<NetBiosTcpMessage, Box<dyn Error>> {
+        let mut msg_data = Cursor::new(Vec::new());
+        message.write(&mut msg_data)?;
+        Ok(NetBiosTcpMessage {
+            message: msg_data.into_inner()
+        })
     }
 
-    pub fn from_header_and_data(header: NetBiosTcpMessageHeader, data: &mut [u8]) -> Result<NetBiosTcpMessage, Box<dyn std::error::Error>> {
-        Ok(NetBiosTcpMessage {
-            header,
-            message: NetBiosTcpMessageContent::read(&mut Cursor::new(data))?
-        })
+    pub fn from_header_and_data(header: NetBiosTcpMessageHeader, data: &mut [u8]) -> Result<NetBiosMessageContent, Box<dyn std::error::Error>> {
+        Ok(NetBiosMessageContent::read(&mut Cursor::new(data))?)
     }
 }
 
 #[derive(BinRead, BinWrite, Debug)]
 #[brw(big)]
-pub enum NetBiosTcpMessageContent {
+pub enum NetBiosMessageContent {
     SMB2Message(smb2::message::SMB2Message),
     SMB1Message(smb1::SMB1NegotiateMessage)
 }

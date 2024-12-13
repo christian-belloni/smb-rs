@@ -20,7 +20,7 @@ pub struct SMBNegotiateRequest {
     pub capabilities: u32,
     pub client_guid: u128,
     // TODO: The 3 fields below are possibly a union in older versions of SMB.
-    pub negotiate_context_offset: PosMarker<u32>,
+    negotiate_context_offset: PosMarker<u32>,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
     negotiate_context_count: u16,
     #[bw(calc = 0)]
@@ -37,7 +37,7 @@ pub struct SMBNegotiateRequest {
 }
 
 impl SMBNegotiateRequest {
-    pub fn build(client_guid: u128) -> SMBNegotiateRequest {
+    pub fn new(client_guid: u128) -> SMBNegotiateRequest {
         SMBNegotiateRequest {
             security_mode: 0x1,
             capabilities: 0x7f,
@@ -129,7 +129,7 @@ pub struct SMBNegotiateResponse {
     #[bw(calc = 0x41)]
     structure_size: u16,
     security_mode: u16,
-    dialect_revision: SMBNegotiateResponseDialect,
+    pub dialect_revision: SMBNegotiateResponseDialect,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
     negotiate_context_count: u16, // TODO: if dialect contains 0x0311
     server_guid: u128,
