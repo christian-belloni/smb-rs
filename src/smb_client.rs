@@ -12,6 +12,7 @@ struct SmbNegotiateState {
     max_read_size: u32,
     max_write_size: u32,
 
+    gss_negotiate_token: Vec<u8>,
 }
 
 pub struct SMBClient {
@@ -105,7 +106,8 @@ impl SMBClient {
             server_guid: smb2_negotiate_response.server_guid,
             max_transact_size: smb2_negotiate_response.max_transact_size,
             max_read_size: smb2_negotiate_response.max_read_size,
-            max_write_size: smb2_negotiate_response.max_write_size
+            max_write_size: smb2_negotiate_response.max_write_size,
+            gss_negotiate_token: smb2_negotiate_response.buffer,
         };
 
         self.negotiate_state.set(negotiate_state).map_err(|_| "Negotiate state already set")?;
@@ -119,7 +121,8 @@ impl SMBClient {
     }
 
     pub fn authenticate(&mut self, user_name: String, password: String) -> Result<(), Box<dyn Error>> {
-        let (mut authenticator, mut next_buf) = GssAuthenticator::build(&[], &user_name, password)?;
+        let negotate_state = self.negotiate_state.get().ok_or(SmbClientNotConnectedError)?;
+        let (mut authenticator, mut next_buf) = GssAuthenticator::build(&negotate_state.gss_negotiate_token, &user_name, password)?;
         let mut response = self.send_and_receive_smb2(SMB2Message::new(
             SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf))
         ))?;

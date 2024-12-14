@@ -68,7 +68,7 @@ impl SMB1NegotiateMessage {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little, magic(b"\x02"))]
+#[brw(magic(b"\x02"))]
 pub struct Smb1Dialect {
     name: binrw::NullString
 }

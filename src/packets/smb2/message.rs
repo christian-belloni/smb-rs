@@ -20,9 +20,19 @@ pub enum SMBMessageContent {
     SMBSessionSetupResponse(setup::SMB2SessionSetupResponse),
 }
 
+impl SMBMessageContent {
+    fn cmd(&self) -> SMB2Command {
+        use SMBMessageContent::*;
+        match self {
+            SMBNegotiateRequest(_) | SMBNegotiateResponse(_) => SMB2Command::Negotiate,
+            SMBSessionSetupRequest(_) | SMBSessionSetupResponse(_)  => SMB2Command::SessionSetup,
+        }
+    }
+}
+
 #[binrw::binrw]
 #[derive(Debug)]
-#[brw(big)]
+#[brw(little)]
 pub struct SMB2Message {
     #[brw(calc = PosMarker::default())]
     pub header_start: PosMarker<()>,
@@ -38,7 +48,7 @@ impl SMB2Message {
             header: SMB2MessageHeader {
                 credit_charge: 0,
                 status: 0,
-                command: SMB2Command::Negotiate,
+                command: content.cmd(),
                 credit_request: 0,
                 flags: SMB2HeaderFlags::new(),
                 next_command: 0,

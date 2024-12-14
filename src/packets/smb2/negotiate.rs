@@ -6,7 +6,6 @@ use crate::pos_marker::PosMarker;
 
 #[binrw::binrw]
 #[derive(Debug)]
-#[brw(little)]
 pub struct SMBNegotiateRequest {
     #[bw(calc = 0x24)]
     #[br(assert(structure_size == 0x24))]
@@ -123,7 +122,6 @@ impl SMBNegotiateRequest {
 
 #[binrw::binrw]
 #[derive(Debug)]
-#[brw(little)]
 pub struct SMBNegotiateResponse {
     #[br(assert(structure_size == 0x41))]
     #[bw(calc = 0x41)]
@@ -154,7 +152,7 @@ pub struct SMBNegotiateResponse {
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
-#[brw(repr(u16), little)]
+#[brw(repr(u16))]
 pub enum SMBDialect {
     Smb0202 = 0x0202,
     Smb021 = 0x0210,
@@ -164,7 +162,7 @@ pub enum SMBDialect {
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
-#[brw(repr(u16), little)]
+#[brw(repr(u16))]
 pub enum SMBNegotiateResponseDialect {
     Smb0202 = SMBDialect::Smb0202 as isize,
     Smb021 = SMBDialect::Smb021 as isize,
@@ -175,7 +173,6 @@ pub enum SMBNegotiateResponseDialect {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little)]
 pub struct SMBNegotiateContext {
     // The entire context is 8-byte aligned.
     #[brw(align_before = 8)]
@@ -187,7 +184,7 @@ pub struct SMBNegotiateContext {
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
-#[brw(repr(u16), little)]
+#[brw(repr(u16))]
 pub enum SMBNegotiateContextType {
     PreauthIntegrityCapabilities = 0x0001,
     EncryptionCapabilities = 0x0002,
@@ -220,14 +217,13 @@ enum SMBNegotiateContextValue {
 
 // u16 enum hash algorithms binrw 0x01 is sha512.
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little, repr(u16))]
+#[brw(repr(u16))]
 pub enum HashAlgorithm {
     Sha512 = 0x01
 }
 
 #[binrw::binrw]
 #[derive(Debug)]
-#[brw(little)]
 struct PreauthIntegrityCapabilities {
     hash_algorithm_count: u16,
     #[bw(try_calc(u16::try_from(salt.len())))]
@@ -239,7 +235,6 @@ struct PreauthIntegrityCapabilities {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little)]
 struct EncryptionCapabilities {
     cipher_count: u16,
     #[br(count = cipher_count)]
@@ -247,7 +242,7 @@ struct EncryptionCapabilities {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little, repr(u16))]
+#[brw(repr(u16))]
 pub enum EncryptionCapabilitiesCipher {
     Aes128Ccm = 0x0001,
     Aes128Gcm = 0x0002,
@@ -256,7 +251,6 @@ pub enum EncryptionCapabilitiesCipher {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little)]
 struct CompressionCapabilities {
     compression_algorithm_count: u16,
     padding: u16,
@@ -266,20 +260,17 @@ struct CompressionCapabilities {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little)]
 struct NetnameNegotiateContextId {
     netname: binrw::NullWideString
 }
 
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little)]
 struct TransportCapabilities {
     flags: u32
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little)]
 struct RdmaTransformCapabilities {
     transform_count: u16,
     reserved1: u16,
@@ -289,7 +280,6 @@ struct RdmaTransformCapabilities {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little)]
 struct SigningCapabilities {
     signing_algorithm_count: u16,
     #[br(count = signing_algorithm_count)]
@@ -297,7 +287,7 @@ struct SigningCapabilities {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(little, repr(u16))]
+#[brw(repr(u16))]
 pub enum SigningAlgorithmId {
     HmacSha256 = 0x0000,
     AesCmac = 0x0001,
