@@ -1,14 +1,27 @@
-use std::{error::Error, fmt::Display};
+use std::{cell::OnceCell, error::Error, fmt::Display};
 use binrw::prelude::*;
 use rand::Rng;
+use sspi::{OwnedSecurityBuffer, SecurityBufferType};
 
-use crate::{netbios_client::NetBiosClient, packets::{netbios::NetBiosMessageContent, smb1::SMB1NegotiateMessage, smb2::{header::SMB2Command, message::{SMB2Message, SMBMessageContent}, negotiate::{SMBNegotiateRequest, SMBNegotiateResponseDialect}}}};
+use crate::{authenticator::GssAuthenticator, netbios_client::NetBiosClient, packets::{netbios::NetBiosMessageContent, smb1::SMB1NegotiateMessage, smb2::{header::SMB2Command, message::{SMB2Message, SMBMessageContent}, negotiate::{SMBNegotiateRequest, SMBNegotiateResponse, SMBNegotiateResponseDialect}, setup::SMB2SessionSetupRequest}}};
 
+struct SmbNegotiateState {
+    server_guid: u128,
 
+    max_transact_size: u32,
+    max_read_size: u32,
+    max_write_size: u32,
+
+}
 
 pub struct SMBClient {
     client_guid: u128,
-    netbios_client: NetBiosClient
+    netbios_client: NetBiosClient,
+
+    // Negotiation-related state.
+    negotiate_state: OnceCell<SmbNegotiateState>,
+    // Auth
+    authenticator: Option<GssAuthenticator>,
 }
 
 #[derive(Debug, Clone)]
@@ -26,7 +39,9 @@ impl SMBClient {
     pub fn new() -> SMBClient {
         SMBClient {
             client_guid: rand::rngs::OsRng.gen(),
-            netbios_client: NetBiosClient::new()
+            netbios_client: NetBiosClient::new(),
+            negotiate_state: OnceCell::new(),
+            authenticator: None,
         }
     }
 
@@ -78,9 +93,23 @@ impl SMBClient {
 
     fn negotiate_smb2(&mut self) -> Result<(), Box<dyn Error>> {
         // Send SMB2 negotiate request
-        self.send_and_receive_smb2(SMB2Message::new(
+        let smb2_response = self.send_and_receive_smb2(SMB2Message::new(
             SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest::new(self.client_guid))
         ))?;
+        let smb2_negotiate_response = match smb2_response.content {
+            SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
+            _ => None
+        }.unwrap();
+
+        let negotiate_state = SmbNegotiateState {
+            server_guid: smb2_negotiate_response.server_guid,
+            max_transact_size: smb2_negotiate_response.max_transact_size,
+            max_read_size: smb2_negotiate_response.max_read_size,
+            max_write_size: smb2_negotiate_response.max_write_size
+        };
+
+        self.negotiate_state.set(negotiate_state).map_err(|_| "Negotiate state already set")?;
+
         Ok(())
     }
 
@@ -88,4 +117,25 @@ impl SMBClient {
         self.negotiate_smb1()?;
         self.negotiate_smb2()
     }
+
+    pub fn authenticate(&mut self, user_name: String, password: String) -> Result<(), Box<dyn Error>> {
+        let (mut authenticator, mut next_buf) = GssAuthenticator::build(&[], &user_name, password)?;
+        let mut response = self.send_and_receive_smb2(SMB2Message::new(
+            SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf))
+        ))?;
+        
+        while !authenticator.is_complete() {
+            let setup_response = match response.content {
+                SMBMessageContent::SMBSessionSetupResponse(response) => Some(response),
+                _ => None
+            }.unwrap();
+    
+            next_buf = authenticator.next_buffer(Some(setup_response.buffer))?;
+            response = self.send_and_receive_smb2(SMB2Message::new(
+                SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf))
+            ))?;    
+        }
+        Ok(())
+    }
+
 }

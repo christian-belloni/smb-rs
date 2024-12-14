@@ -128,29 +128,29 @@ pub struct SMBNegotiateResponse {
     #[br(assert(structure_size == 0x41))]
     #[bw(calc = 0x41)]
     structure_size: u16,
-    security_mode: u16,
+    pub security_mode: u16,
     pub dialect_revision: SMBNegotiateResponseDialect,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
     negotiate_context_count: u16, // TODO: if dialect contains 0x0311
-    server_guid: u128,
-    capabilities: u32,
-    max_transact_size: u32,
-    max_read_size: u32,
-    max_write_size: u32,
-    system_time: u64,
-    server_start_time: u64,
+    pub server_guid: u128,
+    pub capabilities: u32,
+    pub max_transact_size: u32,
+    pub max_read_size: u32,
+    pub max_write_size: u32,
+    pub system_time: u64,
+    pub server_start_time: u64,
     security_buffer_offset: PosMarker<u16>,
     #[bw(try_calc(u16::try_from(buffer.len())))]
     security_buffer_length: u16,
     negotiate_context_offset: PosMarker<u32>,
     #[br(count = security_buffer_length)]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&security_buffer_offset))]
-    buffer: Vec<u8>,
+    pub buffer: Vec<u8>,
 
     #[brw(if(matches!(dialect_revision, SMBNegotiateResponseDialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
-    negotiate_context_list: Option<Vec<SMBNegotiateContext>>
+    pub negotiate_context_list: Option<Vec<SMBNegotiateContext>>
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]

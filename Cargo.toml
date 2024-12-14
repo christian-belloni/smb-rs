@@ -7,3 +7,6 @@ edition = "2021"
 binrw = "0.14.1"
 rand = "0.8.5"
 modular-bitfield = "0.11.2"
+gss-api = "0.1.0"
+der = {version = "0.7.9", features = ["std", "alloc"]}
+sspi = "0.15.0"

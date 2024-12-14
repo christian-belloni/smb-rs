@@ -2,15 +2,22 @@ use binrw::prelude::*;
 use crate::pos_marker::PosMarker;
 
 use super::header::*;
-use super::negotiate;
+use super::*;
 
 #[derive(BinRead, BinWrite, Debug)]
 #[brw(import(smb_command: &SMB2Command, flags_server_to_redir: bool, header_start: u64))]
 pub enum SMBMessageContent {
+    // negotiate
     #[br(pre_assert(smb_command == &SMB2Command::Negotiate && !flags_server_to_redir))]
     SMBNegotiateRequest(negotiate::SMBNegotiateRequest),
     #[br(pre_assert(smb_command == &SMB2Command::Negotiate && flags_server_to_redir))]
-    SMBNegotiateResponse(negotiate::SMBNegotiateResponse)
+    SMBNegotiateResponse(negotiate::SMBNegotiateResponse),
+
+    // session setup
+    #[br(pre_assert(smb_command == &SMB2Command::SessionSetup && !flags_server_to_redir))]
+    SMBSessionSetupRequest(setup::SMB2SessionSetupRequest),
+    #[br(pre_assert(smb_command == &SMB2Command::SessionSetup && flags_server_to_redir))]
+    SMBSessionSetupResponse(setup::SMB2SessionSetupResponse),
 }
 
 #[binrw::binrw]
