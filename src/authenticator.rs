@@ -1,7 +1,8 @@
 use std::error::Error;
 use der::{asn1::{ContextSpecific, OctetStringRef}, oid, Decode, DecodeValue, DerOrd, Encode, Header, TagNumber};
-use gss_api;
-use sspi::{AcquireCredentialsHandleResult, AuthIdentity, AuthIdentityBuffers, ClientRequestFlags, CredentialUse, DataRepresentation, InitializeSecurityContextResult, Ntlm, OwnedSecurityBuffer, Secret, SecurityBufferType, Sspi, SspiImpl, Username};
+use gss_api::negotiation::*;
+use gss_api::InitialContextToken;
+use sspi::{AcquireCredentialsHandleResult, AuthIdentity, AuthIdentityBuffers, ClientRequestFlags, CredentialUse, DataRepresentation, InitializeSecurityContextResult, Ntlm, OwnedSecurityBuffer, Secret, SecurityBufferType, SecurityStatus, Sspi, SspiImpl, Username};
 
 pub struct GssAuthenticator {
     ntlm: Ntlm,
@@ -15,17 +16,20 @@ const NTLM_MECH_TYPE_OID: oid::ObjectIdentifier = oid::ObjectIdentifier::new_unw
 
 impl GssAuthenticator {
     pub fn build(token: &[u8], username: &String, password: String) -> Result<(GssAuthenticator, Vec<u8>), Box<dyn Error>> {
-        let token = gss_api::InitialContextToken::from_der(&token)?;
+        let token = InitialContextToken::from_der(&token)?;
         if token.this_mech != SPENGO_OID {
             return Err("Unexpected mechanism".into());
         }
-        let inner_spengo_val = SpengoMechTypes::from_der(token.inner_context_token.value())?;
-        if !inner_spengo_val.mech_types.iter().any(|oid| oid.der_cmp(&NTLM_MECH_TYPE_OID).unwrap().is_eq()) {
-            return Err("No supported mehcanism provided (NTLM not specified!)".into());
-        }
+        let der_of_inner = token.inner_context_token.to_der()?;
+        let inner_spengo_val = NegotiationToken::from_der(&der_of_inner)?;
+        let inner_spengo = match inner_spengo_val {
+            NegotiationToken::NegTokenInit2(inner_spengo) => inner_spengo,
+            _ => return Err("Unexpected token".into())
+        };// TODO: Assert NTLM in mech_types!
+
         let mut ntlm = Ntlm::new();
         let identity = AuthIdentity { 
-            username: Username::new(username, None)?,
+            username: Username::new(username, Some("AVIVVM"))?,
             password: Secret::new(password) 
         };
         let acq_cred_result = ntlm
@@ -42,10 +46,40 @@ impl GssAuthenticator {
             current_state: None
         };
         let next_buffer = authr.next_buffer(None)?;
-        Ok((authr, next_buffer))
+        
+        // It is negTokenInit:
+        let res = NegotiationToken::NegTokenInit2(NegTokenInit2 {
+            mech_types: Some(vec![NTLM_MECH_TYPE_OID]),
+            req_flags: None,
+            neg_hints: None,
+            mech_token: Some(OctetStringRef::new(&next_buffer[0].buffer)?),
+            mech_list_mic: None
+        });
+
+        Ok((authr, res.to_der()?))
     }
 
-    pub fn next_buffer(&mut self, next_token: Option<Vec<u8>>) -> Result<Vec<u8>, Box<dyn Error>> {
+    pub fn next(&mut self, next_token: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>> {
+        let token = self.next_buffer(Some(next_token))?;
+
+        assert!(token.len() == 1);
+        // assert!(self.current_state.as_ref().unwrap().status == sspi::SecurityStatus::ContinueNeeded);
+        
+        let res = NegotiationToken::NegTokenResp(NegTokenResp {
+            mech_list_mic: None,
+            neg_state: Some(NegState::AcceptIncomplete),
+            response_token: Some(OctetStringRef::new(&token[0].buffer)?),
+            supported_mech: Some(NTLM_MECH_TYPE_OID)
+        });
+
+        Ok(res.to_der()?)
+    }
+
+    fn next_buffer(&mut self, next_token: Option<Vec<u8>>) -> Result<Vec<OwnedSecurityBuffer>, Box<dyn Error>> {
+        if self.current_state.is_some() && self.current_state.as_ref().unwrap().status != sspi::SecurityStatus::ContinueNeeded {
+            return Err(format!("Unexpected state {:?} -- not ContinueNeeded!", self.current_state).into());
+        }
+
         let mut output_buffer = vec![OwnedSecurityBuffer::new(Vec::new(), SecurityBufferType::Token)];
 
         let mut builder = self.ntlm
@@ -57,10 +91,16 @@ impl GssAuthenticator {
             .with_output(&mut output_buffer);
 
         let mut input_buffers = vec![];
+        // let mut expected_next_state: SecurityStatus = sspi::SecurityStatus::ContinueNeeded;
         if let Some(next_token) = next_token {
-            let next_token = Self::unwrap_gss_token(&next_token)?;
+            let (next_token, neg_state) = Self::unwrap_gss_token(&next_token)?;
+
             input_buffers.push(next_token);
             builder = builder.with_input(&mut input_buffers);
+
+            // if neg_state == NegState::AcceptCompleted {
+            //     expected_next_state = SecurityStatus::Ok;
+            // }
         }
 
         self.current_state = Some(self.ntlm
@@ -68,8 +108,12 @@ impl GssAuthenticator {
             .resolve_to_result()?);
         
         // All the "next" buffers here should be negTokenTarg tokens.
+        // dbg!(&output_buffer);
+        // if self.current_state.as_ref().unwrap().status != expected_next_state {
+        //     return Err(format!("Unexpected state during authentication -- {:?} not {expected_next_state:?}", self.current_state).into());
+        // }
 
-        return Ok(Self::wrap_gss_token(&output_buffer)?);
+        return Ok(output_buffer);
     }
 
     pub fn is_complete(&self) -> bool {
@@ -80,20 +124,14 @@ impl GssAuthenticator {
         }
     }
 
-    fn wrap_gss_token(token: &Vec<OwnedSecurityBuffer>) -> Result<Vec<u8>, Box<dyn Error>> {
-        assert!(token.len() == 1);
-
-        Ok(gss_api::negotiation::NegTokenResp {
-            neg_state: Some(gss_api::negotiation::NegState::AcceptIncomplete),
-            supported_mech: Some(NTLM_MECH_TYPE_OID),
-            response_token: Some(OctetStringRef::new(&token[0].buffer)?),
-            mech_list_mic: None
-        }.to_der()?)
-    }
-
-    fn unwrap_gss_token(token: &[u8]) -> Result<OwnedSecurityBuffer, Box<dyn Error>> {
-        let token = gss_api::negotiation::NegTokenResp::from_der(token)?;
-        if token.neg_state != Some(gss_api::negotiation::NegState::AcceptIncomplete) {
+    fn unwrap_gss_token(token: &[u8]) -> Result<(OwnedSecurityBuffer, NegState), Box<dyn Error>> {
+        let token = NegotiationToken::from_der(token)?;
+        // token should be response, if not, error:
+        let token = match token {
+            NegotiationToken::NegTokenResp(token) => token,
+            _ => return Err("Unexpected token".into())
+        };
+        if token.neg_state != Some(NegState::AcceptIncomplete) && token.neg_state != Some(NegState::AcceptCompleted) {
             return Err("Unexpected neg state".into());
         }
         if token.supported_mech != Some(NTLM_MECH_TYPE_OID) {
@@ -105,7 +143,7 @@ impl GssAuthenticator {
         let response_data = token.response_token
             .ok_or("No response in token buffer!")?
             .as_bytes().to_vec();
-        Ok(OwnedSecurityBuffer::new(response_data, SecurityBufferType::Token))
+        Ok((OwnedSecurityBuffer::new(response_data, SecurityBufferType::Token), token.neg_state.unwrap()))
     }
 
 }

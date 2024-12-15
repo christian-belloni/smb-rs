@@ -3,7 +3,7 @@ use binrw::prelude::*;
 use rand::Rng;
 use sspi::{OwnedSecurityBuffer, SecurityBufferType};
 
-use crate::{authenticator::GssAuthenticator, netbios_client::NetBiosClient, packets::{netbios::NetBiosMessageContent, smb1::SMB1NegotiateMessage, smb2::{header::SMB2Command, message::{SMB2Message, SMBMessageContent}, negotiate::{SMBNegotiateRequest, SMBNegotiateResponse, SMBNegotiateResponseDialect}, setup::SMB2SessionSetupRequest}}};
+use crate::{authenticator::GssAuthenticator, netbios_client::NetBiosClient, packets::{netbios::NetBiosMessageContent, smb1::SMB1NegotiateMessage, smb2::{header::{SMB2Command, SMB2HeaderFlags}, message::{SMB2Message, SMBMessageContent}, negotiate::{SMBNegotiateRequest, SMBNegotiateResponse, SMBNegotiateResponseDialect}, setup::SMB2SessionSetupRequest}}};
 
 struct SmbNegotiateState {
     server_guid: u128,
@@ -50,7 +50,7 @@ impl SMBClient {
         self.netbios_client.connect(address)
     }
 
-    fn receive_smb2(&mut self, command: SMB2Command) -> Result<SMB2Message, Box<dyn Error>> {
+    fn receive_smb2(&mut self, command: SMB2Command, require_success: bool) -> Result<SMB2Message, Box<dyn Error>> {
         let netbios_message = self.netbios_client.receive()?;
         let smb2_message = match netbios_message {
             NetBiosMessageContent::SMB2Message(smb2_message) => Some(smb2_message),
@@ -62,16 +62,16 @@ impl SMBClient {
         if !smb2_message.header.flags.server_to_redir() {
             return Err("Unexpected SMB2 message direction (Not a response)".into());
         }
-        if smb2_message.header.status != 0 {
+        if require_success && smb2_message.header.status != 0 {
             return Err("SMB2 message status is not success".into());
         }
         Ok(smb2_message)
     }
 
-    fn send_and_receive_smb2(&mut self, message: SMB2Message) -> Result<SMB2Message, Box<dyn Error>> {
+    fn send_and_receive_smb2(&mut self, message: SMB2Message, require_success: bool) -> Result<SMB2Message, Box<dyn Error>> {
         let expected_command = message.header.command;
         self.netbios_client.send(NetBiosMessageContent::SMB2Message(message))?;
-        self.receive_smb2(expected_command)
+        self.receive_smb2(expected_command, require_success)
     }
 
     fn negotiate_smb1(&mut self) -> Result<(), Box<dyn Error>> {
@@ -79,7 +79,7 @@ impl SMBClient {
         self.netbios_client.send(NetBiosMessageContent::SMB1Message(SMB1NegotiateMessage::new()))?;
 
         // 2. Expect SMB2 negotiate response
-        let smb2_response = self.receive_smb2(SMB2Command::Negotiate)?;
+        let smb2_response = self.receive_smb2(SMB2Command::Negotiate, true)?;
         let smb2_negotiate_response = match smb2_response.content {
             SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
             _ => None
@@ -95,8 +95,9 @@ impl SMBClient {
     fn negotiate_smb2(&mut self) -> Result<(), Box<dyn Error>> {
         // Send SMB2 negotiate request
         let smb2_response = self.send_and_receive_smb2(SMB2Message::new(
-            SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest::new(self.client_guid))
-        ))?;
+            SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest::new(self.client_guid)),
+            1, 0, 0, SMB2HeaderFlags::new(), 0
+        ), true)?;
         let smb2_negotiate_response = match smb2_response.content {
             SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
             _ => None
@@ -124,8 +125,14 @@ impl SMBClient {
         let negotate_state = self.negotiate_state.get().ok_or(SmbClientNotConnectedError)?;
         let (mut authenticator, mut next_buf) = GssAuthenticator::build(&negotate_state.gss_negotiate_token, &user_name, password)?;
         let mut response = self.send_and_receive_smb2(SMB2Message::new(
-            SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf))
-        ))?;
+            SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
+            2, 1, 33, SMB2HeaderFlags::new().with_priority_mask(1), 0
+        ), false)?;
+
+        if response.header.status != 0xc0000016 {
+            return Err("Expected STATUS_MORE_PROCESSING_REQUIRED".into());
+        }
+        let session_id = response.header.session_id;
         
         while !authenticator.is_complete() {
             let setup_response = match response.content {
@@ -133,10 +140,11 @@ impl SMBClient {
                 _ => None
             }.unwrap();
     
-            next_buf = authenticator.next_buffer(Some(setup_response.buffer))?;
+            next_buf = authenticator.next(setup_response.buffer)?;
             response = self.send_and_receive_smb2(SMB2Message::new(
-                SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf))
-            ))?;    
+                SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
+                3, 1, 65, SMB2HeaderFlags::new().with_priority_mask(1), session_id
+            ), true)?;    
         }
         Ok(())
     }

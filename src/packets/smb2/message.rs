@@ -43,19 +43,19 @@ pub struct SMB2Message {
 
 
 impl SMB2Message {
-    pub fn new(content: SMBMessageContent) -> SMB2Message {
+    pub fn new(content: SMBMessageContent, msg_id: u64, credits_charge: u16, credits_req: u16, flags: SMB2HeaderFlags, session_id: u64) -> SMB2Message {
         SMB2Message {
             header: SMB2MessageHeader {
-                credit_charge: 0,
+                credit_charge: credits_charge,
                 status: 0,
                 command: content.cmd(),
-                credit_request: 0,
-                flags: SMB2HeaderFlags::new(),
+                credit_request: credits_req,
+                flags: flags,
                 next_command: 0,
-                message_id: 1,
+                message_id: msg_id,
                 reserved: 0x0000feff,
                 tree_id: 0,
-                session_id: 0,
+                session_id,
                 signature: 0
             },
             content
