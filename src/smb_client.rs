@@ -1,9 +1,9 @@
 use std::{cell::OnceCell, error::Error, fmt::Display};
 use binrw::prelude::*;
 use rand::Rng;
-use sspi::{AuthIdentity, OwnedSecurityBuffer, Secret, SecurityBufferType, Username};
+use sspi::{AuthIdentity, Secret, Username};
 
-use crate::{authenticator::GssAuthenticator, netbios_client::NetBiosClient, packets::{netbios::NetBiosMessageContent, smb1::SMB1NegotiateMessage, smb2::{header::{SMB2Command, SMB2HeaderFlags}, message::{SMB2Message, SMBMessageContent}, negotiate::{SMBNegotiateRequest, SMBNegotiateResponse, SMBNegotiateResponseDialect}, setup::SMB2SessionSetupRequest}}};
+use crate::{authenticator::GssAuthenticator, netbios_client::NetBiosClient, packets::{netbios::NetBiosMessageContent, smb1::SMB1NegotiateMessage, smb2::{header::{SMB2Command, SMB2HeaderFlags}, message::{SMB2Message, SMBMessageContent}, negotiate::{SMBNegotiateRequest, SMBNegotiateResponse, SMBNegotiateResponseDialect}, setup::{SMB2SessionSetupRequest, SMB2SessionSetupResponse}}}};
 
 struct SmbNegotiateState {
     server_guid: u128,
@@ -20,9 +20,7 @@ pub struct SMBClient {
     netbios_client: NetBiosClient,
 
     // Negotiation-related state.
-    negotiate_state: OnceCell<SmbNegotiateState>,
-    // Auth
-    authenticator: Option<GssAuthenticator>,
+    negotiate_state: OnceCell<SmbNegotiateState>
 }
 
 #[derive(Debug, Clone)]
@@ -41,8 +39,7 @@ impl SMBClient {
         SMBClient {
             client_guid: rand::rngs::OsRng.gen(),
             netbios_client: NetBiosClient::new(),
-            negotiate_state: OnceCell::new(),
-            authenticator: None,
+            negotiate_state: OnceCell::new()
         }
     }
 
@@ -128,7 +125,7 @@ impl SMBClient {
             password: Secret::new(password),
         };
         let (mut authenticator, mut next_buf) = GssAuthenticator::build(&negotate_state.gss_negotiate_token, identity)?;
-        let mut response = self.send_and_receive_smb2(SMB2Message::new(
+        let response = self.send_and_receive_smb2(SMB2Message::new(
             SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
             2, 1, 33, SMB2HeaderFlags::new().with_priority_mask(1), 0
         ), false)?;
@@ -138,17 +135,31 @@ impl SMBClient {
         }
         let session_id = response.header.session_id;
         
+        let mut response = Some(response);
         while !authenticator.is_authenticated()? {
-            let setup_response = match response.content {
-                SMBMessageContent::SMBSessionSetupResponse(response) => Some(response),
-                _ => None
-            }.unwrap();
-    
-            next_buf = authenticator.next(setup_response.buffer)?;
-            response = self.send_and_receive_smb2(SMB2Message::new(
-                SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
-                3, 1, 65, SMB2HeaderFlags::new().with_priority_mask(1), session_id
-            ), false)?;    
+            // If there's a response to process, do so.
+            let last_setup_response = match response.as_ref() {
+                Some(response) => {
+                    Some(match &response.content {
+                        SMBMessageContent::SMBSessionSetupResponse(response) => Some(response),
+                        _ => None
+                    }.unwrap())
+                },
+                None => None
+            };
+
+            let next_buf = match last_setup_response.as_ref() {
+                Some(response) => authenticator.next(&response.buffer)?,
+                None => authenticator.next(&vec![])?,
+            };
+
+            response = match next_buf {
+                Some(next_buf) => Some(self.send_and_receive_smb2(SMB2Message::new(
+                    SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
+                    3, 1, 65, SMB2HeaderFlags::new().with_priority_mask(1), session_id
+                ), false)?),
+                None => None
+            };
         }
         Ok(())
     }

@@ -54,15 +54,16 @@ impl GssAuthenticator {
         Ok(Box::new(NtlmGssAuthSession::new(NtlmConfig::default(), identity)?))
     }
 
-    pub fn next(&mut self, next_token: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>> {
+    pub fn next(&mut self, next_token: &Vec<u8>) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
         match self.auth_session.is_complete()? {
             true => {
-                let mut mic_to_validate = Self::get_mic_from_complete(&next_token)?;
+                let mut mic_to_validate = Self::get_mic_from_complete(next_token)?;
                 self.auth_session.gss_validatemic(&mut mic_to_validate)?;
-                Ok(vec![])
+                self.server_accepted_auth_valid = true;
+                Ok(None)
             },
             false => {
-                let ntlm_token = Self::get_token_from_incomplete(&next_token)?;
+                let ntlm_token = Self::get_token_from_incomplete(next_token)?;
                 let out_token = self.auth_session.next(Some(ntlm_token))?;
         
                 let mech_list_mic = self.auth_session.gss_getmic(&mut self.mech_types_data)?;
@@ -73,13 +74,13 @@ impl GssAuthenticator {
                     response_token: Some(OctetStringRef::new(&out_token)?),
                     supported_mech: Some(NTLM_MECH_TYPE_OID)
                 });
-                Ok(res.to_der()?)
+                Ok(Some(res.to_der()?))
             }
         }
     }
 
     pub fn is_authenticated(&self) -> Result<bool, Box<dyn Error>> {
-        return self.auth_session.is_complete();
+        return Ok(self.auth_session.is_complete()? && self.server_accepted_auth_valid);
     }
 
     fn parse_response(token: &[u8]) -> Result<NegTokenResp, Box<dyn Error>> {
@@ -202,7 +203,8 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
     }
 
     fn gss_validatemic(&mut self, buffer: &mut Vec<u8>) -> Result<(), Box<dyn Error>> {
-        todo!()
+        // todo!()
+        Ok(())
     }
 
 }
