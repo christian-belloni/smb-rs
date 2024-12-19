@@ -1,7 +1,7 @@
 use std::{cell::OnceCell, error::Error, fmt::Display};
 use binrw::prelude::*;
 use rand::Rng;
-use sspi::{OwnedSecurityBuffer, SecurityBufferType};
+use sspi::{AuthIdentity, OwnedSecurityBuffer, Secret, SecurityBufferType, Username};
 
 use crate::{authenticator::GssAuthenticator, netbios_client::NetBiosClient, packets::{netbios::NetBiosMessageContent, smb1::SMB1NegotiateMessage, smb2::{header::{SMB2Command, SMB2HeaderFlags}, message::{SMB2Message, SMBMessageContent}, negotiate::{SMBNegotiateRequest, SMBNegotiateResponse, SMBNegotiateResponseDialect}, setup::SMB2SessionSetupRequest}}};
 
@@ -123,7 +123,11 @@ impl SMBClient {
 
     pub fn authenticate(&mut self, user_name: String, password: String) -> Result<(), Box<dyn Error>> {
         let negotate_state = self.negotiate_state.get().ok_or(SmbClientNotConnectedError)?;
-        let (mut authenticator, mut next_buf) = GssAuthenticator::build(&negotate_state.gss_negotiate_token, &user_name, password)?;
+        let identity = AuthIdentity {
+            username: Username::new(&user_name, Some("WORKGROUP"))?,
+            password: Secret::new(password),
+        };
+        let (mut authenticator, mut next_buf) = GssAuthenticator::build(&negotate_state.gss_negotiate_token, identity)?;
         let mut response = self.send_and_receive_smb2(SMB2Message::new(
             SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
             2, 1, 33, SMB2HeaderFlags::new().with_priority_mask(1), 0
@@ -134,7 +138,7 @@ impl SMBClient {
         }
         let session_id = response.header.session_id;
         
-        while !authenticator.is_complete() {
+        while !authenticator.is_authenticated()? {
             let setup_response = match response.content {
                 SMBMessageContent::SMBSessionSetupResponse(response) => Some(response),
                 _ => None
