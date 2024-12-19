@@ -57,7 +57,8 @@ impl GssAuthenticator {
             mech_token: Some(OctetStringRef::new(&next_buffer[0].buffer)?),
             mech_list_mic: None
         };
-        let mech_types_data = token.mech_types.to_der()?;;
+        let mech_types_data = token.mech_types.to_der()?;
+        dbg!(&mech_types_data);
         authr.mech_types_data = mech_types_data;
 
         let res = NegotiationToken::NegTokenInit2(token);
@@ -74,7 +75,8 @@ impl GssAuthenticator {
         dbg!(&mech_types_data_clone);
         let mut buffer_of_mech_types = vec![SecurityBuffer::Data(&mut mech_types_data_clone), 
                                                                     SecurityBuffer::Token(&mut token)];
-        let mechTypesMicOk = self.ntlm.encrypt_message(EncryptionFlags::empty(), &mut buffer_of_mech_types, 0)?;
+                                                                    println!("About to sign");
+        let mechTypesMicOk = self.ntlm.sign_and_revert_state(&mut buffer_of_mech_types, 0)?;
         let res = NegotiationToken::NegTokenResp(NegTokenResp {
             mech_list_mic: Some(OctetStringRef::new(&token[..16])?),
             neg_state: None,
