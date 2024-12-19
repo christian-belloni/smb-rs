@@ -144,7 +144,7 @@ impl SMBClient {
             response = self.send_and_receive_smb2(SMB2Message::new(
                 SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
                 3, 1, 65, SMB2HeaderFlags::new().with_priority_mask(1), session_id
-            ), true)?;    
+            ), false)?;    
         }
         Ok(())
     }

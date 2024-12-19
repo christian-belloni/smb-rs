@@ -2,13 +2,14 @@ use std::error::Error;
 use der::{asn1::{ContextSpecific, OctetStringRef}, oid, Decode, DecodeValue, DerOrd, Encode, Header, TagNumber};
 use gss_api::negotiation::*;
 use gss_api::InitialContextToken;
-use sspi::{AcquireCredentialsHandleResult, AuthIdentity, AuthIdentityBuffers, ClientRequestFlags, CredentialUse, DataRepresentation, InitializeSecurityContextResult, Ntlm, OwnedSecurityBuffer, Secret, SecurityBufferType, SecurityStatus, Sspi, SspiImpl, Username};
+use sspi::{ntlm::NtlmConfig, AcquireCredentialsHandleResult, AuthIdentity, AuthIdentityBuffers, ClientRequestFlags, CredentialUse, DataRepresentation, EncryptionFlags, InitializeSecurityContextResult, Ntlm, OwnedSecurityBuffer, Secret, SecurityBuffer, SecurityBufferType, SecurityStatus, Sspi, SspiImpl, Username};
 
 pub struct GssAuthenticator {
     ntlm: Ntlm,
     identity: AuthIdentity,
     acq_cred_result: AcquireCredentialsHandleResult<Option<AuthIdentityBuffers>>,
-    current_state: Option<InitializeSecurityContextResult>
+    current_state: Option<InitializeSecurityContextResult>,
+    mech_types_data: Vec<u8>
 }
 
 const SPENGO_OID: oid::ObjectIdentifier = oid::ObjectIdentifier::new_unwrap("1.3.6.1.5.5.2");
@@ -27,7 +28,7 @@ impl GssAuthenticator {
             _ => return Err("Unexpected token".into())
         };// TODO: Assert NTLM in mech_types!
 
-        let mut ntlm = Ntlm::new();
+        let mut ntlm = Ntlm::with_config(NtlmConfig::new("MACBOOKPRO-AF8A".to_string()));
         let identity = AuthIdentity { 
             username: Username::new(username, Some("AVIVVM"))?,
             password: Secret::new(password) 
@@ -43,35 +44,43 @@ impl GssAuthenticator {
             ntlm,
             identity,
             acq_cred_result,
-            current_state: None
+            current_state: None,
+            mech_types_data: vec![]
         };
         let next_buffer = authr.next_buffer(None)?;
         
         // It is negTokenInit:
-        let res = NegotiationToken::NegTokenInit2(NegTokenInit2 {
+        let token = NegTokenInit2 {
             mech_types: Some(vec![NTLM_MECH_TYPE_OID]),
             req_flags: None,
             neg_hints: None,
             mech_token: Some(OctetStringRef::new(&next_buffer[0].buffer)?),
             mech_list_mic: None
-        });
+        };
+        let mech_types_data = token.mech_types.to_der()?;;
+        authr.mech_types_data = mech_types_data;
+
+        let res = NegotiationToken::NegTokenInit2(token);
 
         Ok((authr, res.to_der()?))
     }
 
     pub fn next(&mut self, next_token: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>> {
-        let token = self.next_buffer(Some(next_token))?;
-
-        assert!(token.len() == 1);
+        let out_token = self.next_buffer(Some(next_token))?;
+        assert!(out_token.len() == 1);
         // assert!(self.current_state.as_ref().unwrap().status == sspi::SecurityStatus::ContinueNeeded);
-        
+        let mut token = [0; 128];
+        let mut mech_types_data_clone = self.mech_types_data.clone();
+        dbg!(&mech_types_data_clone);
+        let mut buffer_of_mech_types = vec![SecurityBuffer::Data(&mut mech_types_data_clone), 
+                                                                    SecurityBuffer::Token(&mut token)];
+        let mechTypesMicOk = self.ntlm.encrypt_message(EncryptionFlags::empty(), &mut buffer_of_mech_types, 0)?;
         let res = NegotiationToken::NegTokenResp(NegTokenResp {
-            mech_list_mic: None,
-            neg_state: Some(NegState::AcceptIncomplete),
-            response_token: Some(OctetStringRef::new(&token[0].buffer)?),
+            mech_list_mic: Some(OctetStringRef::new(&token[..16])?),
+            neg_state: None,
+            response_token: Some(OctetStringRef::new(&out_token[0].buffer)?),
             supported_mech: Some(NTLM_MECH_TYPE_OID)
         });
-
         Ok(res.to_der()?)
     }
 
@@ -85,7 +94,7 @@ impl GssAuthenticator {
         let mut builder = self.ntlm
             .initialize_security_context()
             .with_credentials_handle(&mut self.acq_cred_result.credentials_handle)
-            .with_context_requirements(ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY)
+            .with_context_requirements(ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY | ClientRequestFlags::INTEGRITY)
             .with_target_data_representation(DataRepresentation::Native)
             .with_target_name(self.identity.username.account_name())
             .with_output(&mut output_buffer);
@@ -106,6 +115,9 @@ impl GssAuthenticator {
         self.current_state = Some(self.ntlm
             .initialize_security_context_impl(&mut builder)?
             .resolve_to_result()?);
+
+        dbg!(&self.current_state);
+        dbg!(&self.ntlm);
         
         // All the "next" buffers here should be negTokenTarg tokens.
         // dbg!(&output_buffer);
