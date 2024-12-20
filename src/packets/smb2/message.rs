@@ -1,11 +1,10 @@
 use binrw::prelude::*;
-use crate::pos_marker::PosMarker;
 
 use super::header::*;
 use super::*;
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(import(smb_command: &SMB2Command, flags_server_to_redir: bool, header_start: u64))]
+#[brw(import(smb_command: &SMB2Command, flags_server_to_redir: bool))]
 pub enum SMBMessageContent {
     // negotiate
     #[br(pre_assert(smb_command == &SMB2Command::Negotiate && !flags_server_to_redir))]
@@ -15,9 +14,21 @@ pub enum SMBMessageContent {
 
     // session setup
     #[br(pre_assert(smb_command == &SMB2Command::SessionSetup && !flags_server_to_redir))]
-    SMBSessionSetupRequest(setup::SMB2SessionSetupRequest),
+    SMBSessionSetupRequest(session::SMB2SessionSetupRequest),
     #[br(pre_assert(smb_command == &SMB2Command::SessionSetup && flags_server_to_redir))]
-    SMBSessionSetupResponse(setup::SMB2SessionSetupResponse),
+    SMBSessionSetupResponse(session::SMB2SessionSetupResponse),
+
+    // logoff
+    #[br(pre_assert(smb_command == &SMB2Command::Logoff && !flags_server_to_redir))]
+    SMBLogoffRequest(session::SMB2LogoffRequest),
+    #[br(pre_assert(smb_command == &SMB2Command::Logoff && flags_server_to_redir))]
+    SMBLogoffResponse(session::SMB2LogoffResponse),
+
+    // tree connect
+    #[br(pre_assert(smb_command == &SMB2Command::TreeConnect && !flags_server_to_redir))]
+    SMBTreeConnectRequest(tree::SMB2TreeConnectRequest),
+    #[br(pre_assert(smb_command == &SMB2Command::TreeConnect && flags_server_to_redir))]
+    SMBTreeConnectResponse(tree::SMB2TreeConnectResponse),
 }
 
 impl SMBMessageContent {
@@ -26,6 +37,8 @@ impl SMBMessageContent {
         match self {
             SMBNegotiateRequest(_) | SMBNegotiateResponse(_) => SMB2Command::Negotiate,
             SMBSessionSetupRequest(_) | SMBSessionSetupResponse(_)  => SMB2Command::SessionSetup,
+            SMBLogoffRequest(_) | SMBLogoffResponse(_) => SMB2Command::Logoff,
+            SMBTreeConnectRequest(_) | SMBTreeConnectResponse(_) => SMB2Command::TreeConnect,
         }
     }
 }
@@ -34,10 +47,8 @@ impl SMBMessageContent {
 #[derive(Debug)]
 #[brw(little)]
 pub struct SMB2Message {
-    #[brw(calc = PosMarker::default())]
-    pub header_start: PosMarker<()>,
     pub header: SMB2MessageHeader,
-    #[brw(args(&header.command, header.flags.server_to_redir(), header_start.pos.get()))]
+    #[brw(args(&header.command, header.flags.server_to_redir()))]
     pub content: SMBMessageContent
 }
 

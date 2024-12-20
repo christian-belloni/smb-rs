@@ -27,6 +27,7 @@ pub enum SMB2Command {
 
 pub enum SMB2Status {
     Success = 0,
+    StatusPending = 0x00000103,
     MoreProcessingRequired = 0xC0000016,
 }
 

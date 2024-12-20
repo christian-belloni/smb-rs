@@ -43,6 +43,7 @@ impl NetBiosTcpMessage {
     }
 
     pub fn from_header_and_data(header: NetBiosTcpMessageHeader, data: &mut [u8]) -> Result<NetBiosMessageContent, Box<dyn std::error::Error>> {
+        assert!(header.stream_protocol_length.value as usize == data.len());
         Ok(NetBiosMessageContent::read(&mut Cursor::new(data))?)
     }
 }

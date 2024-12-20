@@ -13,9 +13,9 @@ use crate::{
             header::{SMB2Command, SMB2HeaderFlags, SMB2Status},
             message::{SMB2Message, SMBMessageContent},
             negotiate::{SMBDialect, SMBNegotiateRequest, SMBNegotiateResponseDialect},
-            setup::SMB2SessionSetupRequest,
+            session::SMB2SessionSetupRequest, tree::SMB2TreeConnectRequest,
         },
-    },
+    }, smb_tree::SMBTree,
 };
 
 struct SmbNegotiateState {
@@ -39,6 +39,7 @@ pub struct SMBClient {
     negotiate_state: OnceCell<SmbNegotiateState>,
 
     session_id: u64,
+    authenticator: Option<GssAuthenticator>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +61,7 @@ impl SMBClient {
             negotiate_state: OnceCell::new(),
             current_message_id: 0,
             session_id: 0,
+            authenticator: None,
         }
     }
 
@@ -87,6 +89,17 @@ impl SMBClient {
         if require_success && smb2_message.header.status != SMB2Status::Success as u32 {
             return Err("SMB2 message status is not success".into());
         }
+        // Skip authentication is message ID is -1 or status is pending. (TODO: Encryption support!)
+        if smb2_message.header.message_id != u64::MAX && smb2_message.header.status != SMB2Status::StatusPending as u32 {
+            if let Some(authenticator) = &mut self.authenticator {
+                // 1. Make sure the message is, indeed, signed.
+                if !smb2_message.header.flags.signed() && authenticator.is_authenticated()? {
+                    return Err("Expected signed SMB2 message".into());
+                }
+                // 2. Validate the signature.
+                authenticator.validate_signature(&smb2_message)?;
+            }
+        }
         Ok(smb2_message)
     }
 
@@ -104,7 +117,10 @@ impl SMBClient {
             },
             None => 0,
         };
-        let flags = SMB2HeaderFlags::new().with_priority_mask(priority_value);
+        let mut flags = SMB2HeaderFlags::new().with_priority_mask(priority_value);
+        if let Some(authenticator) = &self.authenticator {
+            flags.set_signed(authenticator.is_authenticated()?);
+        }
         let message_with_header = SMB2Message::new(
             message,
             self.current_message_id,
@@ -197,7 +213,7 @@ impl SMBClient {
         if response.header.status != SMB2Status::MoreProcessingRequired as u32 {
             return Err("Expected STATUS_MORE_PROCESSING_REQUIRED".into());
         }
-        let session_id = response.header.session_id;
+        self.session_id = response.header.session_id;
 
         let mut response = Some(response);
         while !authenticator.is_authenticated()? {
@@ -228,10 +244,26 @@ impl SMBClient {
                 None => None,
             };
         }
+        self.authenticator = Some(authenticator);
         Ok(())
     }
 
-    pub fn tree_connect(&mut self, name: String) -> Result<(), Box<dyn Error>> {
-        Ok(())
+    pub fn tree_connect(&mut self, name: String) -> Result<SMBTree, Box<dyn Error>> {
+        let response = self.send_and_receive_smb2(SMBMessageContent::SMBTreeConnectRequest(
+            SMB2TreeConnectRequest::new(name.as_bytes().to_vec()),
+        ), true)?;
+
+        let _response = match response.content {
+            SMBMessageContent::SMBTreeConnectResponse(response) => Some(response),
+            _ => None,
+        }.unwrap();
+
+        Ok(SMBTree::new(response.header.tree_id))
+    }
+}
+
+impl Drop for SMBClient {
+    fn drop(&mut self) {
+        // TODO: - Close any trees open & logoff before closing the TCP stream.
     }
 }

@@ -50,3 +50,25 @@ pub struct SMB2SessionSetupResponse {
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&security_buffer_offset))]
     pub buffer: Vec<u8>
 }
+
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct SMB2LogoffRequest {
+    #[bw(calc = 4)]
+    #[br(assert(structure_size == 4))]
+    structure_size: u16,
+    #[bw(calc = 0)]
+    #[br(assert(reserved == 0))]
+    reserved: u16
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct SMB2LogoffResponse {
+    #[bw(calc = 4)]
+    #[br(assert(structure_size == 4))]
+    structure_size: u16,
+    #[bw(calc = 0)]
+    #[br(assert(reserved == 0))]
+    reserved: u16
+}

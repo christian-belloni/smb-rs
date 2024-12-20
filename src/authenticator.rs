@@ -5,7 +5,7 @@ use gss_api::InitialContextToken;
 use sspi::{ntlm::NtlmConfig, AcquireCredentialsHandleResult, AuthIdentity, AuthIdentityBuffers, ClientRequestFlags, CredentialUse, DataRepresentation, InitializeSecurityContextResult, Ntlm, OwnedSecurityBuffer, SecurityBuffer, SecurityBufferType, Sspi, SspiImpl};
 
 pub struct GssAuthenticator {
-    mech_types_data: Vec<u8>,
+    mech_types_data_sent: Vec<u8>,
     server_accepted_auth_valid: bool,
     auth_session: Box<dyn GssAuthTokenHandler>,
 }
@@ -26,11 +26,11 @@ impl GssAuthenticator {
             mech_token: Some(OctetStringRef::new(&next_buffer)?),
             mech_list_mic: None
         };
-        let mech_types_data = token.mech_types.to_der()?;
+        let mech_types_data_sent = token.mech_types.to_der()?;
         let res = NegotiationToken::NegTokenInit2(token);
 
         Ok((GssAuthenticator {
-            mech_types_data: mech_types_data,
+            mech_types_data_sent,
             server_accepted_auth_valid: false,
             auth_session
         }, res.to_der()?))
@@ -57,8 +57,8 @@ impl GssAuthenticator {
     pub fn next(&mut self, next_token: &Vec<u8>) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
         match self.auth_session.is_complete()? {
             true => {
-                let mut mic_to_validate = Self::get_mic_from_complete(next_token)?;
-                self.auth_session.gss_validatemic(&mut mic_to_validate)?;
+                let mic_to_validate = Self::get_mic_from_complete(next_token)?;
+                self.auth_session.gss_validatemic(&mut self.mech_types_data_sent, &mic_to_validate)?;
                 self.server_accepted_auth_valid = true;
                 Ok(None)
             },
@@ -66,7 +66,7 @@ impl GssAuthenticator {
                 let ntlm_token = Self::get_token_from_incomplete(next_token)?;
                 let out_token = self.auth_session.next(Some(ntlm_token))?;
         
-                let mech_list_mic = self.auth_session.gss_getmic(&mut self.mech_types_data)?;
+                let mech_list_mic = self.auth_session.gss_getmic(&mut self.mech_types_data_sent)?;
         
                 let res = NegotiationToken::NegTokenResp(NegTokenResp {
                     mech_list_mic: Some(OctetStringRef::new(&mech_list_mic)?),
@@ -120,13 +120,17 @@ impl GssAuthenticator {
             .as_bytes().to_vec();
         Ok(mic_data)
     }
+    
+    pub(crate) fn validate_signature(&self, smb2_message: &crate::packets::smb2::message::SMB2Message) -> Result<(), Box<dyn Error>> {
+        Ok(())
+    }
 
 }
 
 pub trait GssAuthTokenHandler {
     fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> Result<Vec<u8>, Box<dyn Error>>;
     fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>>;
-    fn gss_validatemic(&mut self, buffer: &mut Vec<u8>) -> Result<(), Box<dyn Error>>;
+    fn gss_validatemic(&mut self, buffer: &mut Vec<u8>, signature: &[u8]) -> Result<(), Box<dyn Error>>;
     fn is_complete(&self) -> Result<bool, Box<dyn Error>>;
 }
 
@@ -202,8 +206,8 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
         Ok(token_dest)
     }
 
-    fn gss_validatemic(&mut self, buffer: &mut Vec<u8>) -> Result<(), Box<dyn Error>> {
-        // todo!()
+    fn gss_validatemic(&mut self, buffer: &mut Vec<u8>, signature: &[u8]) -> Result<(), Box<dyn Error>> {
+        self.ntlm.verify_and_revert_state(&buffer, 0, signature)?;
         Ok(())
     }
 
