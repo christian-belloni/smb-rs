@@ -25,6 +25,11 @@ pub enum SMB2Command {
     OplockBreak = 0x12,
 }
 
+pub enum SMB2Status {
+    Success = 0,
+    MoreProcessingRequired = 0xC0000016,
+}
+
 #[binrw::binrw]
 #[derive(Debug)]
 #[brw(magic(b"\xfeSMB"))]

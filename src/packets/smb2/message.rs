@@ -21,7 +21,7 @@ pub enum SMBMessageContent {
 }
 
 impl SMBMessageContent {
-    fn cmd(&self) -> SMB2Command {
+    pub fn associated_cmd(&self) -> SMB2Command {
         use SMBMessageContent::*;
         match self {
             SMBNegotiateRequest(_) | SMBNegotiateResponse(_) => SMB2Command::Negotiate,
@@ -48,7 +48,7 @@ impl SMB2Message {
             header: SMB2MessageHeader {
                 credit_charge: credits_charge,
                 status: 0,
-                command: content.cmd(),
+                command: content.associated_cmd(),
                 credit_request: credits_req,
                 flags: flags,
                 next_command: 0,

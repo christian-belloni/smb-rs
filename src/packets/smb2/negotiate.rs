@@ -172,6 +172,21 @@ pub enum SMBNegotiateResponseDialect {
     Smb02Wildcard = 0x02FF,
 }
 
+impl TryFrom<SMBNegotiateResponseDialect> for SMBDialect {
+    type Error = &'static str;
+
+    fn try_from(value: SMBNegotiateResponseDialect) -> Result<Self, Self::Error> {
+        match value {
+            SMBNegotiateResponseDialect::Smb0202 => Ok(SMBDialect::Smb0202),
+            SMBNegotiateResponseDialect::Smb021 => Ok(SMBDialect::Smb021),
+            SMBNegotiateResponseDialect::Smb030 => Ok(SMBDialect::Smb030),
+            SMBNegotiateResponseDialect::Smb0302 => Ok(SMBDialect::Smb0302),
+            SMBNegotiateResponseDialect::Smb0311 => Ok(SMBDialect::Smb0311),
+            _ => Err("Negotiation Response dialect does not match a single, specific, SMB2 dialect!")
+        }
+    }
+}
+
 #[derive(BinRead, BinWrite, Debug)]
 pub struct SMBNegotiateContext {
     // The entire context is 8-byte aligned.
