@@ -120,9 +120,9 @@ impl GssAuthenticator {
             .as_bytes().to_vec();
         Ok(mic_data)
     }
-    
-    pub(crate) fn validate_signature(&self, smb2_message: &crate::packets::smb2::message::SMB2Message) -> Result<(), Box<dyn Error>> {
-        Ok(())
+
+    pub fn session_key(&self) -> Result<[u8; 16], Box<dyn Error>> {
+        self.auth_session.session_key()
     }
 
 }
@@ -132,6 +132,7 @@ pub trait GssAuthTokenHandler {
     fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>>;
     fn gss_validatemic(&mut self, buffer: &mut Vec<u8>, signature: &[u8]) -> Result<(), Box<dyn Error>>;
     fn is_complete(&self) -> Result<bool, Box<dyn Error>>;
+    fn session_key(&self) -> Result<[u8; 16], Box<dyn Error>>;
 }
 
 struct NtlmGssAuthSession {
@@ -209,6 +210,10 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
     fn gss_validatemic(&mut self, buffer: &mut Vec<u8>, signature: &[u8]) -> Result<(), Box<dyn Error>> {
         self.ntlm.verify_and_revert_state(&buffer, 0, signature)?;
         Ok(())
+    }
+    
+    fn session_key(&self) -> Result<[u8; 16], Box<dyn Error>> {
+        self.ntlm.session_key().ok_or("No session key for NTLM.".into())
     }
 
 }

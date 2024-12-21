@@ -191,11 +191,11 @@ impl TryFrom<SMBNegotiateResponseDialect> for SMBDialect {
 pub struct SMBNegotiateContext {
     // The entire context is 8-byte aligned.
     #[brw(align_before = 8)]
-    context_type: SMBNegotiateContextType,
+    pub context_type: SMBNegotiateContextType,
     data_length: u16,
     reserved: u32,
     #[br(args(&context_type))]
-    data: SMBNegotiateContextValue
+    pub data: SMBNegotiateContextValue
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
@@ -213,7 +213,7 @@ pub enum SMBNegotiateContextType {
 
 #[derive(BinRead, BinWrite, Debug)]
 #[br(import(context_type: &SMBNegotiateContextType))]
-enum SMBNegotiateContextValue {
+pub enum SMBNegotiateContextValue {
     #[br(pre_assert(context_type == &SMBNegotiateContextType::PreauthIntegrityCapabilities))]
     PreauthIntegrityCapabilities(PreauthIntegrityCapabilities),
     #[br(pre_assert(context_type == &SMBNegotiateContextType::EncryptionCapabilities))]
@@ -239,7 +239,7 @@ pub enum HashAlgorithm {
 
 #[binrw::binrw]
 #[derive(Debug)]
-struct PreauthIntegrityCapabilities {
+pub struct PreauthIntegrityCapabilities {
     hash_algorithm_count: u16,
     #[bw(try_calc(u16::try_from(salt.len())))]
     salt_length: u16,
@@ -250,7 +250,7 @@ struct PreauthIntegrityCapabilities {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-struct EncryptionCapabilities {
+pub struct EncryptionCapabilities {
     cipher_count: u16,
     #[br(count = cipher_count)]
     ciphers: Vec<EncryptionCapabilitiesCipher>
@@ -266,7 +266,7 @@ pub enum EncryptionCapabilitiesCipher {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-struct CompressionCapabilities {
+pub struct CompressionCapabilities {
     compression_algorithm_count: u16,
     padding: u16,
     flags: u32,
@@ -275,18 +275,18 @@ struct CompressionCapabilities {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-struct NetnameNegotiateContextId {
+pub struct NetnameNegotiateContextId {
     netname: binrw::NullWideString
 }
 
 
 #[derive(BinRead, BinWrite, Debug)]
-struct TransportCapabilities {
+pub struct TransportCapabilities {
     flags: u32
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-struct RdmaTransformCapabilities {
+pub struct RdmaTransformCapabilities {
     transform_count: u16,
     reserved1: u16,
     reserved2: u32,
@@ -295,13 +295,13 @@ struct RdmaTransformCapabilities {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-struct SigningCapabilities {
+pub struct SigningCapabilities {
     signing_algorithm_count: u16,
     #[br(count = signing_algorithm_count)]
-    signing_algorithms: Vec<SigningAlgorithmId>
+    pub signing_algorithms: Vec<SigningAlgorithmId>
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
 pub enum SigningAlgorithmId {
     HmacSha256 = 0x0000,

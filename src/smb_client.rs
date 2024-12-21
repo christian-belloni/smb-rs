@@ -1,10 +1,12 @@
+use aes_gcm::{aead::Aead, Aes128Gcm, Key, KeyInit};
 use binrw::prelude::*;
+use modular_bitfield::prelude::*;
 use rand::Rng;
 use sspi::{AuthIdentity, Secret, Username};
-use std::{cell::OnceCell, error::Error, fmt::Display};
+use std::{cell::OnceCell, error::Error, fmt::Display, io::Cursor};
 
 use crate::{
-    authenticator::GssAuthenticator,
+    authenticator::{self, GssAuthenticator},
     netbios_client::NetBiosClient,
     packets::{
         netbios::NetBiosMessageContent,
@@ -12,7 +14,7 @@ use crate::{
         smb2::{
             header::{SMB2Command, SMB2HeaderFlags, SMB2Status},
             message::{SMB2Message, SMBMessageContent},
-            negotiate::{SMBDialect, SMBNegotiateRequest, SMBNegotiateResponseDialect},
+            negotiate::{SMBDialect, SMBNegotiateContextType, SMBNegotiateContextValue, SMBNegotiateRequest, SMBNegotiateResponseDialect, SigningAlgorithmId},
             session::SMB2SessionSetupRequest, tree::SMB2TreeConnectRequest,
         },
     }, smb_tree::SMBTree,
@@ -40,6 +42,14 @@ pub struct SMBClient {
 
     session_id: u64,
     authenticator: Option<GssAuthenticator>,
+}
+
+#[bitfield]
+#[derive(Debug)]
+struct NonceSuffixFlags {
+    is_server: bool,
+    is_cancel: bool,
+    zero: B30
 }
 
 #[derive(Debug, Clone)]
@@ -75,7 +85,7 @@ impl SMBClient {
         require_success: bool,
     ) -> Result<SMB2Message, Box<dyn Error>> {
         let netbios_message = self.netbios_client.receive()?;
-        let smb2_message = match netbios_message {
+        let mut smb2_message = match netbios_message {
             NetBiosMessageContent::SMB2Message(smb2_message) => Some(smb2_message),
             _ => None,
         }
@@ -93,11 +103,11 @@ impl SMBClient {
         if smb2_message.header.message_id != u64::MAX && smb2_message.header.status != SMB2Status::StatusPending as u32 {
             if let Some(authenticator) = &mut self.authenticator {
                 // 1. Make sure the message is, indeed, signed.
-                if !smb2_message.header.flags.signed() && authenticator.is_authenticated()? {
+                if !smb2_message.header.flags.signed() && authenticator.session_key().is_ok() {
                     return Err("Expected signed SMB2 message".into());
                 }
                 // 2. Validate the signature.
-                authenticator.validate_signature(&smb2_message)?;
+                self.verify_message_signature(&mut smb2_message)?;
             }
         }
         Ok(smb2_message)
@@ -121,7 +131,7 @@ impl SMBClient {
         if let Some(authenticator) = &self.authenticator {
             flags.set_signed(authenticator.is_authenticated()?);
         }
-        let message_with_header = SMB2Message::new(
+        let mut message_with_header = SMB2Message::new(
             message,
             self.current_message_id,
             1,
@@ -129,6 +139,11 @@ impl SMBClient {
             flags,
             self.session_id,
         );
+        if let Some(authenticator) = &self.authenticator {
+            if authenticator.is_authenticated()? {
+                self.generate_message_signature(&mut message_with_header)?;
+            }
+        }
         let command = message_with_header.header.command;
         self.netbios_client
             .send(NetBiosMessageContent::SMB2Message(message_with_header))?;
@@ -168,6 +183,25 @@ impl SMBClient {
             _ => None,
         }
         .unwrap();
+
+        // well, only 3.1 is supported for starters.
+        if smb2_negotiate_response.dialect_revision != SMBNegotiateResponseDialect::Smb0311 {
+            return Err("Unexpected SMB2 dialect revision".into());
+        }
+
+        // If signing algorithm is not AES-GMAC, we're not supporting it just yet.
+        match smb2_negotiate_response.negotiate_context_list {
+            Some(context_list) => {
+                if !context_list.iter()
+                    .any(|context| match &context.data {
+                        SMBNegotiateContextValue::SigningCapabilities(sc) => {sc.signing_algorithms.contains(&SigningAlgorithmId::AesGmac)},
+                        _ => false
+                    }) {
+                        return Err("AES-GMAC signing algorithm is not supported".into());
+                    }
+            }
+            None => return Err("Negotiate context list is missing".into()),
+        }
 
         let negotiate_state = SmbNegotiateState {
             server_guid: smb2_negotiate_response.server_guid,
@@ -214,9 +248,10 @@ impl SMBClient {
             return Err("Expected STATUS_MORE_PROCESSING_REQUIRED".into());
         }
         self.session_id = response.header.session_id;
+        self.authenticator = Some(authenticator);
 
         let mut response = Some(response);
-        while !authenticator.is_authenticated()? {
+        while !self.authenticator.as_ref().unwrap().is_authenticated()? {
             // If there's a response to process, do so.
             let last_setup_response = match response.as_ref() {
                 Some(response) => Some(
@@ -230,8 +265,8 @@ impl SMBClient {
             };
 
             let next_buf = match last_setup_response.as_ref() {
-                Some(response) => authenticator.next(&response.buffer)?,
-                None => authenticator.next(&vec![])?,
+                Some(response) => self.authenticator.as_mut().unwrap().next(&response.buffer)?,
+                None => self.authenticator.as_mut().unwrap().next(&vec![])?,
             };
 
             response = match next_buf {
@@ -244,7 +279,6 @@ impl SMBClient {
                 None => None,
             };
         }
-        self.authenticator = Some(authenticator);
         Ok(())
     }
 
@@ -259,6 +293,57 @@ impl SMBClient {
         }.unwrap();
 
         Ok(SMBTree::new(response.header.tree_id))
+    }
+
+    fn generate_message_signature(&self, smb_message: &mut SMB2Message) -> Result<(), Box<dyn Error>> {
+        // Set the signature value to 0 before proceeding with the calculation.
+        smb_message.header.signature = 0;
+        // get the bytes of the destination message.
+        let mut writer = Cursor::new(Vec::new());
+        smb_message.write(&mut writer)?;
+        let data = writer.into_inner();
+
+        // Nonce is message_id + NonceSuffixFlags
+        let nonce_suffix = NonceSuffixFlags::new().with_is_server(false).with_is_cancel(smb_message.header.command == SMB2Command::Cancel);
+
+        dbg!(&smb_message.header.message_id, &nonce_suffix);
+        let mut nonce: [u8; 12] = [0; 12];
+        nonce[0..8].copy_from_slice(&smb_message.header.message_id.to_be_bytes());
+        nonce[8..12].copy_from_slice(&nonce_suffix.into_bytes());
+
+        let key = self.authenticator.as_ref().unwrap().session_key()?;
+        let cipher = Aes128Gcm::new(&key.into());
+        let ciphertext = cipher.encrypt(&nonce.into(), data.as_ref())?;
+        assert!(ciphertext.len() == data.len() + size_of::<u128>());
+        // The end of the ciphertext is the signature. Get those last 16 bytes as u128.
+        let signature = u128::from_le_bytes(ciphertext[data.len()..].try_into().unwrap());
+        smb_message.header.signature = signature;
+        Ok(())
+    }
+
+    fn verify_message_signature(&self, smb_message: &mut SMB2Message) -> Result<(), Box<dyn Error>> {
+        // The same just to verify in the other way.
+        let msg_signature = smb_message.header.signature;
+        smb_message.header.signature = 0;
+        let mut writer = Cursor::new(Vec::new());
+        smb_message.write(&mut writer)?;
+        let data = writer.into_inner();
+        dbg!(data.len(), &data);
+
+        let nonce_suffix = NonceSuffixFlags::new().with_is_server(true).with_is_cancel(smb_message.header.command == SMB2Command::Cancel);
+        let mut nonce: [u8; 12] = [0; 12];
+        nonce[0..8].copy_from_slice(&smb_message.header.message_id.to_le_bytes());
+        nonce[8..12].copy_from_slice(&nonce_suffix.into_bytes());
+
+        let key = self.authenticator.as_ref().unwrap().session_key()?;
+        let cipher = Aes128Gcm::new(&key.into());
+        let ciphertext = cipher.encrypt(&nonce.into(), data.as_ref())?;
+        assert!(ciphertext.len() == data.len() + size_of::<u128>());
+        let signature = u128::from_le_bytes(ciphertext[data.len()..].try_into().unwrap());
+        if signature != msg_signature {
+            return Err(format!("Invalid signature {:#02x} not {:#02x}", msg_signature, signature).into());
+        };
+        Ok(())
     }
 }
 

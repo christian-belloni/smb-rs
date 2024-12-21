@@ -37,6 +37,32 @@ Replace the `encrypt_message` function:
 
         Ok(SecurityStatus::Ok)
     }
+    
+    fn decrypt_message(
+        &mut self,
+        message: &mut [SecurityBuffer],
+        sequence_number: u32,
+    ) -> crate::Result<DecryptionFlags> {
+        if self.recv_sealing_key.is_none() {
+            self.complete_auth_token(&mut [])?;
+        }
+
+        let encrypted = extract_encrypted_data(message)?;
+
+        if encrypted.len() < 16 {
+            return Err(Error::new(ErrorKind::MessageAltered, "Invalid encrypted message size!"));
+        }
+
+        let (signature, encrypted_message) = encrypted.split_at(16);
+
+        let decrypted = self.recv_sealing_key.as_mut().unwrap().process(encrypted_message);
+
+        save_decrypted_data(&decrypted, message)?;
+        
+        self.verify_data(&decrypted, sequence_number, signature)?;
+
+        Ok(DecryptionFlags::empty())
+    }
 ```
 
 and add the following function to `impl Ntlm {...}`:
@@ -71,6 +97,36 @@ and add the following function to `impl Ntlm {...}`:
         let original_key_state = self.send_sealing_key.clone().ok_or(Error::new(ErrorKind::OutOfSequence, "send_sealing_key is None"))?;
         self.sign_data(EncryptionFlags::empty(), messages, sequence_number)?;
         self.send_sealing_key = Some(original_key_state);
+        Ok(())
+    }
+
+
+    fn verify_data(&mut self,
+        message: &Vec<u8>,
+        sequence_number: u32,
+        signature: &[u8]) -> crate::Result<()> {
+        dbg!(&message, &sequence_number);
+        let digest = compute_digest(&self.recv_signing_key, sequence_number, message)?;
+        let checksum = self
+            .recv_sealing_key
+            .as_mut()
+            .unwrap()
+            .process(&digest[0..SIGNATURE_CHECKSUM_SIZE]);
+        let expected_signature = compute_signature(&checksum, sequence_number);
+        dbg!(&signature, &expected_signature);
+        if signature != expected_signature.as_ref() {
+            return Err(Error::new(
+                ErrorKind::MessageAltered,
+                "Signature verification failed, something nasty is going on!",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn verify_and_revert_state(&mut self, message: &Vec<u8>, sequence_number: u32, signature: &[u8]) -> crate::Result<()> {
+        let original_key_state = self.recv_sealing_key.clone().ok_or(Error::new(ErrorKind::OutOfSequence, "recv_sealing_key is None"))?;
+        self.verify_data(message, sequence_number, signature)?;
+        self.recv_sealing_key = Some(original_key_state);
         Ok(())
     }
 ```
