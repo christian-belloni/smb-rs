@@ -55,7 +55,6 @@ impl SMBNegotiateRequest {
                     reserved: 0,
                     data: SMBNegotiateContextValue::PreauthIntegrityCapabilities(
                         PreauthIntegrityCapabilities {
-                            hash_algorithm_count: 1,
                             hash_algorithms: vec![HashAlgorithm::Sha512],
                             salt: (0..32).map(|_| rand::random::<u8>()).collect()
                         }
@@ -231,7 +230,7 @@ pub enum SMBNegotiateContextValue {
 }
 
 // u16 enum hash algorithms binrw 0x01 is sha512.
-#[derive(BinRead, BinWrite, Debug)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
 pub enum HashAlgorithm {
     Sha512 = 0x01
@@ -240,13 +239,14 @@ pub enum HashAlgorithm {
 #[binrw::binrw]
 #[derive(Debug)]
 pub struct PreauthIntegrityCapabilities {
+    #[bw(try_calc(u16::try_from(hash_algorithms.len())))]
     hash_algorithm_count: u16,
     #[bw(try_calc(u16::try_from(salt.len())))]
     salt_length: u16,
     #[br(count = hash_algorithm_count)]
-    hash_algorithms: Vec<HashAlgorithm>,
+    pub hash_algorithms: Vec<HashAlgorithm>,
     #[br(count = salt_length)]
-    salt: Vec<u8>
+    pub salt: Vec<u8>
 }
 
 #[derive(BinRead, BinWrite, Debug)]

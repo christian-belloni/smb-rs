@@ -41,10 +41,13 @@ impl NetBiosTcpMessage {
             message: msg_data.into_inner()
         })
     }
+}
 
-    pub fn from_header_and_data(header: NetBiosTcpMessageHeader, data: &mut [u8]) -> Result<NetBiosMessageContent, Box<dyn std::error::Error>> {
-        assert!(header.stream_protocol_length.value as usize == data.len());
-        Ok(NetBiosMessageContent::read(&mut Cursor::new(data))?)
+impl NetBiosTcpMessage {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, binrw::Error> {
+        let mut msg_data = Cursor::new(Vec::new());
+        self.write(&mut msg_data)?;
+        Ok(msg_data.into_inner())
     }
 }
 
@@ -53,4 +56,11 @@ impl NetBiosTcpMessage {
 pub enum NetBiosMessageContent {
     SMB2Message(smb2::message::SMB2Message),
     SMB1Message(smb1::SMB1NegotiateMessage)
+}
+
+impl TryFrom<&[u8]> for NetBiosMessageContent {
+    type Error = binrw::Error;
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        Ok(NetBiosMessageContent::read(&mut Cursor::new(value))?)
+    }
 }

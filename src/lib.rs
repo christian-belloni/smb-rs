@@ -6,3 +6,4 @@ pub mod smb_client;
 pub mod netbios_client;
 pub mod authenticator;
 pub mod smb_tree;
+pub mod smb_session;
