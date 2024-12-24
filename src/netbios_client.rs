@@ -8,13 +8,13 @@ use crate::packets::netbios::{NetBiosTcpMessage, NetBiosMessageContent, NetBiosT
 /// Describes an unparsed NetBios message.
 pub struct RawNetBiosMessage {
     pub header: NetBiosTcpMessageHeader, 
-    pub data: Vec<u8>
+    pub content: Vec<u8>
 }
 
 impl RawNetBiosMessage {
     pub fn parse(&self) -> Result<NetBiosMessageContent, Box<dyn std::error::Error>> {
-        assert!(self.header.stream_protocol_length.value == self.data.len() as u32);
-        Ok(NetBiosMessageContent::try_from(self.data.as_slice())?)
+        assert!(self.header.stream_protocol_length.value == self.content.len() as u32);
+        Ok(NetBiosMessageContent::try_from(self.content.as_slice())?)
     }
 }
 
@@ -68,6 +68,6 @@ impl NetBiosClient {
         let mut data = vec![0; header.stream_protocol_length.value as usize];
         tcp.read_exact(&mut data)?;
 
-        Ok(RawNetBiosMessage { header, data })
+        Ok(RawNetBiosMessage { header, content: data })
     }
 }

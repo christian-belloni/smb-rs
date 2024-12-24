@@ -247,16 +247,10 @@ impl SMBClient {
             }
 
 
-        // Calculate preauth integrity hash value.
-        // In client, SHA-512(SHA512(Request)|Response)
         let mut current_hash: [u8; 64] = [0; 64];
-        for item in [&neg_req.message, &smb2_response_raw.data] {
-            let mut hasher = Sha512::new();
-            hasher.update(current_hash);
-            hasher.update(item);
-            current_hash = hasher.finalize().into();
+        for item in [&neg_req.message, &smb2_response_raw.content] {
+            Self::step_preauth_hash(&mut current_hash, &item);
         }
-
 
         let negotiate_state = SmbNegotiateState {
             server_guid: smb2_negotiate_response.server_guid,
@@ -280,6 +274,16 @@ impl SMBClient {
         self.negotiate_smb2()
     }
 
+    /// Calculate preauth integrity hash value.
+    /// In client, SHA-512(SHA512(Request)|Response)
+    fn step_preauth_hash(prev: &mut [u8; 64], data: &[u8]) {
+        let mut hasher = Sha512::new();
+        hasher.update(&prev);
+        hasher.update(data);
+        // finalize into prev:
+        prev.copy_from_slice(dbg!(&hasher.finalize()));
+    }
+
     pub fn authenticate(
         &mut self,
         user_name: String,
@@ -295,23 +299,30 @@ impl SMBClient {
         };
         let (mut authenticator, mut next_buf) =
             GssAuthenticator::build(&negotate_state.gss_negotiate_token, identity)?;
-        let response = self.send_and_receive_smb2(
-                SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
-                false
-        )?;
+        
+        // Preauth integrity hash, updated through the authentication process.
+        let mut preauth_hash_current = self.negotiate_state.get().ok_or("No negotiate state!")?.negotiate_preauth_integrity_hash_value.clone();
 
+        let request = NetBiosTcpMessage::build(self.content_to_message(SMBMessageContent::SMBSessionSetupRequest(
+            SMB2SessionSetupRequest::new(next_buf),
+        ))?)?;
+        Self::step_preauth_hash(&mut preauth_hash_current, &request.message);
+        self.send_message_bytes(&request.to_bytes()?)?;
+        // response hash is processed later, in the loop.
+        let response_raw = self.recieve_smb2_raw()?;
+        let response = self.process_smb2(&response_raw, SMB2Command::SessionSetup, false)?;
         if response.header.status != SMB2Status::MoreProcessingRequired as u32 {
             return Err("Expected STATUS_MORE_PROCESSING_REQUIRED".into());
         }
         self.session_id = response.header.session_id;
         self.authenticator = Some(authenticator);
 
-        let mut response = Some(response);
+        let mut response = Some((response, response_raw));
         while !self.authenticator.as_ref().unwrap().is_authenticated()? {
             // If there's a response to process, do so.
             let last_setup_response = match response.as_ref() {
                 Some(response) => Some(
-                    match &response.content {
+                    match &response.0.content {
                         SMBMessageContent::SMBSessionSetupResponse(response) => Some(response),
                         _ => None,
                     }
@@ -321,17 +332,26 @@ impl SMBClient {
             };
 
             let next_buf = match last_setup_response.as_ref() {
-                Some(response) => self.authenticator.as_mut().unwrap().next(&response.buffer)?,
+                Some(response) => {
+                    self.authenticator.as_mut().unwrap().next(&response.buffer)?
+                },
                 None => self.authenticator.as_mut().unwrap().next(&vec![])?,
             };
 
             response = match next_buf {
-                Some(next_buf) => Some(self.send_and_receive_smb2(
-                        SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(
-                            next_buf,
-                        )),
-                        false
-                )?),
+                Some(next_buf) => {
+                    // We'd like to update preauth hash with the last request before accept.
+                    // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
+                    Self::step_preauth_hash(&mut preauth_hash_current, &response.unwrap().1.content);
+                    let request = SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(
+                        next_buf,
+                    ));
+                    let request = NetBiosTcpMessage::build(self.content_to_message(request)?)?;
+                    Self::step_preauth_hash(&mut preauth_hash_current, &request.message);
+                    self.send_message_bytes(&request.to_bytes()?)?;
+                    let response_raw = self.recieve_smb2_raw()?;
+                    Some((self.process_smb2(&response_raw, SMB2Command::SessionSetup, false)?, response_raw))
+                },
                 None => None,
             };
         }
