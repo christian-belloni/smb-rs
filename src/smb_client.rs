@@ -1,5 +1,7 @@
-use aes_gcm::{aead::Aead, Aes128Gcm, KeyInit};
+// use aes_gcm::{aead::Aead, Aes128Gcm, KeyInit};
 use binrw::prelude::*;
+use aes::{Aes128};
+use ccm::{aead::{Aead, generic_array::GenericArray}, consts::{U11, U16}, Ccm, KeyInit};
 use modular_bitfield::prelude::*;
 use rand::Rng;
 use sha2::{Sha512, Digest};
@@ -155,7 +157,8 @@ impl SMBClient {
         );
         if let Some(authenticator) = &self.authenticator {
             if authenticator.is_authenticated()? {
-                self.generate_message_signature(&mut message_with_header)?;
+                todo!();
+                // self.generate_message_signature(&mut message_with_header)?;
             }
         };
         Ok(NetBiosMessageContent::SMB2Message(message_with_header))
@@ -229,10 +232,10 @@ impl SMBClient {
         // If signing algorithm is not AES-GMAC, we're not supporting it just yet.
         if !context_list.iter()
             .any(|context| match &context.data {
-                SMBNegotiateContextValue::SigningCapabilities(sc) => sc.signing_algorithms.contains(&SigningAlgorithmId::AesGmac),
+                SMBNegotiateContextValue::SigningCapabilities(sc) => sc.signing_algorithms.contains(&SigningAlgorithmId::AesCmac),
                 _ => false
             }) {
-                return Err("AES-GMAC signing algorithm is not supported".into());
+                return Err("AES-CMAC signing algorithm is not supported".into());
             }
 
         // Make sure preauth integrity capability is SHA-512.
@@ -347,6 +350,7 @@ impl SMBClient {
                     ));
                     let request = NetBiosTcpMessage::build(self.content_to_message(request)?)?;
                     Self::step_preauth_hash(&mut preauth_hash_current, &request.message);
+                    self.preauth_integrity_hash_value = preauth_hash_current; //////// .....:)
                     self.send_message_bytes(&request.to_bytes()?)?;
                     let response_raw = self.recieve_smb2_raw()?;
                     Some((self.process_smb2(&response_raw, SMB2Command::SessionSetup, false)?, response_raw))
@@ -354,8 +358,6 @@ impl SMBClient {
                 None => None,
             };
         }
-        dbg!(&preauth_hash_current);
-        self.preauth_integrity_hash_value = preauth_hash_current;
         Ok(())
     }
 
@@ -372,31 +374,31 @@ impl SMBClient {
         Ok(SMBTree::new(response.header.tree_id))
     }
 
-    fn generate_message_signature(&self, smb_message: &mut SMB2Message) -> Result<(), Box<dyn Error>> {
-        // Set the signature value to 0 before proceeding with the calculation.
-        smb_message.header.signature = 0;
-        // get the bytes of the destination message.
-        let mut writer = Cursor::new(Vec::new());
-        smb_message.write(&mut writer)?;
-        let data = writer.into_inner();
+    // fn generate_message_signature(&self, smb_message: &mut SMB2Message) -> Result<(), Box<dyn Error>> {
+    //     // Set the signature value to 0 before proceeding with the calculation.
+    //     smb_message.header.signature = 0;
+    //     // get the bytes of the destination message.
+    //     let mut writer = Cursor::new(Vec::new());
+    //     smb_message.write(&mut writer)?;
+    //     let data = writer.into_inner();
 
-        // Nonce is message_id + NonceSuffixFlags
-        let nonce_suffix = NonceSuffixFlags::new().with_is_server(false).with_is_cancel(smb_message.header.command == SMB2Command::Cancel);
+    //     // Nonce is message_id + NonceSuffixFlags
+    //     let nonce_suffix = NonceSuffixFlags::new().with_is_server(false).with_is_cancel(smb_message.header.command == SMB2Command::Cancel);
 
-        dbg!(&smb_message.header.message_id, &nonce_suffix);
-        let mut nonce: [u8; 12] = [0; 12];
-        nonce[0..8].copy_from_slice(&smb_message.header.message_id.to_be_bytes());
-        nonce[8..12].copy_from_slice(&nonce_suffix.into_bytes());
+    //     dbg!(&smb_message.header.message_id, &nonce_suffix);
+    //     let mut nonce: [u8; 12] = [0; 12];
+    //     nonce[0..8].copy_from_slice(&smb_message.header.message_id.to_be_bytes());
+    //     nonce[8..12].copy_from_slice(&nonce_suffix.into_bytes());
 
-        let key = self.authenticator.as_ref().unwrap().session_key()?;
-        let cipher = Aes128Gcm::new(&key.into());
-        let ciphertext = cipher.encrypt(&nonce.into(), data.as_ref())?;
-        assert!(ciphertext.len() == data.len() + size_of::<u128>());
-        // The end of the ciphertext is the signature. Get those last 16 bytes as u128.
-        let signature = u128::from_le_bytes(ciphertext[data.len()..].try_into().unwrap());
-        smb_message.header.signature = signature;
-        Ok(())
-    }
+    //     let key = self.authenticator.as_ref().unwrap().session_key()?;
+    //     let cipher = Aes128Gcm::new(&key.into());
+    //     let ciphertext = cipher.encrypt(&nonce.into(), data.as_ref())?;
+    //     assert!(ciphertext.len() == data.len() + size_of::<u128>());
+    //     // The end of the ciphertext is the signature. Get those last 16 bytes as u128.
+    //     let signature = u128::from_le_bytes(ciphertext[data.len()..].try_into().unwrap());
+    //     smb_message.header.signature = signature;
+    //     Ok(())
+    // }
 
     fn verify_message_signature(&self, smb_message: &mut SMB2Message, preauth_integrity_hash: [u8; 64], raw_message: &RawNetBiosMessage) -> Result<(), Box<dyn Error>> {
         let key = self.authenticator.as_ref().unwrap().session_key()?.to_vec();
@@ -414,13 +416,16 @@ impl SMBClient {
 
         let nonce_suffix = NonceSuffixFlags::new().with_is_server(false).with_is_cancel(smb_message.header.command == SMB2Command::Cancel);
         let mut nonce: [u8; 12] = [0; 12];
-        nonce[0..8].copy_from_slice(&smb_message.header.message_id.to_le_bytes());
+        nonce[0..8].copy_from_slice(&smb_message.header.message_id.to_be_bytes());
         nonce[8..12].copy_from_slice(&nonce_suffix.into_bytes());
         dbg!(&nonce);
 
-        let cipher = Aes128Gcm::new(key.into());
-        let ciphertext = cipher.encrypt(&nonce.into(), data.as_ref())?;
+        type Aes128Ccm = Ccm<Aes128, U16, U11>;
+        let cipher = Aes128Ccm::new(key.into());
+        
+        let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), data.as_ref())?;
         assert!(ciphertext.len() == data.len() + size_of::<u128>());
+        dbg!(&ciphertext);
         let signature = u128::from_le_bytes(ciphertext[data.len()..].try_into().unwrap());
         if signature != msg_signature {
             return Err(format!("Invalid signature {:#02x} not {:#02x}", msg_signature, signature).into());
