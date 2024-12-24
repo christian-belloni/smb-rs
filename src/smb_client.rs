@@ -7,9 +7,7 @@ use sspi::{AuthIdentity, Secret, Username};
 use std::{cell::OnceCell, error::Error, fmt::Display, io::Cursor};
 
 use crate::{
-    authenticator::{self, GssAuthenticator},
-    netbios_client::{NetBiosClient, RawNetBiosMessage},
-    packets::{
+    authenticator::{self, GssAuthenticator}, netbios_client::{NetBiosClient, RawNetBiosMessage}, packets::{
         netbios::{NetBiosMessageContent, NetBiosTcpMessage, NetBiosTcpMessageHeader},
         smb1::SMB1NegotiateMessage,
         smb2::{
@@ -18,7 +16,7 @@ use crate::{
             negotiate::{HashAlgorithm, SMBDialect, SMBNegotiateContextType, SMBNegotiateContextValue, SMBNegotiateRequest, SMBNegotiateResponseDialect, SigningAlgorithmId},
             session::SMB2SessionSetupRequest, tree::SMB2TreeConnectRequest,
         },
-    }, smb_tree::SMBTree,
+    }, smb_session::SMBSession, smb_tree::SMBTree
 };
 
 struct SmbNegotiateState {
@@ -125,8 +123,9 @@ impl SMBClient {
                 if !smb2_message.header.flags.signed() && authenticator.session_key().is_ok() {
                     return Err("Expected signed SMB2 message".into());
                 }
+                dbg!(&smb2_message, &self.preauth_integrity_hash_value);
                 // 2. Validate the signature.
-                self.verify_message_signature(&mut smb2_message)?;
+                self.verify_message_signature(&mut smb2_message, self.preauth_integrity_hash_value, raw)?;
             }
         }
         Ok(smb2_message)
@@ -297,7 +296,7 @@ impl SMBClient {
             username: Username::new(&user_name, Some("WORKGROUP"))?,
             password: Secret::new(password),
         };
-        let (mut authenticator, mut next_buf) =
+        let (authenticator, next_buf) =
             GssAuthenticator::build(&negotate_state.gss_negotiate_token, identity)?;
         
         // Preauth integrity hash, updated through the authentication process.
@@ -355,6 +354,8 @@ impl SMBClient {
                 None => None,
             };
         }
+        dbg!(&preauth_hash_current);
+        self.preauth_integrity_hash_value = preauth_hash_current;
         Ok(())
     }
 
@@ -397,22 +398,27 @@ impl SMBClient {
         Ok(())
     }
 
-    fn verify_message_signature(&self, smb_message: &mut SMB2Message) -> Result<(), Box<dyn Error>> {
+    fn verify_message_signature(&self, smb_message: &mut SMB2Message, preauth_integrity_hash: [u8; 64], raw_message: &RawNetBiosMessage) -> Result<(), Box<dyn Error>> {
+        let key = self.authenticator.as_ref().unwrap().session_key()?.to_vec();
+        let session = SMBSession::build(&key, preauth_integrity_hash)?;
+        let key = session.session_key();
         // The same just to verify in the other way.
         let msg_signature = smb_message.header.signature;
         smb_message.header.signature = 0;
         let mut writer = Cursor::new(Vec::new());
-        smb_message.write(&mut writer)?;
-        let data = writer.into_inner();
-        dbg!(data.len(), &data);
+        smb_message.header.write(&mut writer)?;
+        let mut data = raw_message.content.clone();
+        // fill in patched header:
+        data[0..writer.position() as usize].copy_from_slice(&writer.into_inner());
+        dbg!(&raw_message.content, &data);
 
-        let nonce_suffix = NonceSuffixFlags::new().with_is_server(true).with_is_cancel(smb_message.header.command == SMB2Command::Cancel);
+        let nonce_suffix = NonceSuffixFlags::new().with_is_server(false).with_is_cancel(smb_message.header.command == SMB2Command::Cancel);
         let mut nonce: [u8; 12] = [0; 12];
         nonce[0..8].copy_from_slice(&smb_message.header.message_id.to_le_bytes());
         nonce[8..12].copy_from_slice(&nonce_suffix.into_bytes());
+        dbg!(&nonce);
 
-        let key = self.authenticator.as_ref().unwrap().session_key()?;
-        let cipher = Aes128Gcm::new(&key.into());
+        let cipher = Aes128Gcm::new(key.into());
         let ciphertext = cipher.encrypt(&nonce.into(), data.as_ref())?;
         assert!(ciphertext.len() == data.len() + size_of::<u128>());
         let signature = u128::from_le_bytes(ciphertext[data.len()..].try_into().unwrap());

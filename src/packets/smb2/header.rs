@@ -33,7 +33,7 @@ pub enum SMB2Status {
 
 #[binrw::binrw]
 #[derive(Debug)]
-#[brw(magic(b"\xfeSMB"))]
+#[brw(magic(b"\xfeSMB"), little)]
 pub struct SMB2MessageHeader {
     #[bw(calc = 64)]
     #[br(assert(_structure_size == 64))]

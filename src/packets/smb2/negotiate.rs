@@ -95,9 +95,8 @@ impl SMBNegotiateRequest {
                     reserved: 0,
                     data: SMBNegotiateContextValue::SigningCapabilities(
                         SigningCapabilities {
-                            signing_algorithm_count: 2,
                             signing_algorithms: vec![
-                                SigningAlgorithmId::AesGmac,
+                                // SigningAlgorithmId::AesGmac,
                                 SigningAlgorithmId::AesCmac
                             ]
                         }
@@ -294,8 +293,10 @@ pub struct RdmaTransformCapabilities {
     transforms: Vec<u16>
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[binrw::binrw]
+#[derive(Debug)]
 pub struct SigningCapabilities {
+    #[bw(try_calc(u16::try_from(signing_algorithms.len())))]
     signing_algorithm_count: u16,
     #[br(count = signing_algorithm_count)]
     pub signing_algorithms: Vec<SigningAlgorithmId>

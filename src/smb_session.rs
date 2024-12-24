@@ -1,41 +1,38 @@
 use std::error::Error;
 
-use aes_gcm::aes::Aes128;
-use ccm::Ccm;
 use hmac::{digest::typenum, Hmac, Mac};
-use rust_kbkdf::{kbkdf, CounterMode, FixedInput, InputType, KDFMode, PseudoRandomFunction, PseudoRandomFunctionKey, SpecifiedInput};
+use rust_kbkdf::{kbkdf, CounterMode, InputType, KDFMode, PseudoRandomFunction, PseudoRandomFunctionKey, SpecifiedInput};
 use sha2::Sha256;
 
 
-struct SMBSession {
-    // session_key: [u8; 16],
+pub struct SMBSession {
+    session_key: [u8; 16],
 }
 
 impl SMBSession {
-    pub fn new(exchanged_session_key: &Vec<u8>, preauth_integrity_value: &Vec<u8>) -> SMBSession {
+    pub fn build(exchanged_session_key: &Vec<u8>, preauth_integrity_hash: [u8; 64]) -> Result<SMBSession, Box<dyn Error>> {
 
-        SMBSession {}
+        Ok(SMBSession {
+            session_key: Self::derive_session_key(exchanged_session_key, preauth_integrity_hash)?
+        })
     }
 
-    fn derive_session_key(&self, exchanged_session_key: &Vec<u8>) -> [u8; 16] {
+    pub fn session_key(&self) -> &[u8; 16] {
+        &self.session_key
+    }
+
+    fn derive_session_key(exchanged_session_key: &Vec<u8>, preauth_integrity_hash: [u8; 64]) -> Result<[u8; 16], Box<dyn Error>> {
         let mut session_key = [0; 16];
         session_key.copy_from_slice(&exchanged_session_key[0..16]);
 
         // Label = SMBSigningKey\x00
         let label = b"SMBSigningKey\x00";
-        // Context = PreauthIntegrityHashValue
         assert!(session_key.len() == 16);
-        // Self::kdf(&session_key, label, context, output);
-
-        session_key
+        Ok(Self::kdf(&session_key, label, &preauth_integrity_hash)?.try_into().unwrap())
     }
 
-    fn kdf(key: &[u8; 16], label: &[u8], context: &[u8], output: &mut [u8]) -> Result<Vec<u8>, Box<dyn Error>> {
-        // SP108-800-CTR-HMAC-SHA256
-        let R = 32;
-        let L = 128;
-        let h = 256;
-        
+    fn kdf(key: &[u8; 16], label: &[u8], context: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+        // SP108-800-CTR-HMAC-SHA256; 128 bits; 32-bit counter.
         let key = HmacSha256KeyHandle {
             key: key.clone(),
         };

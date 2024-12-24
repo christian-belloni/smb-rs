@@ -15,3 +15,4 @@ ccm = {version = "0.5.0"}
 hmac = "0.12.1"
 sha2 = "0.10.8"
 rust-kbkdf = {version = "1.0.1"}
+aes = "0.8.4"
