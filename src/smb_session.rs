@@ -23,7 +23,7 @@ impl SMBSession {
 
     pub fn verify_signature(&self, header: &mut SMB2MessageHeader, raw_data: &NetBiosTcpMessage) -> Result<(), Box<dyn Error>> {
         let calculated_signature = self.calculate_signature(header, raw_data)?;
-        if dbg!(calculated_signature) != dbg!(header.signature) {
+        if calculated_signature != header.signature {
             return Err("Signature verification failed".into());
         }
         Ok(())
@@ -42,16 +42,16 @@ impl SMBSession {
         let mut signing_algo = SMBCmac128Signer::build(&self.signing_key)?;
 
         // Write header.
-        let signture_backup = dbg!(&header).signature;
+        let signture_backup = header.signature;
         header.signature = 0;
         let mut header_bytes = Cursor::new([0; SMB2MessageHeader::STRUCT_SIZE]);
         header.write(&mut header_bytes)?;
         header.signature = signture_backup;
-        signing_algo.update(dbg!(&header_bytes.into_inner()));
+        signing_algo.update(&header_bytes.into_inner());
 
         // And write rest of the raw message.
         let message_body = &raw_message.content[SMB2MessageHeader::STRUCT_SIZE..];
-        signing_algo.update(dbg!(message_body));
+        signing_algo.update(message_body);
 
         Ok(signing_algo.finalize())
     }

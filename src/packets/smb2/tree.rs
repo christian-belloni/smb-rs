@@ -22,19 +22,20 @@ pub struct SMB2TreeConnectRequest {
     pub flags: SMB2TreeConnectRquestFlags,
     #[bw(calc = PosMarker::default())]
     _path_offset: PosMarker<u16>,
-    #[bw(try_calc(buffer.len().try_into()))]
+    #[bw(try_calc((buffer.len() as u16).checked_mul(2).ok_or(format!("buffer length overflow {}", buffer.len()))))]
     path_length: u16,
     // TODO: Support extension
+    #[brw(little)]
     #[br(count = path_length)]
-    #[bw(write_with= PosMarker::write_and_fill_start_offset, args(&_path_offset))]
-    pub buffer: Vec<u8>
+    #[bw(write_with=PosMarker::write_and_fill_start_offset, args(&_path_offset))]
+    pub buffer: Vec<u16>
 }
 
 impl SMB2TreeConnectRequest {
-    pub fn new(buffer: Vec<u8>) -> SMB2TreeConnectRequest {
+    pub fn new(name: String) -> SMB2TreeConnectRequest {
         SMB2TreeConnectRequest {
             flags: SMB2TreeConnectRquestFlags::new(),
-            buffer,
+            buffer: dbg!(name.encode_utf16().collect()),
         }
     }
 }

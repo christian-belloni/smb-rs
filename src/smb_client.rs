@@ -365,7 +365,7 @@ impl SMBClient {
 
     pub fn tree_connect(&mut self, name: String) -> Result<SMBTree, Box<dyn Error>> {
         let response = self.send_and_receive_smb2(SMBMessageContent::SMBTreeConnectRequest(
-            SMB2TreeConnectRequest::new(name.as_bytes().to_vec()),
+            SMB2TreeConnectRequest::new(name),
         ), true)?;
 
         let _response = match response.content {
