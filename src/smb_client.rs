@@ -3,20 +3,27 @@ use modular_bitfield::prelude::*;
 use rand::Rng;
 use sha2::{Sha512, Digest};
 use sspi::{AuthIdentity, Secret, Username};
-use std::{cell::OnceCell, error::Error, fmt::Display};
+use core::panic;
+use std::{cell::{OnceCell, RefCell}, error::Error, fmt::Display};
 
 use crate::{
-    authenticator::{GssAuthenticator}, netbios_client::{NetBiosClient}, packets::{
+    authenticator::GssAuthenticator, msg_handler::{IncomingSMBMessage, OutgoingSMBMessage, SMBMessageHandler}, netbios_client::NetBiosClient, packets::{
         netbios::{NetBiosMessageContent, NetBiosTcpMessage},
         smb1::SMB1NegotiateMessage,
         smb2::{
-            header::{SMB2Command, SMB2HeaderFlags, SMB2Status},
+            header::{SMB2Command, SMB2Status},
             message::{SMB2Message, SMBMessageContent},
             negotiate::{HashAlgorithm, SMBDialect, SMBNegotiateContextType, SMBNegotiateContextValue, SMBNegotiateRequest, SMBNegotiateResponseDialect, SigningAlgorithmId},
-            session::SMB2SessionSetupRequest, tree::SMB2TreeConnectRequest,
+            session::SMB2SessionSetupRequest,
         },
-    }, smb_session::SMBSession, smb_tree::SMBTree
+    }, smb_session::SMBSession
 };
+
+enum PreauthHashState {
+    NotStarted,
+    InProgress([u8; 64]),
+    Finished([u8; 64]),
+}
 
 struct SmbNegotiateState {
     server_guid: u128,
@@ -27,9 +34,7 @@ struct SmbNegotiateState {
 
     gss_negotiate_token: Vec<u8>,
 
-    selected_dialect: SMBDialect,
-
-    negotiate_preauth_integrity_hash_value: [u8; 64],
+    selected_dialect: SMBDialect
 }
 
 pub struct SMBClient {
@@ -37,11 +42,10 @@ pub struct SMBClient {
     netbios_client: NetBiosClient,
     current_message_id: u64,
 
+    preauth_hash: PreauthHashState,
+
     // Negotiation-related state.
     negotiate_state: OnceCell<SmbNegotiateState>,
-
-    session_id: u64,
-    session: Option<SMBSession>,
 }
 
 #[bitfield]
@@ -71,111 +75,12 @@ impl SMBClient {
             netbios_client: NetBiosClient::new(),
             negotiate_state: OnceCell::new(),
             current_message_id: 0,
-            session_id: 0,
-            session: None,
+            preauth_hash: PreauthHashState::NotStarted,
         }
     }
 
     pub fn connect(&mut self, address: &str) -> Result<(), Box<dyn Error>> {
         self.netbios_client.connect(address)
-    }
-
-    fn receive_smb2(
-        &mut self,
-        command: SMB2Command,
-        require_success: bool,
-    ) -> Result<SMB2Message, Box<dyn Error>> {
-        let raw = self.netbios_client.recieve_bytes()?;
-        self.process_smb2(&raw, command, require_success)
-    }
-
-    fn recieve_smb2_raw(&mut self) -> Result<NetBiosTcpMessage, Box<dyn Error>> {
-        self.netbios_client.recieve_bytes()
-    }
-
-    fn process_smb2(&self, 
-        raw: &NetBiosTcpMessage, 
-        command: SMB2Command,
-        require_success: bool,
-    ) -> Result<SMB2Message, Box<dyn Error>> {
-        let netbios_message = raw.parse()?;
-        let mut smb2_message = match netbios_message {
-            NetBiosMessageContent::SMB2Message(smb2_message) => Some(smb2_message),
-            _ => None,
-        }
-        .ok_or("Expected SMB2 message")?;
-        if smb2_message.header.command != command {
-            return Err("Unexpected SMB2 command".into());
-        };
-        if !smb2_message.header.flags.server_to_redir() {
-            return Err("Unexpected SMB2 message direction (Not a response)".into());
-        }
-        if require_success && smb2_message.header.status != SMB2Status::Success as u32 {
-            return Err("SMB2 message status is not success".into());
-        }
-        // Skip authentication is message ID is -1 or status is pending. (TODO: Encryption support!)
-        if smb2_message.header.message_id != u64::MAX && smb2_message.header.status != SMB2Status::StatusPending as u32 {
-            if let Some(session) = &self.session {
-                // 1. Make sure the message is, indeed, signed.
-                if !smb2_message.header.flags.signed() {
-                    return Err("Expected signed SMB2 message".into());
-                }
-                // 2. Validate the signature.
-                session.verify_signature(&mut smb2_message.header, &raw)?;
-            }
-        }
-        Ok(smb2_message)
-    }
-
-    fn content_to_message(&mut self, content: SMBMessageContent) -> Result<NetBiosTcpMessage, Box<dyn Error>> {
-        self.current_message_id += 1;
-        // TODO: Add assertion in the struct regarding the selected dialect!
-        let priority_value = match self.negotiate_state.get() {
-            Some(negotiate_state) => match negotiate_state.selected_dialect {
-                SMBDialect::Smb0311 => 1,
-                _ => 0,
-            },
-            None => 0,
-        };
-        let mut flags = SMB2HeaderFlags::new().with_priority_mask(priority_value);
-        if let Some(session) = &self.session {
-            flags.set_signed(session.signing_enabled());
-        }
-        let message_with_header = SMB2Message::new(
-            content,
-            self.current_message_id,
-            1,
-            1,
-            flags,
-            self.session_id,
-        );
-        let mut header_copy = message_with_header.header.clone();
-        let content = NetBiosMessageContent::SMB2Message(message_with_header);
-        let mut raw_message_result = NetBiosTcpMessage::build(&content)?;
-        if let Some(session) = &self.session {
-            if session.signing_enabled() {
-                session.sign_message(&mut header_copy, &mut raw_message_result)?;
-            }
-        };
-        // Update content of message with the new header.
-        Ok(raw_message_result)
-    }
-
-    #[inline]
-    fn send_raw(&mut self, raw: NetBiosTcpMessage) -> Result<(), Box<dyn Error>> {
-        self.netbios_client.send_raw(raw)
-    }
-
-    fn send_and_receive_smb2(
-        &mut self,
-        message: SMBMessageContent,
-        require_success: bool
-    ) -> Result<SMB2Message, Box<dyn Error>> {
-        let cmd = message.associated_cmd();
-        let message = self.content_to_message(message)?;
-        self.netbios_client
-            .send_raw(message)?;
-        self.receive_smb2(cmd, require_success)
     }
 
     fn negotiate_smb1(&mut self) -> Result<(), Box<dyn Error>> {
@@ -186,8 +91,8 @@ impl SMBClient {
             ))?;
 
         // 2. Expect SMB2 negotiate response
-        let smb2_response = self.receive_smb2(SMB2Command::Negotiate, true)?;
-        let smb2_negotiate_response = match smb2_response.content {
+        let smb2_response = self.receive()?;
+        let smb2_negotiate_response = match smb2_response.message.content {
             SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
             _ => None,
         }
@@ -201,17 +106,18 @@ impl SMBClient {
     }
 
     fn negotiate_smb2(&mut self) -> Result<(), Box<dyn Error>> {
-        let mut current_hash: [u8; 64] = [0; 64];
+        // Start preauth hash.
+        self.preauth_hash = PreauthHashState::InProgress([0; 64]);
 
         // Send SMB2 negotiate request
-        let neg_req = self.content_to_message(SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest::new(self.client_guid)))?;
-        Self::step_preauth_hash(&mut current_hash, &neg_req);
-        self.send_raw(neg_req)?;
+        let neg_req = OutgoingSMBMessage::new(SMB2Message::new(
+            SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest::new(self.client_guid))
+        ));
+        self.send(neg_req)?;
         
-        let smb2_response_raw = self.recieve_smb2_raw()?;
-        let smb2_response = self.process_smb2(&smb2_response_raw, SMB2Command::Negotiate, true)?;
+        let smb2_response_raw = self.receive()?;
 
-        let smb2_negotiate_response = match smb2_response.content {
+        let smb2_negotiate_response = match smb2_response_raw.message.content {
             SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
             _ => None,
         }
@@ -247,16 +153,13 @@ impl SMBClient {
                 return Err("a non-SHA-512 preauth integrity hash algorithm is supplied".into());
             }
 
-        Self::step_preauth_hash(&mut current_hash, &smb2_response_raw);
-
         let negotiate_state = SmbNegotiateState {
             server_guid: smb2_negotiate_response.server_guid,
             max_transact_size: smb2_negotiate_response.max_transact_size,
             max_read_size: smb2_negotiate_response.max_read_size,
             max_write_size: smb2_negotiate_response.max_write_size,
             gss_negotiate_token: smb2_negotiate_response.buffer,
-            selected_dialect: smb2_negotiate_response.dialect_revision.try_into()?,
-            negotiate_preauth_integrity_hash_value: current_hash
+            selected_dialect: smb2_negotiate_response.dialect_revision.try_into()?
         };
 
         self.negotiate_state
@@ -271,21 +174,29 @@ impl SMBClient {
         self.negotiate_smb2()
     }
 
-    /// Calculate preauth integrity hash value.
-    /// In client, SHA-512(SHA512(Request)|Response)
-    fn step_preauth_hash(prev: &mut [u8; 64], raw: &NetBiosTcpMessage) {
+    /// Calculate preauth integrity hash value, if required.
+    fn step_preauth_hash(&mut self, raw: &NetBiosTcpMessage) {
+        if let PreauthHashState::Finished(_) = self.preauth_hash {
+            return;
+        }
+
+        let prev = match &self.preauth_hash {
+            PreauthHashState::InProgress(hash) => hash,
+            PreauthHashState::NotStarted => &[0; 64],
+            _ => panic!()
+        };
         let mut hasher = Sha512::new();
         hasher.update(&prev);
         hasher.update(&raw.content);
-        // finalize into prev:
-        prev.copy_from_slice(&hasher.finalize());
+        // Update current state.
+        self.preauth_hash = PreauthHashState::InProgress(hasher.finalize().into());
     }
 
     pub fn authenticate(
-        &mut self,
+        self: &mut SMBClient,
         user_name: String,
         password: String,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<SMBSession, Box<dyn Error>> {
         let negotate_state = self
             .negotiate_state
             .get()
@@ -296,29 +207,24 @@ impl SMBClient {
         };
         let (mut authenticator, next_buf) =
             GssAuthenticator::build(&negotate_state.gss_negotiate_token, identity)?;
-        
-        // Preauth integrity hash, updated through the authentication process.
-        let mut preauth_integrity_hash = self.negotiate_state.get().ok_or("No negotiate state!")?.negotiate_preauth_integrity_hash_value.clone();
 
-        let request = self.content_to_message(SMBMessageContent::SMBSessionSetupRequest(
+        let request = OutgoingSMBMessage::new(SMB2Message::new(SMBMessageContent::SMBSessionSetupRequest(
             SMB2SessionSetupRequest::new(next_buf),
-        ))?;
-        Self::step_preauth_hash(&mut preauth_integrity_hash, &request);
-        self.send_raw(request)?;
+        )));
+        self.send(request)?;
         // response hash is processed later, in the loop.
-        let response_raw = self.recieve_smb2_raw()?;
-        let response = self.process_smb2(&response_raw, SMB2Command::SessionSetup, false)?;
-        if response.header.status != SMB2Status::MoreProcessingRequired as u32 {
+        let response = self.receive()?;
+        if response.message.header.status != SMB2Status::MoreProcessingRequired as u32 {
             return Err("Expected STATUS_MORE_PROCESSING_REQUIRED".into());
         }
-        self.session_id = response.header.session_id;
+        let session = SMBSession::new(response.message.header.session_id, RefCell::new(self as &dyn SMBMessageHandler));
 
-        let mut response = Some((response, response_raw));
+        let mut response = Some(response);
         while !authenticator.is_authenticated()? {
             // If there's a response to process, do so.
             let last_setup_response = match response.as_ref() {
                 Some(response) => Some(
-                    match &response.0.content {
+                    match &response.message.content {
                         SMBMessageContent::SMBSessionSetupResponse(response) => Some(response),
                         _ => None,
                     }
@@ -338,23 +244,28 @@ impl SMBClient {
                 Some(next_buf) => {
                     // We'd like to update preauth hash with the last request before accept.
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
-                    Self::step_preauth_hash(&mut preauth_integrity_hash, &response.unwrap().1);
-                    let request = SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(
+                    let request = OutgoingSMBMessage::new(SMB2Message::new(SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(
                         next_buf,
-                    ));
-                    let request = self.content_to_message(request)?;
-                    Self::step_preauth_hash(&mut preauth_integrity_hash, &request);
-                    self.send_raw(request)?;
-                    let response_raw = self.recieve_smb2_raw()?;
+                    ))));
+                    self.send(request)?;
 
                     // Keys exchanged? We can set-up the session!
-                    if authenticator.keys_exchanged() {
+                    if authenticator.keys_exchanged() && !session.is_set_up() {
                         // Derive keys and set-up the final session.
                         let ntlm_key = authenticator.session_key()?.to_vec();
-                        self.session = Some(SMBSession::build(&ntlm_key, preauth_integrity_hash)?);
+                        // Lock preauth hash, we're done with it.
+                        let preauth_hash = match self.preauth_hash {
+                            PreauthHashState::InProgress(hash) => hash,
+                            _ => panic!()
+                        };
+                        self.preauth_hash = PreauthHashState::Finished(preauth_hash);
+                        // Derive signing key, and set-up the session.
+                        session.setup(&ntlm_key, preauth_hash)?;
                     }
 
-                    Some((self.process_smb2(&response_raw, SMB2Command::SessionSetup, false)?, response_raw))
+                    let response = self.receive()?;
+
+                    Some(response)
                 },
                 None => None,
             };
@@ -362,18 +273,62 @@ impl SMBClient {
 
         Ok(())
     }
+}
 
-    pub fn tree_connect(&mut self, name: String) -> Result<SMBTree, Box<dyn Error>> {
-        let response = self.send_and_receive_smb2(SMBMessageContent::SMBTreeConnectRequest(
-            SMB2TreeConnectRequest::new(name),
-        ), true)?;
+impl SMBMessageHandler for SMBClient {
+    fn send(&mut self, mut msg: OutgoingSMBMessage) -> Result<(), Box<dyn std::error::Error>> {
+        self.current_message_id += 1;
+        // TODO: Add assertion in the struct regarding the selected dialect!
+        let priority_value = match self.negotiate_state.get() {
+            Some(negotiate_state) => match negotiate_state.selected_dialect {
+                SMBDialect::Smb0311 => 1,
+                _ => 0,
+            },
+            None => 0,
+        };
+        msg.message.header.message_id = self.current_message_id;
+        msg.message.header.flags = msg.message.header.flags.with_priority_mask(priority_value);
+        msg.message.header.credit_charge = 1;
+        msg.message.header.credit_request = 1;
 
-        let _response = match response.content {
-            SMBMessageContent::SMBTreeConnectResponse(response) => Some(response),
+        let mut header_copy = msg.message.header.clone();
+        let content = NetBiosMessageContent::SMB2Message(msg.message);
+        let mut raw_message_result = NetBiosTcpMessage::build(&content)?;
+        if let Some(mut signer) = msg.signer.take() {
+            signer.sign_message(&mut header_copy, &mut raw_message_result)?;
+        };
+        
+        self.step_preauth_hash(&raw_message_result);
+        
+        if let PreauthHashState::InProgress(hash) = &mut self.preauth_hash {
+        } else if let PreauthHashState::NotStarted = self.preauth_hash {
+            return Err("Preauth hash not started".into());
+        }
+
+        self.netbios_client.send_raw(raw_message_result)
+    }
+
+    fn receive(&mut self) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+        let raw = self.netbios_client.recieve_bytes()?;
+        self.step_preauth_hash(&raw);
+        let netbios_message = raw.parse()?;
+        let mut smb2_message = match netbios_message {
+            NetBiosMessageContent::SMB2Message(smb2_message) => Some(smb2_message),
             _ => None,
-        }.unwrap();
-
-        Ok(SMBTree::new(response.header.tree_id))
+        }
+        .ok_or("Expected SMB2 message")?;
+        // TODO: FIX COMMAND RECEIVE MATCHING!
+        // if smb2_message.header.command != command {
+        //     return Err("Unexpected SMB2 command".into());
+        // };
+        if !smb2_message.header.flags.server_to_redir() {
+            return Err("Unexpected SMB2 message direction (Not a response)".into());
+        }
+        // TODO: Implement this mechanism more wisely.
+        // if require_success && smb2_message.header.status != SMB2Status::Success as u32 {
+        //     return Err("SMB2 message status is not success".into());
+        // }
+        Ok(IncomingSMBMessage{ message: smb2_message , raw})
     }
 }
 
