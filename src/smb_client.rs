@@ -1,16 +1,13 @@
-// use aes_gcm::{aead::Aead, Aes128Gcm, KeyInit};
 use binrw::prelude::*;
-use aes::{Aes128};
-use cmac::{Cmac, Mac};
 use modular_bitfield::prelude::*;
 use rand::Rng;
 use sha2::{Sha512, Digest};
 use sspi::{AuthIdentity, Secret, Username};
-use std::{cell::OnceCell, error::Error, fmt::Display, io::Cursor};
+use std::{cell::OnceCell, error::Error, fmt::Display};
 
 use crate::{
-    authenticator::{self, GssAuthenticator}, netbios_client::{NetBiosClient, RawNetBiosMessage}, packets::{
-        netbios::{NetBiosMessageContent, NetBiosTcpMessage, NetBiosTcpMessageHeader},
+    authenticator::{GssAuthenticator}, netbios_client::{NetBiosClient}, packets::{
+        netbios::{NetBiosMessageContent, NetBiosTcpMessage},
         smb1::SMB1NegotiateMessage,
         smb2::{
             header::{SMB2Command, SMB2HeaderFlags, SMB2Status},
@@ -44,13 +41,12 @@ pub struct SMBClient {
     negotiate_state: OnceCell<SmbNegotiateState>,
 
     session_id: u64,
-    authenticator: Option<GssAuthenticator>,
-
-    preauth_integrity_hash_value: [u8; 64],
+    session: Option<SMBSession>,
 }
 
 #[bitfield]
-#[derive(Debug)]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[bw(map = |&x| Self::into_bytes(x))]
 struct NonceSuffixFlags {
     is_server: bool,
     is_cancel: bool,
@@ -76,8 +72,7 @@ impl SMBClient {
             negotiate_state: OnceCell::new(),
             current_message_id: 0,
             session_id: 0,
-            authenticator: None,
-            preauth_integrity_hash_value: [0; 64],
+            session: None,
         }
     }
 
@@ -94,12 +89,12 @@ impl SMBClient {
         self.process_smb2(&raw, command, require_success)
     }
 
-    fn recieve_smb2_raw(&mut self) -> Result<RawNetBiosMessage, Box<dyn Error>> {
+    fn recieve_smb2_raw(&mut self) -> Result<NetBiosTcpMessage, Box<dyn Error>> {
         self.netbios_client.recieve_bytes()
     }
 
     fn process_smb2(&self, 
-        raw: &RawNetBiosMessage, 
+        raw: &NetBiosTcpMessage, 
         command: SMB2Command,
         require_success: bool,
     ) -> Result<SMB2Message, Box<dyn Error>> {
@@ -120,34 +115,33 @@ impl SMBClient {
         }
         // Skip authentication is message ID is -1 or status is pending. (TODO: Encryption support!)
         if smb2_message.header.message_id != u64::MAX && smb2_message.header.status != SMB2Status::StatusPending as u32 {
-            if let Some(authenticator) = &self.authenticator {
+            if let Some(session) = &self.session {
                 // 1. Make sure the message is, indeed, signed.
-                if !smb2_message.header.flags.signed() && authenticator.session_key().is_ok() {
+                if !smb2_message.header.flags.signed() {
                     return Err("Expected signed SMB2 message".into());
                 }
-                dbg!(&smb2_message, &self.preauth_integrity_hash_value);
                 // 2. Validate the signature.
-                self.verify_message_signature(&mut smb2_message, self.preauth_integrity_hash_value, raw)?;
+                session.verify_signature(&mut smb2_message.header, &raw)?;
             }
         }
         Ok(smb2_message)
     }
 
-    fn content_to_message(&mut self, content: SMBMessageContent) -> Result<NetBiosMessageContent, Box<dyn Error>> {
+    fn content_to_message(&mut self, content: SMBMessageContent) -> Result<NetBiosTcpMessage, Box<dyn Error>> {
         self.current_message_id += 1;
         // TODO: Add assertion in the struct regarding the selected dialect!
         let priority_value = match self.negotiate_state.get() {
-            Some(negotiate_state) => match (negotiate_state.selected_dialect) {
+            Some(negotiate_state) => match negotiate_state.selected_dialect {
                 SMBDialect::Smb0311 => 1,
                 _ => 0,
             },
             None => 0,
         };
         let mut flags = SMB2HeaderFlags::new().with_priority_mask(priority_value);
-        if let Some(authenticator) = &self.authenticator {
-            flags.set_signed(authenticator.is_authenticated()?);
+        if let Some(session) = &self.session {
+            flags.set_signed(session.signing_enabled());
         }
-        let mut message_with_header = SMB2Message::new(
+        let message_with_header = SMB2Message::new(
             content,
             self.current_message_id,
             1,
@@ -155,17 +149,21 @@ impl SMBClient {
             flags,
             self.session_id,
         );
-        if let Some(authenticator) = &self.authenticator {
-            if authenticator.is_authenticated()? {
-                todo!();
-                // self.generate_message_signature(&mut message_with_header)?;
+        let mut header_copy = message_with_header.header.clone();
+        let content = NetBiosMessageContent::SMB2Message(message_with_header);
+        let mut raw_message_result = NetBiosTcpMessage::build(&content)?;
+        if let Some(session) = &self.session {
+            if session.signing_enabled() {
+                session.sign_message(&mut header_copy, &mut raw_message_result)?;
             }
         };
-        Ok(NetBiosMessageContent::SMB2Message(message_with_header))
+        // Update content of message with the new header.
+        Ok(raw_message_result)
     }
 
-    fn send_message_bytes(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
-        self.netbios_client.send_bytes(data)
+    #[inline]
+    fn send_raw(&mut self, raw: NetBiosTcpMessage) -> Result<(), Box<dyn Error>> {
+        self.netbios_client.send_raw(raw)
     }
 
     fn send_and_receive_smb2(
@@ -174,9 +172,9 @@ impl SMBClient {
         require_success: bool
     ) -> Result<SMB2Message, Box<dyn Error>> {
         let cmd = message.associated_cmd();
-        let message: NetBiosMessageContent = self.content_to_message(message)?;
+        let message = self.content_to_message(message)?;
         self.netbios_client
-            .send(message)?;
+            .send_raw(message)?;
         self.receive_smb2(cmd, require_success)
     }
 
@@ -203,11 +201,12 @@ impl SMBClient {
     }
 
     fn negotiate_smb2(&mut self) -> Result<(), Box<dyn Error>> {
+        let mut current_hash: [u8; 64] = [0; 64];
+
         // Send SMB2 negotiate request
         let neg_req = self.content_to_message(SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest::new(self.client_guid)))?;
-        let neg_req = NetBiosTcpMessage::build(neg_req)?;
-        let neg_req_data: Vec<u8> = neg_req.to_bytes()?;
-        self.send_message_bytes(&neg_req_data)?;
+        Self::step_preauth_hash(&mut current_hash, &neg_req);
+        self.send_raw(neg_req)?;
         
         let smb2_response_raw = self.recieve_smb2_raw()?;
         let smb2_response = self.process_smb2(&smb2_response_raw, SMB2Command::Negotiate, true)?;
@@ -248,11 +247,7 @@ impl SMBClient {
                 return Err("a non-SHA-512 preauth integrity hash algorithm is supplied".into());
             }
 
-
-        let mut current_hash: [u8; 64] = [0; 64];
-        for item in [&neg_req.message, &smb2_response_raw.content] {
-            Self::step_preauth_hash(&mut current_hash, &item);
-        }
+        Self::step_preauth_hash(&mut current_hash, &smb2_response_raw);
 
         let negotiate_state = SmbNegotiateState {
             server_guid: smb2_negotiate_response.server_guid,
@@ -278,12 +273,12 @@ impl SMBClient {
 
     /// Calculate preauth integrity hash value.
     /// In client, SHA-512(SHA512(Request)|Response)
-    fn step_preauth_hash(prev: &mut [u8; 64], data: &[u8]) {
+    fn step_preauth_hash(prev: &mut [u8; 64], raw: &NetBiosTcpMessage) {
         let mut hasher = Sha512::new();
         hasher.update(&prev);
-        hasher.update(data);
+        hasher.update(&raw.content);
         // finalize into prev:
-        prev.copy_from_slice(dbg!(&hasher.finalize()));
+        prev.copy_from_slice(&hasher.finalize());
     }
 
     pub fn authenticate(
@@ -299,17 +294,17 @@ impl SMBClient {
             username: Username::new(&user_name, Some("WORKGROUP"))?,
             password: Secret::new(password),
         };
-        let (authenticator, next_buf) =
+        let (mut authenticator, next_buf) =
             GssAuthenticator::build(&negotate_state.gss_negotiate_token, identity)?;
         
         // Preauth integrity hash, updated through the authentication process.
-        let mut preauth_hash_current = self.negotiate_state.get().ok_or("No negotiate state!")?.negotiate_preauth_integrity_hash_value.clone();
+        let mut preauth_integrity_hash = self.negotiate_state.get().ok_or("No negotiate state!")?.negotiate_preauth_integrity_hash_value.clone();
 
-        let request = NetBiosTcpMessage::build(self.content_to_message(SMBMessageContent::SMBSessionSetupRequest(
+        let request = self.content_to_message(SMBMessageContent::SMBSessionSetupRequest(
             SMB2SessionSetupRequest::new(next_buf),
-        ))?)?;
-        Self::step_preauth_hash(&mut preauth_hash_current, &request.message);
-        self.send_message_bytes(&request.to_bytes()?)?;
+        ))?;
+        Self::step_preauth_hash(&mut preauth_integrity_hash, &request);
+        self.send_raw(request)?;
         // response hash is processed later, in the loop.
         let response_raw = self.recieve_smb2_raw()?;
         let response = self.process_smb2(&response_raw, SMB2Command::SessionSetup, false)?;
@@ -317,10 +312,9 @@ impl SMBClient {
             return Err("Expected STATUS_MORE_PROCESSING_REQUIRED".into());
         }
         self.session_id = response.header.session_id;
-        self.authenticator = Some(authenticator);
 
         let mut response = Some((response, response_raw));
-        while !self.authenticator.as_ref().unwrap().is_authenticated()? {
+        while !authenticator.is_authenticated()? {
             // If there's a response to process, do so.
             let last_setup_response = match response.as_ref() {
                 Some(response) => Some(
@@ -335,29 +329,37 @@ impl SMBClient {
 
             let next_buf = match last_setup_response.as_ref() {
                 Some(response) => {
-                    self.authenticator.as_mut().unwrap().next(&response.buffer)?
+                    authenticator.next(&response.buffer)?
                 },
-                None => self.authenticator.as_mut().unwrap().next(&vec![])?,
+                None => authenticator.next(&vec![])?,
             };
 
             response = match next_buf {
                 Some(next_buf) => {
                     // We'd like to update preauth hash with the last request before accept.
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
-                    Self::step_preauth_hash(&mut preauth_hash_current, &response.unwrap().1.content);
+                    Self::step_preauth_hash(&mut preauth_integrity_hash, &response.unwrap().1);
                     let request = SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(
                         next_buf,
                     ));
-                    let request = NetBiosTcpMessage::build(self.content_to_message(request)?)?;
-                    Self::step_preauth_hash(&mut preauth_hash_current, &request.message);
-                    self.preauth_integrity_hash_value = preauth_hash_current; //////// .....:)
-                    self.send_message_bytes(&request.to_bytes()?)?;
+                    let request = self.content_to_message(request)?;
+                    Self::step_preauth_hash(&mut preauth_integrity_hash, &request);
+                    self.send_raw(request)?;
                     let response_raw = self.recieve_smb2_raw()?;
+
+                    // Keys exchanged? We can set-up the session!
+                    if authenticator.keys_exchanged() {
+                        // Derive keys and set-up the final session.
+                        let ntlm_key = authenticator.session_key()?.to_vec();
+                        self.session = Some(SMBSession::build(&ntlm_key, preauth_integrity_hash)?);
+                    }
+
                     Some((self.process_smb2(&response_raw, SMB2Command::SessionSetup, false)?, response_raw))
                 },
                 None => None,
             };
         }
+
         Ok(())
     }
 
@@ -372,63 +374,6 @@ impl SMBClient {
         }.unwrap();
 
         Ok(SMBTree::new(response.header.tree_id))
-    }
-
-    // fn generate_message_signature(&self, smb_message: &mut SMB2Message) -> Result<(), Box<dyn Error>> {
-    //     // Set the signature value to 0 before proceeding with the calculation.
-    //     smb_message.header.signature = 0;
-    //     // get the bytes of the destination message.
-    //     let mut writer = Cursor::new(Vec::new());
-    //     smb_message.write(&mut writer)?;
-    //     let data = writer.into_inner();
-
-    //     // Nonce is message_id + NonceSuffixFlags
-    //     let nonce_suffix = NonceSuffixFlags::new().with_is_server(false).with_is_cancel(smb_message.header.command == SMB2Command::Cancel);
-
-    //     dbg!(&smb_message.header.message_id, &nonce_suffix);
-    //     let mut nonce: [u8; 12] = [0; 12];
-    //     nonce[0..8].copy_from_slice(&smb_message.header.message_id.to_be_bytes());
-    //     nonce[8..12].copy_from_slice(&nonce_suffix.into_bytes());
-
-    //     let key = self.authenticator.as_ref().unwrap().session_key()?;
-    //     let cipher = Aes128Gcm::new(&key.into());
-    //     let ciphertext = cipher.encrypt(&nonce.into(), data.as_ref())?;
-    //     assert!(ciphertext.len() == data.len() + size_of::<u128>());
-    //     // The end of the ciphertext is the signature. Get those last 16 bytes as u128.
-    //     let signature = u128::from_le_bytes(ciphertext[data.len()..].try_into().unwrap());
-    //     smb_message.header.signature = signature;
-    //     Ok(())
-    // }
-
-    fn verify_message_signature(&self, smb_message: &mut SMB2Message, preauth_integrity_hash: [u8; 64], raw_message: &RawNetBiosMessage) -> Result<(), Box<dyn Error>> {
-        let ntlm_key = self.authenticator.as_ref().unwrap().session_key()?.to_vec();
-        dbg!(&ntlm_key);
-        let session = SMBSession::build(&ntlm_key, preauth_integrity_hash)?;
-        let key = session.session_key();
-        // The same just to verify in the other way.
-        let msg_signature = smb_message.header.signature;
-        smb_message.header.signature = 0;
-        let mut writer = Cursor::new(Vec::new());
-        smb_message.header.write(&mut writer)?;
-        let mut data = raw_message.content.clone();
-        // fill in patched header:
-        data[0..writer.position() as usize].copy_from_slice(&writer.into_inner());
-        dbg!(&raw_message.content, &data);
-
-        let nonce_suffix = NonceSuffixFlags::new().with_is_server(false).with_is_cancel(smb_message.header.command == SMB2Command::Cancel);
-        let mut nonce: [u8; 12] = [0; 12];
-        nonce[0..8].copy_from_slice(&smb_message.header.message_id.to_be_bytes());
-        nonce[8..12].copy_from_slice(&nonce_suffix.into_bytes());
-        dbg!(&nonce, &key);
-
-        let mut cipher = Cmac::<Aes128>::new_from_slice(key).unwrap();
-        cipher.update(data.as_ref());
-
-        let calculated_signature = u128::from_le_bytes(cipher.finalize().into_bytes().into());
-        if calculated_signature != msg_signature {
-            return Err(format!("Invalid signature {:#02x} not {:#02x}", msg_signature, calculated_signature).into());
-        };
-        Ok(())
     }
 }
 

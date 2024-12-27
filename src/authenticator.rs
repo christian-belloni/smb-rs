@@ -1,5 +1,5 @@
 use std::error::Error;
-use der::{AnyRef, Tag, TagNumber, Tagged};
+use der::{AnyRef, Tagged};
 use der::{asn1::OctetStringRef, Decode, Encode, oid::ObjectIdentifier};
 use gss_api::negotiation::*;
 use gss_api::InitialContextToken;
@@ -47,7 +47,6 @@ impl GssAuthenticator {
         if token.this_mech != SPENGO_OID {
             return Err("Unexpected mechanism".into());
         }
-        dbg!(token.inner_context_token.tag());
         let der_of_inner = token.inner_context_token.to_der()?;
         let inner_spengo_val = NegotiationToken::from_der(&der_of_inner)?;
         let inner_spengo = match inner_spengo_val {
@@ -130,6 +129,10 @@ impl GssAuthenticator {
 
     pub fn session_key(&self) -> Result<[u8; 16], Box<dyn Error>> {
         self.auth_session.session_key()
+    }
+
+    pub fn keys_exchanged(&self) -> bool {
+        self.auth_session.session_key().is_ok()
     }
 
 }

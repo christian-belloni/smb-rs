@@ -32,11 +32,11 @@ pub enum SMB2Status {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[brw(magic(b"\xfeSMB"), little)]
 pub struct SMB2MessageHeader {
-    #[bw(calc = 64)]
-    #[br(assert(_structure_size == 64))]
+    #[bw(calc = Self::STRUCT_SIZE as u16)]
+    #[br(assert(_structure_size == Self::STRUCT_SIZE as u16))]
     _structure_size: u16,
     pub credit_charge: u16,
     pub status: u32,
@@ -51,6 +51,10 @@ pub struct SMB2MessageHeader {
     pub signature: u128
 }
 
+impl SMB2MessageHeader {
+    pub const STRUCT_SIZE: usize = 64;
+}
+
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
@@ -60,8 +64,10 @@ pub struct SMB2HeaderFlags {
     pub related_operations: bool,
     pub signed: bool,
     pub priority_mask: B3,
+    #[allow(non_snake_case)]
     _reserved1: B21,
     pub dfs_operations: bool,
     pub replay_operation: bool,
+    #[allow(non_snake_case)]
     _reserved2: B2,
 }

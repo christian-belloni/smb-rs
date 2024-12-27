@@ -81,3 +81,13 @@ impl Default for PosMarker3Byte
         }
     }
 }
+
+impl From<u32> for PosMarker3Byte
+{
+    fn from(value: u32) -> Self {
+        Self {
+            pos: core::cell::Cell::new(0),
+            value
+        }
+    }
+}

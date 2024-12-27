@@ -21,12 +21,12 @@ pub struct SMB2TreeConnectRequest {
     structure_size: u16,
     pub flags: SMB2TreeConnectRquestFlags,
     #[bw(calc = PosMarker::default())]
-    path_offset: PosMarker<u16>,
+    _path_offset: PosMarker<u16>,
     #[bw(try_calc(buffer.len().try_into()))]
     path_length: u16,
     // TODO: Support extension
     #[br(count = path_length)]
-    #[bw(write_with= PosMarker::write_and_fill_start_offset, args(&path_offset))]
+    #[bw(write_with= PosMarker::write_and_fill_start_offset, args(&_path_offset))]
     pub buffer: Vec<u8>
 }
 

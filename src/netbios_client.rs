@@ -5,56 +5,42 @@ use binrw::io::NoSeek;
 
 use crate::packets::netbios::{NetBiosTcpMessage, NetBiosMessageContent, NetBiosTcpMessageHeader};
 
-/// Describes an unparsed NetBios message.
-pub struct RawNetBiosMessage {
-    pub header: NetBiosTcpMessageHeader, 
-    pub content: Vec<u8>
-}
-
-impl RawNetBiosMessage {
-    pub fn parse(&self) -> Result<NetBiosMessageContent, Box<dyn std::error::Error>> {
-        assert!(self.header.stream_protocol_length.value == self.content.len() as u32);
-        Ok(NetBiosMessageContent::try_from(self.content.as_slice())?)
-    }
-}
-
-
 pub struct NetBiosClient {
-    session: Option<TcpStream>
+    connection: Option<TcpStream>
 }
 
 impl NetBiosClient {
     pub fn new() -> NetBiosClient {
         NetBiosClient {
-            session: None
+            connection: None
         }
     }
 
     /// Connects to a NetBios server in the specified address.
     pub fn connect(&mut self, address: &str) -> Result<(), Box<dyn std::error::Error>> {
-        self.session = Some(TcpStream::connect(address)?);
+        self.connection = Some(TcpStream::connect(address)?);
         Ok(())
     }
 
     /// Sends a NetBios message.
     pub fn send(&mut self, data: NetBiosMessageContent) -> Result<(), Box<dyn std::error::Error>> {
-        let netbios_message_bytes: Vec<u8> = NetBiosTcpMessage::build(data)?.to_bytes()?;
-        self.send_bytes(&netbios_message_bytes)
+        let raw_message = NetBiosTcpMessage::build(&data)?;
+        self.send_raw(raw_message)
     }
 
     /// Sends a raw byte array of a NetBios message.
-    pub fn send_bytes(&mut self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn send_raw(&mut self, data: NetBiosTcpMessage) -> Result<(), Box<dyn std::error::Error>> {
         // TODO(?): assert data is a valid and not-too-large NetBios message.
-        self.session.as_ref()
+        self.connection.as_ref()
             .ok_or("NetBiosClient is not connected")?
-            .write_all(data)?;
+            .write_all(&data.to_bytes()?)?;
 
         Ok(())
     }
 
     // Recieves and parses a NetBios message header, without parsing the message data.
-    pub fn recieve_bytes(&mut self) -> Result<RawNetBiosMessage, Box<dyn std::error::Error>> {
-        let mut tcp = self.session.as_ref()
+    pub fn recieve_bytes(&mut self) -> Result<NetBiosTcpMessage, Box<dyn std::error::Error>> {
+        let mut tcp = self.connection.as_ref()
             .ok_or("NetBiosClient is not connected")?;
         
         // Recieve header.
@@ -68,6 +54,6 @@ impl NetBiosClient {
         let mut data = vec![0; header.stream_protocol_length.value as usize];
         tcp.read_exact(&mut data)?;
 
-        Ok(RawNetBiosMessage { header, content: data })
+        Ok(NetBiosTcpMessage { content: data })
     }
 }

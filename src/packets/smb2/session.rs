@@ -14,12 +14,12 @@ pub struct SMB2SessionSetupRequest {
     pub capabilities: u32,
     pub channel: u32,
     #[bw(calc = PosMarker::default())]
-    security_buffer_offset: PosMarker<u16>,
+    _security_buffer_offset: PosMarker<u16>,
     #[bw(calc = u16::try_from(buffer.len()).unwrap())]
     security_buffer_length: u16,
     pub previous_session_id: u64,
     #[br(count = security_buffer_length)]
-    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&security_buffer_offset))]
+    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_security_buffer_offset))]
     pub buffer: Vec<u8>
 }
 
