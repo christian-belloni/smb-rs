@@ -1,7 +1,7 @@
 // use aes_gcm::{aead::Aead, Aes128Gcm, KeyInit};
 use binrw::prelude::*;
 use aes::{Aes128};
-use ccm::{aead::{Aead, generic_array::GenericArray}, consts::{U11, U16}, Ccm, KeyInit};
+use cmac::{Cmac, Mac};
 use modular_bitfield::prelude::*;
 use rand::Rng;
 use sha2::{Sha512, Digest};
@@ -401,8 +401,9 @@ impl SMBClient {
     // }
 
     fn verify_message_signature(&self, smb_message: &mut SMB2Message, preauth_integrity_hash: [u8; 64], raw_message: &RawNetBiosMessage) -> Result<(), Box<dyn Error>> {
-        let key = self.authenticator.as_ref().unwrap().session_key()?.to_vec();
-        let session = SMBSession::build(&key, preauth_integrity_hash)?;
+        let ntlm_key = self.authenticator.as_ref().unwrap().session_key()?.to_vec();
+        dbg!(&ntlm_key);
+        let session = SMBSession::build(&ntlm_key, preauth_integrity_hash)?;
         let key = session.session_key();
         // The same just to verify in the other way.
         let msg_signature = smb_message.header.signature;
@@ -418,17 +419,14 @@ impl SMBClient {
         let mut nonce: [u8; 12] = [0; 12];
         nonce[0..8].copy_from_slice(&smb_message.header.message_id.to_be_bytes());
         nonce[8..12].copy_from_slice(&nonce_suffix.into_bytes());
-        dbg!(&nonce);
+        dbg!(&nonce, &key);
 
-        type Aes128Ccm = Ccm<Aes128, U16, U11>;
-        let cipher = Aes128Ccm::new(key.into());
-        
-        let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), data.as_ref())?;
-        assert!(ciphertext.len() == data.len() + size_of::<u128>());
-        dbg!(&ciphertext);
-        let signature = u128::from_le_bytes(ciphertext[data.len()..].try_into().unwrap());
-        if signature != msg_signature {
-            return Err(format!("Invalid signature {:#02x} not {:#02x}", msg_signature, signature).into());
+        let mut cipher = Cmac::<Aes128>::new_from_slice(key).unwrap();
+        cipher.update(data.as_ref());
+
+        let calculated_signature = u128::from_le_bytes(cipher.finalize().into_bytes().into());
+        if calculated_signature != msg_signature {
+            return Err(format!("Invalid signature {:#02x} not {:#02x}", msg_signature, calculated_signature).into());
         };
         Ok(())
     }

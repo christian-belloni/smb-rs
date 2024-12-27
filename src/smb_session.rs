@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{borrow::BorrowMut, cell::RefCell, error::Error, ops::DerefMut};
 
 use hmac::{digest::typenum, Hmac, Mac};
 use rust_kbkdf::{kbkdf, CounterMode, InputType, KDFMode, PseudoRandomFunction, PseudoRandomFunctionKey, SpecifiedInput};
@@ -45,10 +45,12 @@ impl SMBSession {
             context,
         });
 
+        dbg!("KDF Input: {:?} Master key: {}", &input, key.key_handle(), );
+
         let mut output = vec![0; 128 / 8];
         kbkdf(&mode, &input, &key, &mut prf, &mut output)?;
 
-        Ok(output)
+        Ok(dbg!(output))
     }
 }
 
@@ -83,18 +85,21 @@ impl PseudoRandomFunction<'_> for HmacSha256Prf {
         key: &'_ dyn PseudoRandomFunctionKey<KeyHandle = Self::KeyHandle>,
     ) -> Result<(), Self::Error> {
         assert!(self.hmac.is_none());
+        dbg!(key.key_handle());
         self.hmac = Some(HmacSha256::new_from_slice(key.key_handle()).unwrap());
         Ok(())
     }
 
     fn update(&mut self, msg: &[u8]) -> Result<(), Self::Error> {
         self.hmac.as_mut().unwrap().update(msg);
+        dbg!("Update {}", msg);
         Ok(())
     }
 
     fn finish(&mut self, out: &mut [u8]) -> Result<usize, Self::Error> {
         let result = self.hmac.take().unwrap().finalize().into_bytes();
         out.copy_from_slice(&result);
+        dbg!(&result);
         Ok(result.len())
     }
 }
