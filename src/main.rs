@@ -3,6 +3,7 @@ use smb::smb_client::SMBClient;
 
 
 fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
     let mut smb = SMBClient::new();
     smb.connect("172.16.204.129:445")?;
     smb.negotiate()?;

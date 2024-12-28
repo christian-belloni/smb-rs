@@ -28,7 +28,7 @@ impl SMBSession {
     }
 
     pub fn setup(&mut self, user_name: String, password: String) -> Result<(), Box<dyn Error>> {
-
+        log::debug!("Setting up session for user {}.", user_name);
         // Build the authenticator.
         let (mut authenticator, next_buf) = {
             let handler = self
@@ -105,6 +105,7 @@ impl SMBSession {
                 None => None,
             };
         };
+        log::info!("Session setup complete.");
         Ok(())
     }
 
@@ -122,6 +123,7 @@ impl SMBSession {
             exchanged_session_key,
             preauth_integrity_hash,
         )?);
+        log::debug!("Session signing key set.");
         Ok(())
     }
 
@@ -130,8 +132,7 @@ impl SMBSession {
     }
 
     fn make_signer(&self) -> Result<SMBSigner, Box<dyn Error>> {
-
-        if self.is_set_up() {
+        if !self.is_set_up() {
             debug_assert!(self.signing_key.is_some());
             return Err("Signing key is not set -- you must succeed a setup() to continue.".into());
         }
@@ -222,6 +223,7 @@ impl SMBSigner {
         if calculated_signature != header.signature {
             return Err("Signature verification failed".into());
         }
+        log::debug!("Signature verification passed (signature={}).", header.signature);
         Ok(())
     }
 

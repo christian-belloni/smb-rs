@@ -63,6 +63,7 @@ impl Default for PreauthHashState {
     }
 }
 
+#[derive(Debug)]
 pub struct SmbNegotiateState {
     server_guid: u128,
 
@@ -113,10 +114,13 @@ impl SMBClient {
     }
 
     pub fn connect(&mut self, address: &str) -> Result<(), Box<dyn Error>> {
-        self.handler.borrow_mut().netbios_client.connect(address)
+        self.handler.borrow_mut().netbios_client.connect(address)?;
+        log::info!("Connected to {}", address);
+        Ok(())
     }
 
     fn negotiate_smb1(&mut self) -> Result<(), Box<dyn Error>> {
+        log::debug!("Negotiating SMB1");
         // 1. Send SMB1 negotiate request
         self.handler
             .borrow_mut()
@@ -141,6 +145,7 @@ impl SMBClient {
     }
 
     fn negotiate_smb2(&mut self) -> Result<(), Box<dyn Error>> {
+        log::debug!("Negotiating SMB2");
         // Start preauth hash.
         self.handler.borrow_mut().preauth_hash = Some(PreauthHashState::default());
 
@@ -204,6 +209,7 @@ impl SMBClient {
             gss_negotiate_token: smb2_negotiate_response.buffer,
             selected_dialect: smb2_negotiate_response.dialect_revision.try_into()?,
         };
+        log::debug!("Negotiated SMB results: dialect={:?}, state={:?}", negotiate_state.selected_dialect, &negotiate_state);
 
         self.handler
             .borrow_mut()
@@ -216,7 +222,9 @@ impl SMBClient {
 
     pub fn negotiate(&mut self) -> Result<(), Box<dyn Error>> {
         self.negotiate_smb1()?;
-        self.negotiate_smb2()
+        self.negotiate_smb2()?;
+        log::info!("Negotiation successful");
+        Ok(())
     }
 
     pub fn authenticate(
