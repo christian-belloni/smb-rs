@@ -1,39 +1,119 @@
 use binrw::prelude::*;
-use std::{error::Error, cell::RefCell, io::Cursor};
+use sspi::{AuthIdentity, Secret, Username};
+use std::{cell::OnceCell, error::Error, io::Cursor};
 
 use crate::{
-    msg_handler::{IncomingSMBMessage, OutgoingSMBMessage, SMBMessageHandler},
-    packets::{
+    authenticator::GssAuthenticator, msg_handler::{IncomingSMBMessage, OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler, SendMessageResult}, packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
-            header::{SMB2MessageHeader, SMB2Status}, message::{SMB2Message, SMBMessageContent}, negotiate::SigningAlgorithmId, tree::SMB2TreeConnectRequest,
+            header::{SMB2MessageHeader, SMB2Status}, message::{SMB2Message, SMBMessageContent}, negotiate::SigningAlgorithmId, session::SMB2SessionSetupRequest, tree::SMB2TreeConnectRequest
         },
-    },
-    smb_crypto::{SMBCrypto, SMBSigningAlgo},
-    smb_tree::SMBTree,
+    }, smb_client::SMBClientMessageHandler, smb_crypto::{SMBCrypto, SMBSigningAlgo}, smb_tree::SMBTree
 };
 
-pub struct SMBSession<'a> {
-    session_id: u64,
+pub struct SMBSession {
+    session_id: OnceCell<u64>,
     signing_key: Option<[u8; 16]>,
 
-    upstream: RefCell<&'a dyn SMBMessageHandler>,
+    upstream: SMBHandlerReference<SMBClientMessageHandler>
 }
 
-impl SMBSession<'_> {
-    pub fn new<'a>(session_id: u64, upstream: RefCell<&'a dyn SMBMessageHandler>) -> SMBSession {
+impl SMBSession {
+    pub fn new(upstream: SMBHandlerReference<SMBClientMessageHandler>) -> SMBSession {
         SMBSession {
-            session_id,
+            session_id: OnceCell::default(),
             signing_key: None,
             upstream
         }
     }
 
-    pub fn session_id(&self) -> u64 {
-        self.session_id
+    pub fn setup(&mut self, user_name: String, password: String) -> Result<(), Box<dyn Error>> {
+
+        // Build the authenticator.
+        let (mut authenticator, next_buf) = {
+            let handler = self
+                .upstream
+                .borrow();
+            let negotate_state = handler
+                .negotiate_state()
+                .unwrap();
+            let identity = AuthIdentity {
+                username: Username::new(&user_name, Some("WORKGROUP"))?,
+                password: Secret::new(password),
+            };
+            GssAuthenticator::build(negotate_state.get_gss_token(), identity)?
+        };
+
+        let request = OutgoingSMBMessage::new(SMB2Message::new(
+            SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
+        ));
+        self.send(request)?;
+        // response hash is processed later, in the loop.
+        let response = self.receive()?;
+        if response.message.header.status != SMB2Status::MoreProcessingRequired as u32 {
+            return Err("Expected STATUS_MORE_PROCESSING_REQUIRED".into());
+        }
+
+        // Set session id.
+        self.session_id.set(response.message.header.session_id).map_err(|_| "Session ID already set!")?;
+
+        let mut response = Some(response);
+        while !authenticator.is_authenticated()? {
+            // If there's a response to process, do so.
+            let last_setup_response = match response.as_ref() {
+                Some(response) => Some(
+                    match &response.message.content {
+                        SMBMessageContent::SMBSessionSetupResponse(response) => Some(response),
+                        _ => None,
+                    }
+                    .unwrap(),
+                ),
+                None => None,
+            };
+
+            let next_buf = match last_setup_response.as_ref() {
+                Some(response) => authenticator.next(&response.buffer)?,
+                None => authenticator.next(&vec![])?,
+            };
+
+            response = match next_buf {
+                Some(next_buf) => {
+                    // We'd like to update preauth hash with the last request before accept.
+                    // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
+                    let mut request = OutgoingSMBMessage::new(SMB2Message::new(
+                        SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(
+                            next_buf,
+                        )),
+                    ));
+                    request.finalize_preauth_hash = true;
+                    self.send(request)?;
+
+                    // Keys exchanged? We can set-up the session!
+                    if authenticator.keys_exchanged() && !self.is_set_up() {
+                        // Derive keys and set-up the final session.
+                        let ntlm_key = authenticator.session_key()?.to_vec();
+                        // Lock preauth hash, we're done with it.
+                        let hash = self.upstream.borrow_mut().finalize_preauth_hash();
+                        // Derive signing key, and set-up the session.
+                        self.key_setup(&ntlm_key, hash)?;
+                    }
+
+                    let response = self.receive()?;
+
+                    Some(response)
+                }
+                None => None,
+            };
+        };
+        Ok(())
     }
 
-    pub fn setup(
+    pub fn session_id(&self) -> u64 {
+        // TODO: w/ Error flow.
+        *self.session_id.get().unwrap()
+    }
+
+    pub fn key_setup(
         &mut self,
         exchanged_session_key: &Vec<u8>,
         preauth_integrity_hash: [u8; 64],
@@ -99,19 +179,19 @@ impl SMBSession<'_> {
     }
 }
 
-impl SMBMessageHandler for SMBSession<'_> {
-    fn send(&mut self, mut msg: OutgoingSMBMessage) -> Result<(), Box<dyn std::error::Error>> {
+impl SMBMessageHandler for SMBSession {
+    fn send(&mut self, mut msg: OutgoingSMBMessage) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
         // Set signing configuration. Upstream handler shall take care of the rest.
         if self.signing_enabled() && self.is_set_up() {
+            msg.message.header.flags.set_signed(true);
             msg.signer = Some(self.make_signer()?);
         }
-        msg.message.header.session_id = self.session_id;
-        let mut dm = (&mut *self.upstream.borrow_mut()).send(msg)?;
-        Ok(())
+        msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
+        self.upstream.borrow_mut().send(msg)
     }
 
     fn receive(&mut self) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
-        let mut incoming = self.upstream.borrow().receive()?;
+        let mut incoming = self.upstream.borrow_mut().receive()?;
         // TODO: check whether this is the correct case to do such a thing.
         if self.signing_enabled() && self.is_set_up() {
             // Skip authentication is message ID is -1 or status is pending.

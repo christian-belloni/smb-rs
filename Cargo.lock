@@ -1789,6 +1789,7 @@ dependencies = [
  "der",
  "gss-api",
  "hmac",
+ "log",
  "modular-bitfield",
  "rand",
  "rust-kbkdf",
