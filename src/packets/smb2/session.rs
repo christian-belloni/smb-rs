@@ -52,7 +52,7 @@ pub struct SMB2SessionSetupResponse {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SMB2LogoffRequest {
     #[bw(calc = 4)]
     #[br(assert(structure_size == 4))]

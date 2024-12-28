@@ -32,7 +32,7 @@ pub struct SMB2TreeConnectRequest {
 }
 
 impl SMB2TreeConnectRequest {
-    pub fn new(name: String) -> SMB2TreeConnectRequest {
+    pub fn new(name: &String) -> SMB2TreeConnectRequest {
         SMB2TreeConnectRequest {
             flags: SMB2TreeConnectRquestFlags::new(),
             buffer: name.encode_utf16().collect(),
@@ -118,4 +118,26 @@ pub enum SMB2TreeConnectShareType {
     Disk,
     Pipe,
     Print,
+}
+
+#[binrw::binrw]
+#[derive(Debug, Default)]
+pub struct SMB2TreeDisconnectRequest {
+    #[bw(calc = 4)]
+    #[br(assert(structure_size == 4))]
+    structure_size: u16,
+    #[bw(calc = 0)]
+    #[br(assert(reserved == 0))]
+    reserved: u16
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct SMB2TreeDisconnectResponse {
+    #[bw(calc = 4)]
+    #[br(assert(structure_size == 4))]
+    structure_size: u16,
+    #[bw(calc = 0)]
+    #[br(assert(reserved == 0))]
+    reserved: u16
 }

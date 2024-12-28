@@ -3,37 +3,34 @@ use core::panic;
 use modular_bitfield::prelude::*;
 use rand::Rng;
 use sha2::{Digest, Sha512};
-use sspi::{AuthIdentity, Secret, Username};
-use std::{
-    cell::OnceCell,
-    error::Error,
-    fmt::Display,
-};
+use std::{cell::OnceCell, error::Error, fmt::Display};
 
 use crate::{
-    authenticator::GssAuthenticator,
-    msg_handler::{IncomingSMBMessage, OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler, SendMessageResult},
+    msg_handler::{
+        IncomingSMBMessage, OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler,
+        SendMessageResult,
+    },
     netbios_client::NetBiosClient,
     packets::{
         netbios::{NetBiosMessageContent, NetBiosTcpMessage},
         smb1::SMB1NegotiateMessage,
         smb2::{
-            header::SMB2Status,
             message::{SMB2Message, SMBMessageContent},
             negotiate::{
                 HashAlgorithm, SMBDialect, SMBNegotiateContextType, SMBNegotiateContextValue,
                 SMBNegotiateRequest, SMBNegotiateResponseDialect, SigningAlgorithmId,
             },
-            session::SMB2SessionSetupRequest,
         },
     },
     smb_session::SMBSession,
 };
 
+pub type PreauthHashValue = [u8; 64];
+
 #[derive(Debug, Clone)]
 pub enum PreauthHashState {
-    InProgress([u8; 64]),
-    Finished([u8; 64]),
+    InProgress(PreauthHashValue),
+    Finished(PreauthHashValue),
 }
 
 impl PreauthHashState {
@@ -53,6 +50,13 @@ impl PreauthHashState {
         match self {
             PreauthHashState::InProgress(hash) => PreauthHashState::Finished(hash),
             _ => panic!("Preauth hash not started"),
+        }
+    }
+
+    pub fn unwrap_final_hash(self) -> PreauthHashValue {
+        match self {
+            PreauthHashState::Finished(hash) => hash,
+            _ => panic!("Preauth hash not finished"),
         }
     }
 }
@@ -209,7 +213,11 @@ impl SMBClient {
             gss_negotiate_token: smb2_negotiate_response.buffer,
             selected_dialect: smb2_negotiate_response.dialect_revision.try_into()?,
         };
-        log::debug!("Negotiated SMB results: dialect={:?}, state={:?}", negotiate_state.selected_dialect, &negotiate_state);
+        log::trace!(
+            "Negotiated SMB results: dialect={:?}, state={:?}",
+            negotiate_state.selected_dialect,
+            &negotiate_state
+        );
 
         self.handler
             .borrow_mut()
@@ -232,20 +240,11 @@ impl SMBClient {
         user_name: String,
         password: String,
     ) -> Result<SMBSession, Box<dyn Error>> {
-
-        let mut session = SMBSession::new(
-            self.handler.clone(),
-        );
+        let mut session = SMBSession::new(self.handler.clone());
 
         session.setup(user_name, password)?;
 
         Ok(session)
-    }
-}
-
-impl Drop for SMBClient {
-    fn drop(&mut self) {
-        // TODO: - Close any trees open & logoff before closing the TCP stream.
     }
 }
 
@@ -284,7 +283,7 @@ impl SMBClientMessageHandler {
         }
     }
 
-    pub fn finalize_preauth_hash(&mut self) -> [u8; 64] {
+    pub fn finalize_preauth_hash(&mut self) -> PreauthHashValue {
         self.preauth_hash = Some(self.preauth_hash.take().unwrap().finish());
         match self.preauth_hash.take().unwrap() {
             PreauthHashState::Finished(hash) => hash,
@@ -298,7 +297,10 @@ impl SMBClientMessageHandler {
 }
 
 impl SMBMessageHandler for SMBClientMessageHandler {
-    fn send(&mut self, mut msg: OutgoingSMBMessage) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
+    fn send(
+        &mut self,
+        mut msg: OutgoingSMBMessage,
+    ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
         self.current_message_id += 1;
         // TODO: Add assertion in the struct regarding the selected dialect!
         let priority_value = match self.negotiate_state.get() {
@@ -324,10 +326,14 @@ impl SMBMessageHandler for SMBClientMessageHandler {
         };
 
         self.step_preauth_hash(&raw_message_result);
+        let hash = match msg.finalize_preauth_hash {
+            true => Some(self.finalize_preauth_hash()),
+            false => None,
+        };
 
         self.netbios_client.send_raw(raw_message_result)?;
 
-        Ok(SendMessageResult::new(self.preauth_hash.clone()))
+        Ok(SendMessageResult::new(hash.clone()))
     }
 
     fn receive(&mut self) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
@@ -352,7 +358,7 @@ impl SMBMessageHandler for SMBClientMessageHandler {
         // }
         Ok(IncomingSMBMessage {
             message: smb2_message,
-            raw
+            raw,
         })
     }
 }

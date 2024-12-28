@@ -29,6 +29,12 @@ pub enum SMBMessageContent {
     SMBTreeConnectRequest(tree::SMB2TreeConnectRequest),
     #[br(pre_assert(smb_command == &SMB2Command::TreeConnect && flags_server_to_redir))]
     SMBTreeConnectResponse(tree::SMB2TreeConnectResponse),
+
+    // tree disconnect
+    #[br(pre_assert(smb_command == &SMB2Command::TreeDisconnect && !flags_server_to_redir))]
+    SMBTreeDisconnectRequest(tree::SMB2TreeDisconnectRequest),
+    #[br(pre_assert(smb_command == &SMB2Command::TreeDisconnect && flags_server_to_redir))]
+    SMBTreeDisconnectResponse(tree::SMB2TreeDisconnectResponse),
 }
 
 impl SMBMessageContent {
@@ -39,6 +45,7 @@ impl SMBMessageContent {
             SMBSessionSetupRequest(_) | SMBSessionSetupResponse(_)  => SMB2Command::SessionSetup,
             SMBLogoffRequest(_) | SMBLogoffResponse(_) => SMB2Command::Logoff,
             SMBTreeConnectRequest(_) | SMBTreeConnectResponse(_) => SMB2Command::TreeConnect,
+            SMBTreeDisconnectRequest(_) | SMBTreeDisconnectResponse(_) => SMB2Command::TreeDisconnect,
         }
     }
 }
