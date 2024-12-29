@@ -1,8 +1,7 @@
-use binrw::prelude::*;
 use binrw::io::SeekFrom;
+use binrw::prelude::*;
 
 use crate::pos_marker::PosMarker;
-
 
 #[binrw::binrw]
 #[derive(Debug)]
@@ -32,11 +31,15 @@ pub struct SMBNegotiateRequest {
     #[brw(if(dialects.contains(&SMBDialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
-    pub negotiate_context_list: Option<Vec<SMBNegotiateContext>>
+    pub negotiate_context_list: Option<Vec<SMBNegotiateContext>>,
 }
 
 impl SMBNegotiateRequest {
-    pub fn new(client_guid: u128) -> SMBNegotiateRequest {
+    pub fn new(
+        client_netname: String,
+        client_guid: u128,
+        signing_algorithms: Vec<SigningAlgorithmId>,
+    ) -> SMBNegotiateRequest {
         SMBNegotiateRequest {
             security_mode: 0x1,
             capabilities: 0x7f,
@@ -46,7 +49,7 @@ impl SMBNegotiateRequest {
                 SMBDialect::Smb021,
                 SMBDialect::Smb030,
                 SMBDialect::Smb0302,
-                SMBDialect::Smb0311
+                SMBDialect::Smb0311,
             ],
             negotiate_context_list: Some(vec![
                 SMBNegotiateContext {
@@ -56,9 +59,9 @@ impl SMBNegotiateRequest {
                     data: SMBNegotiateContextValue::PreauthIntegrityCapabilities(
                         PreauthIntegrityCapabilities {
                             hash_algorithms: vec![HashAlgorithm::Sha512],
-                            salt: (0..32).map(|_| rand::random::<u8>()).collect()
-                        }
-                    )
+                            salt: (0..32).map(|_| rand::random::<u8>()).collect(),
+                        },
+                    ),
                 },
                 SMBNegotiateContext {
                     context_type: SMBNegotiateContextType::EncryptionCapabilities,
@@ -71,10 +74,10 @@ impl SMBNegotiateRequest {
                                 EncryptionCapabilitiesCipher::Aes128Ccm,
                                 EncryptionCapabilitiesCipher::Aes128Gcm,
                                 EncryptionCapabilitiesCipher::Aes256Ccm,
-                                EncryptionCapabilitiesCipher::Aes256Gcm
-                            ]
-                        }
-                    )
+                                EncryptionCapabilitiesCipher::Aes256Gcm,
+                            ],
+                        },
+                    ),
                 },
                 SMBNegotiateContext {
                     context_type: SMBNegotiateContextType::CompressionCapabilities,
@@ -85,22 +88,17 @@ impl SMBNegotiateRequest {
                             compression_algorithm_count: 1,
                             padding: 0,
                             flags: 0,
-                            compression_algorithms: vec![0]
-                        }
-                    )
+                            compression_algorithms: vec![0],
+                        },
+                    ),
                 },
                 SMBNegotiateContext {
                     context_type: SMBNegotiateContextType::SigningCapabilities,
                     data_length: 6,
                     reserved: 0,
-                    data: SMBNegotiateContextValue::SigningCapabilities(
-                        SigningCapabilities {
-                            signing_algorithms: vec![
-                                // SigningAlgorithmId::AesGmac,
-                                SigningAlgorithmId::AesCmac
-                            ]
-                        }
-                    )
+                    data: SMBNegotiateContextValue::SigningCapabilities(SigningCapabilities {
+                        signing_algorithms,
+                    }),
                 },
                 SMBNegotiateContext {
                     context_type: SMBNegotiateContextType::NetnameNegotiateContextId,
@@ -108,12 +106,12 @@ impl SMBNegotiateRequest {
                     reserved: 0,
                     data: SMBNegotiateContextValue::NetnameNegotiateContextId(
                         NetnameNegotiateContextId {
-                            netname: binrw::NullWideString::from("AVIVVM")
-                        }
-                    )
-                }
+                            netname: binrw::NullWideString::from(client_netname),
+                        },
+                    ),
+                },
             ]),
-            negotiate_context_offset: PosMarker::default()
+            negotiate_context_offset: PosMarker::default(),
         }
     }
 }
@@ -146,7 +144,7 @@ pub struct SMBNegotiateResponse {
     #[brw(if(matches!(dialect_revision, SMBNegotiateResponseDialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
-    pub negotiate_context_list: Option<Vec<SMBNegotiateContext>>
+    pub negotiate_context_list: Option<Vec<SMBNegotiateContext>>,
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
@@ -156,7 +154,7 @@ pub enum SMBDialect {
     Smb021 = 0x0210,
     Smb030 = 0x0300,
     Smb0302 = 0x0302,
-    Smb0311 = 0x0311
+    Smb0311 = 0x0311,
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
@@ -180,7 +178,9 @@ impl TryFrom<SMBNegotiateResponseDialect> for SMBDialect {
             SMBNegotiateResponseDialect::Smb030 => Ok(SMBDialect::Smb030),
             SMBNegotiateResponseDialect::Smb0302 => Ok(SMBDialect::Smb0302),
             SMBNegotiateResponseDialect::Smb0311 => Ok(SMBDialect::Smb0311),
-            _ => Err("Negotiation Response dialect does not match a single, specific, SMB2 dialect!")
+            _ => {
+                Err("Negotiation Response dialect does not match a single, specific, SMB2 dialect!")
+            }
         }
     }
 }
@@ -193,7 +193,7 @@ pub struct SMBNegotiateContext {
     data_length: u16,
     reserved: u32,
     #[br(args(&context_type))]
-    pub data: SMBNegotiateContextValue
+    pub data: SMBNegotiateContextValue,
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
@@ -225,14 +225,14 @@ pub enum SMBNegotiateContextValue {
     #[br(pre_assert(context_type == &SMBNegotiateContextType::RdmaTransformCapabilities))]
     RdmaTransformCapabilities(RdmaTransformCapabilities),
     #[br(pre_assert(context_type == &SMBNegotiateContextType::SigningCapabilities))]
-    SigningCapabilities(SigningCapabilities)
+    SigningCapabilities(SigningCapabilities),
 }
 
 // u16 enum hash algorithms binrw 0x01 is sha512.
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
 pub enum HashAlgorithm {
-    Sha512 = 0x01
+    Sha512 = 0x01,
 }
 
 #[binrw::binrw]
@@ -245,14 +245,14 @@ pub struct PreauthIntegrityCapabilities {
     #[br(count = hash_algorithm_count)]
     pub hash_algorithms: Vec<HashAlgorithm>,
     #[br(count = salt_length)]
-    pub salt: Vec<u8>
+    pub salt: Vec<u8>,
 }
 
 #[derive(BinRead, BinWrite, Debug)]
 pub struct EncryptionCapabilities {
     cipher_count: u16,
     #[br(count = cipher_count)]
-    ciphers: Vec<EncryptionCapabilitiesCipher>
+    ciphers: Vec<EncryptionCapabilitiesCipher>,
 }
 
 #[derive(BinRead, BinWrite, Debug)]
@@ -261,7 +261,7 @@ pub enum EncryptionCapabilitiesCipher {
     Aes128Ccm = 0x0001,
     Aes128Gcm = 0x0002,
     Aes256Ccm = 0x0003,
-    Aes256Gcm = 0x0004
+    Aes256Gcm = 0x0004,
 }
 
 #[derive(BinRead, BinWrite, Debug)]
@@ -270,18 +270,17 @@ pub struct CompressionCapabilities {
     padding: u16,
     flags: u32,
     #[br(count = compression_algorithm_count)]
-    compression_algorithms: Vec<u16>
+    compression_algorithms: Vec<u16>,
 }
 
 #[derive(BinRead, BinWrite, Debug)]
 pub struct NetnameNegotiateContextId {
-    netname: binrw::NullWideString
+    netname: binrw::NullWideString,
 }
-
 
 #[derive(BinRead, BinWrite, Debug)]
 pub struct TransportCapabilities {
-    flags: u32
+    flags: u32,
 }
 
 #[derive(BinRead, BinWrite, Debug)]
@@ -290,7 +289,7 @@ pub struct RdmaTransformCapabilities {
     reserved1: u16,
     reserved2: u32,
     #[br(count = transform_count)]
-    transforms: Vec<u16>
+    transforms: Vec<u16>,
 }
 
 #[binrw::binrw]
@@ -299,7 +298,7 @@ pub struct SigningCapabilities {
     #[bw(try_calc(u16::try_from(signing_algorithms.len())))]
     signing_algorithm_count: u16,
     #[br(count = signing_algorithm_count)]
-    pub signing_algorithms: Vec<SigningAlgorithmId>
+    pub signing_algorithms: Vec<SigningAlgorithmId>,
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
@@ -307,5 +306,5 @@ pub struct SigningCapabilities {
 pub enum SigningAlgorithmId {
     HmacSha256 = 0x0000,
     AesCmac = 0x0001,
-    AesGmac = 0x0002
+    AesGmac = 0x0002,
 }

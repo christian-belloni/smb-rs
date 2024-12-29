@@ -22,6 +22,7 @@ use crate::{
             },
         },
     },
+    smb_crypto::SMBCrypto,
     smb_session::SMBSession,
 };
 
@@ -90,15 +91,6 @@ pub struct SMBClient {
     handler: SMBHandlerReference<SMBClientMessageHandler>,
 }
 
-#[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
-#[bw(map = |&x| Self::into_bytes(x))]
-struct NonceSuffixFlags {
-    is_server: bool,
-    is_cancel: bool,
-    zero: B30,
-}
-
 #[derive(Debug, Clone)]
 pub struct SmbClientNotConnectedError;
 
@@ -154,10 +146,13 @@ impl SMBClient {
         self.handler.borrow_mut().preauth_hash = Some(PreauthHashState::default());
 
         // Send SMB2 negotiate request
-        let neg_req =
-            OutgoingSMBMessage::new(SMB2Message::new(SMBMessageContent::SMBNegotiateRequest(
-                SMBNegotiateRequest::new(self.handler.borrow().client_guid),
-            )));
+        let neg_req = OutgoingSMBMessage::new(SMB2Message::new(
+            SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest::new(
+                "AVIV-MBP".to_string(),
+                self.handler.borrow().client_guid,
+                SMBCrypto::SIGNING_ALGOS.into(),
+            )),
+        ));
         self.handler.send(neg_req)?;
 
         let smb2_response_raw = self.handler.receive()?;

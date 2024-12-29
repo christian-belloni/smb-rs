@@ -274,7 +274,7 @@ impl SMBSessionMessageHandler {
         self.signing_key.is_some()
     }
 
-    fn make_signer(&self) -> Result<SMBSigner, Box<dyn Error>> {
+    fn make_signer(&self, message: &SMB2Message) -> Result<SMBSigner, Box<dyn Error>> {
         if !self.should_sign() {
             return Err("Signing key is not set -- you must succeed a setup() to continue.".into());
         }
@@ -285,6 +285,7 @@ impl SMBSessionMessageHandler {
             SMBCrypto::make_signing_algo(
                 SigningAlgorithmId::AesCmac,
                 self.signing_key.as_ref().unwrap(),
+                message
             )
             .unwrap(),
         ))
@@ -299,7 +300,7 @@ impl SMBMessageHandler for SMBSessionMessageHandler {
         // Set signing configuration. Upstream handler shall take care of the rest.
         if self.should_sign() {
             msg.message.header.flags.set_signed(true);
-            msg.signer = Some(self.make_signer()?);
+            msg.signer = Some(self.make_signer(&msg.message)?);
         }
         msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
         self.upstream.borrow_mut().send(msg)
@@ -313,7 +314,7 @@ impl SMBMessageHandler for SMBSessionMessageHandler {
             if incoming.message.header.message_id != u64::MAX
                 && incoming.message.header.status != SMB2Status::StatusPending as u32
             {
-                self.make_signer()?
+                self.make_signer(&incoming.message)?
                     .verify_signature(&mut incoming.message.header, &incoming.raw)?;
             }
         };
