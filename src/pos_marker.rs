@@ -1,6 +1,6 @@
 use std::{fmt::Debug, io::SeekFrom};
 
-use binrw::{BinRead, BinResult, BinWrite};
+use binrw::{error::CustomError, BinRead, BinResult, BinWrite, Endian};
 
 /**
  * Source: https://github.com/jam1garner/binrw/discussions/229
@@ -24,7 +24,7 @@ where
         let pos = reader.stream_position()?;
         T::read_options(reader, endian, args).map(|value| Self {
             pos: core::cell::Cell::new(pos),
-            value
+            value,
         })
     }
 }
@@ -54,17 +54,53 @@ where
     /// Call this write to fill a PosMarker value to the position of the written value.
     #[binrw::writer(writer, endian)]
     pub fn write_and_fill_start_offset<U>(value: &U, this: &Self) -> BinResult<()>
-    where U : BinWrite<Args<'static> = ()> {
+    where
+        U: BinWrite<Args<'static> = ()>,
+    {
+        this.do_writeback_offset(writer, endian)?;
+        value.write_options(writer, endian, ())?;
+        Ok(())
+    }
+
+    // Move back the writer, update the written value and return to the end of the file.
+    pub fn do_writeback<V, W>(&self, value: V, writer: &mut W, endian: Endian) -> BinResult<()>
+    where
+        V: TryInto<T>,
+        W: binrw::io::Write + binrw::io::Seek,
+    {
+        let return_to = writer.seek(SeekFrom::Start(self.pos.get()))?;
+        value
+            .try_into()
+            .map_err(|_| binrw::error::Error::Custom {
+                pos: self.pos.get(),
+                err: Box::new("Error converting value to T"),
+            })?
+            .write_options(writer, endian, ())?;
+        writer.seek(SeekFrom::Start(return_to))?;
+        Ok(())
+    }
+
+    // Write the current position, relative to the stream start, to the PosMarker.
+    // Returns the written position.
+    pub fn do_writeback_offset<W>(&self, writer: &mut W, endian: Endian) -> BinResult<u64>
+    where
+        W: binrw::io::Write + binrw::io::Seek,
+    {
+        let stream_position = writer.stream_position()?;
+        self.do_writeback(stream_position, writer, endian)?;
+        Ok(stream_position)
+    }
+
+    /// Call this write to fill a PosMarker value to the relative offset of the written value.
+    /// The relative offset is calculated by subtracting the position of the PosMarker from the position of the written value.
+    #[binrw::writer(writer, endian)]
+    pub fn write_and_fill_relative_offset<U>(value: &U, this: &Self) -> BinResult<()>
+    where
+        U: BinWrite<Args<'static> = ()>,
+    {
         let pos = writer.stream_position()?;
-        let offset_value = T::try_from(pos).map_err(|err| binrw::error::Error::Custom {
-            pos,
-            err: Box::new(err),
-        })?;
-        writer.seek(SeekFrom::Start(this.pos.get()))?;
-        // Write back the offset value
-        offset_value.write_options(writer, endian, ())?;
-        // Get back to the end of the file
-        writer.seek(SeekFrom::End(0))?;
+        let offset_value = pos - this.pos.get();
+        this.do_writeback(offset_value, writer, endian)?;
         // Continue writing the real value this writer is specified for
         value.write_options(writer, endian, ())
     }
@@ -72,26 +108,23 @@ where
     /// Call this write to fill a PosMarker value to the size of the wrapped object that was written.
     #[binrw::writer(writer, endian)]
     pub fn write_and_fill_size<U>(value: &U, this: &Self) -> BinResult<()>
-    where U : BinWrite<Args<'static> = ()> {
+    where
+        U: BinWrite<Args<'static> = ()>,
+    {
         let begin_offset = writer.stream_position()?;
         value.write_options(writer, endian, ())?;
         let end_offset = writer.stream_position()?;
         let size_written = end_offset - begin_offset;
-        // write the size written back to the position of the PosMarker.
-        let written_bytes_value = T::try_from(size_written).map_err(|err| binrw::error::Error::Custom {
-            pos: begin_offset,
-            err: Box::new(err),
-        })?;
-        writer.seek(SeekFrom::Start(this.pos.get()))?;
-        written_bytes_value.write_options(writer, endian, ())?;
-        writer.seek(SeekFrom::End(0))?;
+        // do_writeback(...):
+        this.do_writeback(size_written, writer, endian)?;
         Ok(())
     }
 }
 
-
 impl<T> Debug for PosMarker<T>
-    where T: Debug {
+where
+    T: Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PosMarker")
             .field("pos", &self.pos)
@@ -99,7 +132,6 @@ impl<T> Debug for PosMarker<T>
             .finish()
     }
 }
-
 
 impl<T> Default for PosMarker<T>
 where
@@ -112,4 +144,3 @@ where
         }
     }
 }
-

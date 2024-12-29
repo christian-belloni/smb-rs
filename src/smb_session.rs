@@ -14,7 +14,7 @@ use crate::{
             header::{SMB2MessageHeader, SMB2Status},
             message::{SMB2Message, SMBMessageContent},
             negotiate::SigningAlgorithmId,
-            session::SMB2SessionSetupRequest,
+            session_setup::SMB2SessionSetupRequest,
         },
     },
     smb_client::SMBClientMessageHandler,

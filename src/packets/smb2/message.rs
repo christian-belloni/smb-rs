@@ -14,27 +14,27 @@ pub enum SMBMessageContent {
 
     // session setup
     #[br(pre_assert(smb_command == &SMB2Command::SessionSetup && !flags_server_to_redir))]
-    SMBSessionSetupRequest(session::SMB2SessionSetupRequest),
+    SMBSessionSetupRequest(session_setup::SMB2SessionSetupRequest),
     #[br(pre_assert(smb_command == &SMB2Command::SessionSetup && flags_server_to_redir))]
-    SMBSessionSetupResponse(session::SMB2SessionSetupResponse),
+    SMBSessionSetupResponse(session_setup::SMB2SessionSetupResponse),
 
     // logoff
     #[br(pre_assert(smb_command == &SMB2Command::Logoff && !flags_server_to_redir))]
-    SMBLogoffRequest(session::SMB2LogoffRequest),
+    SMBLogoffRequest(session_setup::SMB2LogoffRequest),
     #[br(pre_assert(smb_command == &SMB2Command::Logoff && flags_server_to_redir))]
-    SMBLogoffResponse(session::SMB2LogoffResponse),
+    SMBLogoffResponse(session_setup::SMB2LogoffResponse),
 
     // tree connect
     #[br(pre_assert(smb_command == &SMB2Command::TreeConnect && !flags_server_to_redir))]
-    SMBTreeConnectRequest(tree::SMB2TreeConnectRequest),
+    SMBTreeConnectRequest(tree_connect::SMB2TreeConnectRequest),
     #[br(pre_assert(smb_command == &SMB2Command::TreeConnect && flags_server_to_redir))]
-    SMBTreeConnectResponse(tree::SMB2TreeConnectResponse),
+    SMBTreeConnectResponse(tree_connect::SMB2TreeConnectResponse),
 
     // tree disconnect
     #[br(pre_assert(smb_command == &SMB2Command::TreeDisconnect && !flags_server_to_redir))]
-    SMBTreeDisconnectRequest(tree::SMB2TreeDisconnectRequest),
+    SMBTreeDisconnectRequest(tree_connect::SMB2TreeDisconnectRequest),
     #[br(pre_assert(smb_command == &SMB2Command::TreeDisconnect && flags_server_to_redir))]
-    SMBTreeDisconnectResponse(tree::SMB2TreeDisconnectResponse),
+    SMBTreeDisconnectResponse(tree_connect::SMB2TreeDisconnectResponse),
 }
 
 impl SMBMessageContent {

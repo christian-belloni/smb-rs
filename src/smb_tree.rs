@@ -4,7 +4,7 @@ use crate::{
     msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
     packets::smb2::{
         message::{SMB2Message, SMBMessageContent},
-        tree::{SMB2TreeConnectRequest, SMB2TreeDisconnectRequest},
+        tree_connect::{SMB2TreeConnectRequest, SMB2TreeDisconnectRequest},
     },
     smb_session::SMBSessionMessageHandler,
 };
