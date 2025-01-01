@@ -1,4 +1,5 @@
 use binrw::prelude::*;
+use create::SMB2CreateRequest;
 
 use super::header::*;
 use super::*;
@@ -35,6 +36,12 @@ pub enum SMBMessageContent {
     SMBTreeDisconnectRequest(tree_connect::SMB2TreeDisconnectRequest),
     #[br(pre_assert(smb_command == &SMB2Command::TreeDisconnect && flags_server_to_redir))]
     SMBTreeDisconnectResponse(tree_connect::SMB2TreeDisconnectResponse),
+
+    // create
+    #[br(pre_assert(smb_command == &SMB2Command::Create && !flags_server_to_redir))]
+    SMBCreateRequest(create::SMB2CreateRequest),
+    #[br(pre_assert(smb_command == &SMB2Command::Create && flags_server_to_redir))]
+    SMBCreateResponse(create::SMB2CreateResponse),
 }
 
 impl SMBMessageContent {
@@ -46,6 +53,7 @@ impl SMBMessageContent {
             SMBLogoffRequest(_) | SMBLogoffResponse(_) => SMB2Command::Logoff,
             SMBTreeConnectRequest(_) | SMBTreeConnectResponse(_) => SMB2Command::TreeConnect,
             SMBTreeDisconnectRequest(_) | SMBTreeDisconnectResponse(_) => SMB2Command::TreeDisconnect,
+            SMBCreateRequest(_) | SMBCreateResponse(_) => SMB2Command::Create,
         }
     }
 }
