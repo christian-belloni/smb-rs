@@ -16,8 +16,10 @@ pub struct SMB2CreateRequest {
     _security_flags: u8,
     requested_oplock_level: OplockLevel,
     impersonation_level: ImpersonationLevel,
-    smb_create_flags: u128,
-    reserved: u128,
+    smb_create_flags: u64,
+    #[bw(calc = 0)]
+    #[br(assert(_reserved == 0))]
+    _reserved: u64,
     desired_access: u32,
     file_attributes: u32,
     share_access: SMB2ShareAccessFlags,
@@ -25,7 +27,7 @@ pub struct SMB2CreateRequest {
     create_options: u32,
     #[bw(calc = PosMarker::default())]
     _name_offset: PosMarker<u16>,
-    #[bw(calc = u16::try_from(name.len()).unwrap())]
+    #[bw(calc = dbg!(u16::try_from(name.len()).unwrap().checked_mul(2).unwrap()))]
     name_length: u16,
     #[bw(calc = PosMarker::default())]
     _create_contexts_offset: PosMarker<u32>,
@@ -204,11 +206,72 @@ pub struct SMB2CreateContext {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::message::{SMB2Message, SMBMessageContent};
+    use crate::packets::smb2::{
+        header::SMB2MessageHeader,
+        message::{SMB2Message, SMBMessageContent},
+    };
 
     use super::*;
 
-    // A test:
+    #[test]
+    pub fn test_create_request_written_correctly() {
+        let request = SMB2CreateRequest {
+            requested_oplock_level: OplockLevel::None,
+            impersonation_level: ImpersonationLevel::Impersonation,
+            smb_create_flags: 0,
+            desired_access: 0x00100081,
+            file_attributes: 0,
+            share_access: SMB2ShareAccessFlags::new().with_read(true).with_write(true).with_delete(true),
+            create_disposition: CreateDisposition::Open,
+            create_options: 0x00020020,
+            name: "hello".encode_utf16().collect(),
+            contexts: vec![
+                SMB2CreateContext {
+                    name: b"DH2Q".to_vec(),
+                    data: vec![
+                        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                        0x0, 0x20, 0xa3, 0x79, 0xc6, 0xa0, 0xc0, 0xef, 0x11, 0x8b, 0x7b, 0x0, 0xc,
+                        0x29, 0x80, 0x16, 0x82,
+                    ],
+                    fill_next: (),
+                },
+                SMB2CreateContext {
+                    name: b"MxAc".to_vec(),
+                    data: vec![],
+                    fill_next: (),
+                },
+                SMB2CreateContext {
+                    name: b"QFid".to_vec(),
+                    data: vec![],
+                    fill_next: (),
+                },
+            ],
+        };
+
+        let mut data = Vec::new();
+        SMB2Message::new(SMBMessageContent::SMBCreateRequest(request))
+            .write(&mut Cursor::new(&mut data))
+            .unwrap();
+        let data_without_header = &data[SMB2MessageHeader::STRUCT_SIZE..];
+        assert!(
+            dbg!(data_without_header)
+                == vec![
+                    0x39, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x81, 0x0, 0x10, 0x0, 0x0, 0x0,
+                    0x0, 0x0, 0x7, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x20, 0x0, 0x2, 0x0, 0x78,
+                    0x0, 0xa, 0x0, 0x88, 0x0, 0x0, 0x0, 0x68, 0x0, 0x0, 0x0, 0x68, 0x0, 0x65, 0x0,
+                    0x6c, 0x0, 0x6c, 0x0, 0x6f, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x38, 0x0, 0x0,
+                    0x0, 0x10, 0x0, 0x4, 0x0, 0x0, 0x0, 0x18, 0x0, 0x20, 0x0, 0x0, 0x0, 0x44, 0x48,
+                    0x32, 0x51, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x20, 0xa3, 0x79, 0xc6, 0xa0, 0xc0, 0xef,
+                    0x11, 0x8b, 0x7b, 0x0, 0xc, 0x29, 0x80, 0x16, 0x82, 0x18, 0x0, 0x0, 0x0, 0x10,
+                    0x0, 0x4, 0x0, 0x0, 0x0, 0x18, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4d, 0x78, 0x41, 0x63,
+                    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x10, 0x0, 0x4, 0x0, 0x0, 0x0, 0x18,
+                    0x0, 0x0, 0x0, 0x0, 0x0, 0x51, 0x46, 0x69, 0x64, 0x0, 0x0, 0x0, 0x0
+                ]
+        )
+    }
+
     #[test]
     pub fn test_create_response_parsed_correctly() {
         let data: [u8; 240] = [

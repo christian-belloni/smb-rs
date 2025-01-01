@@ -68,7 +68,8 @@ where
         V: TryInto<T>,
         W: binrw::io::Write + binrw::io::Seek,
     {
-        let return_to = writer.seek(SeekFrom::Start(self.pos.get()))?;
+        let return_to = writer.stream_position()?;
+        writer.seek(SeekFrom::Start(self.pos.get()))?;
         value
             .try_into()
             .map_err(|_| binrw::error::Error::Custom {
