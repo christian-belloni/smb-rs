@@ -3,6 +3,7 @@ use std::io::SeekFrom;
 use crate::pos_marker::PosMarker;
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
+use modular_bitfield::prelude::*;
 
 #[binrw::binrw]
 #[derive(Debug)]
@@ -10,18 +11,17 @@ pub struct SMB2CreateRequest {
     #[bw(calc = 57)]
     #[br(assert(structure_size == 57))]
     structure_size: u16,
-    // reserved!
-    #[bw(calc = 0)]
+    #[bw(calc = 0)] // reserved
     #[br(assert(_security_flags == 0))]
     _security_flags: u8,
     requested_oplock_level: OplockLevel,
-    impersonation_level: u32,
+    impersonation_level: ImpersonationLevel,
     smb_create_flags: u128,
     reserved: u128,
     desired_access: u32,
     file_attributes: u32,
-    share_access: u32,
-    create_disposition: u32,
+    share_access: SMB2ShareAccessFlags,
+    create_disposition: CreateDisposition,
     create_options: u32,
     #[bw(calc = PosMarker::default())]
     _name_offset: PosMarker<u16>,
@@ -44,6 +44,40 @@ pub struct SMB2CreateRequest {
 }
 
 #[binrw::binrw]
+#[derive(Debug)]
+#[brw(repr(u32))]
+pub enum ImpersonationLevel {
+    Anonymous = 0x0,
+    Identification = 0x1,
+    Impersonation = 0x2,
+    Delegate = 0x3,
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
+#[brw(repr(u32))]
+pub enum CreateDisposition {
+    Superseded = 0x0,
+    Open = 0x1,
+    Create = 0x2,
+    OpenIf = 0x3,
+    Overwrite = 0x4,
+    OverwriteIf = 0x5,
+}
+
+// share_access 4 byte flags:
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct SMB2ShareAccessFlags {
+    read: bool,
+    write: bool,
+    delete: bool,
+    #[allow(non_snake_case)]
+    _reserved: B29,
+}
+
+#[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct SMB2CreateResponse {
     #[bw(calc = 89)]
@@ -54,7 +88,7 @@ pub struct SMB2CreateResponse {
     #[br(assert(flags == 0 || flags == 1))]
     #[bw(assert(*flags == 0 || *flags == 1))]
     flags: u8,
-    create_action: u32,
+    create_action: CreateAction,
     creation_time: u64,
     last_access_time: u64,
     last_write_time: u64,
@@ -110,12 +144,23 @@ fn write_context_list(
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[brw(repr(u8))]
-enum OplockLevel {
-    NONE = 0,
+pub enum OplockLevel {
+    None = 0,
     II = 1,
-    EXCLUSIVE = 8,
-    BATCH = 9,
-    LEASE = 0xff,
+    Exclusive = 8,
+    Batch = 9,
+    Lease = 0xff,
+}
+
+// CreateAction
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+#[brw(repr(u32))]
+pub enum CreateAction {
+    Superseded = 0x0,
+    Opened = 0x1,
+    Created = 0x2,
+    Overwritten = 0x3,
 }
 
 #[binrw::binrw]
@@ -128,6 +173,8 @@ pub struct SMB2CreateContext {
     _name_offset: PosMarker<u16>,
     #[bw(calc = u16::try_from(name.len()).unwrap())]
     name_length: u16,
+    #[bw(calc = 0)]
+    #[br(assert(reserved == 0))]
     reserved: u16,
     #[bw(calc = PosMarker::default())]
     _data_offset: PosMarker<u16>,
@@ -157,7 +204,7 @@ pub struct SMB2CreateContext {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::message::SMB2Message;
+    use crate::packets::smb2::message::{SMB2Message, SMBMessageContent};
 
     use super::*;
 
@@ -185,7 +232,41 @@ mod tests {
             0x00, 0x00,
         ];
 
-        dbg!(SMB2Message::read(&mut Cursor::new(&data)).unwrap());
+        let m = match SMB2Message::read(&mut Cursor::new(&data)).unwrap().content {
+            SMBMessageContent::SMBCreateResponse(m) => m,
+            _ => panic!("Expected SMBCreateResponse"),
+        };
 
+        assert!(
+            m == SMB2CreateResponse {
+                oplock_level: OplockLevel::None,
+                flags: 0,
+                create_action: CreateAction::Opened,
+                creation_time: 133783827154208828,
+                last_access_time: 133797832406291912,
+                last_write_time: 133783939554544738,
+                change_time: 133783939554544738,
+                allocation_size: 0,
+                endof_file: 0,
+                file_attributes: 16,
+                file_id: 950737950337192747837452976457,
+                create_contexts: vec![
+                    SMB2CreateContext {
+                        name: b"MxAc".to_vec(),
+                        data: vec![0, 0, 0, 0, 0xff, 0x01, 0x1f, 0x00],
+                        fill_next: ()
+                    },
+                    SMB2CreateContext {
+                        name: b"QFid".to_vec(),
+                        data: vec![
+                            0x2a, 0xe7, 0x1, 0x0, 0x0, 0x0, 0x4, 0x0, 0xd9, 0xcf, 0x17, 0xb0, 0x0,
+                            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                            0x0, 0x0, 0x0, 0x0, 0x0
+                        ],
+                        fill_next: ()
+                    },
+                ]
+            }
+        )
     }
 }
