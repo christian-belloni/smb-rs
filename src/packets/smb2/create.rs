@@ -131,10 +131,10 @@ fn write_context_list(
     // 1.a. write start offset and get back to the end of the file
     let start_offset = offset_dest.do_writeback_offset(writer, endian)?;
 
-    // 2. write the list, pass on `is_last`.
+    // 2. write the list, pass on `has_next`
     for (i, context) in contexts.iter().enumerate() {
-        let is_last = i == contexts.len() - 1;
-        context.write_options(writer, endian, (!is_last,))?;
+        let has_next = i != contexts.len() - 1; // not last?
+        context.write_options(writer, endian, (has_next,))?;
     }
 
     // 2.b. write size of the list
@@ -184,11 +184,11 @@ pub struct SMB2CreateContext {
     data_length: u32,
     #[brw(align_before = 8)]
     #[br(count = name_length)]
-    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_name_offset))]
+    #[bw(write_with = PosMarker::write_and_fill_offset_with_base, args(&_name_offset, &_next))]
     pub name: Vec<u8>,
     #[brw(align_before = 8)]
     #[br(count = data_length)]
-    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_data_offset))]
+    #[bw(write_with = PosMarker::write_and_fill_offset_with_base, args(&_data_offset, &_next))]
     pub data: Vec<u8>,
 
     // The following value writes next if has_next is true,
@@ -198,7 +198,7 @@ pub struct SMB2CreateContext {
     #[bw(align_before = 8)]
     #[bw(write_with = PosMarker::write_and_fill_relative_offset, args(&_next))]
     // When reading, move the stream to the next context if there is one.
-    #[br(seek_before = if _next.value > 0 {SeekFrom::Start(_next.pos.get() + _next.value as u64)} else {SeekFrom::Current(0)})]
+    #[br(seek_before = if _next.value > 0 {_next.seek_relative()} else {SeekFrom::Current(0)})]
     fill_next: (),
 }
 

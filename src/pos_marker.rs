@@ -10,6 +10,15 @@ pub struct PosMarker<T> {
     pub value: T,
 }
 
+impl<T> PosMarker<T> where T: Into<u64> + Copy {
+    /// This function assumes the PosMarker is used to describe an offset from it's location.
+    /// You can use it to get a `SeekFrom` to seek to the position described by the PosMarker
+    pub fn seek_relative(&self) -> SeekFrom {
+        debug_assert!(self.pos.get() != u64::MAX); // sanity
+        SeekFrom::Start(self.pos.get() + self.value.into())
+    }
+}
+
 impl<T> BinRead for PosMarker<T>
 where
     T: BinRead,
@@ -106,6 +115,24 @@ where
         value.write_options(writer, endian, ())
     }
 
+    // This is just like write_and_fill_relative_offset, but now it does not use
+    // `this` position as the base to calculate the offset, but the `base` position.
+    #[binrw::writer(writer, endian)]
+    pub fn write_and_fill_offset_with_base<U, B>(
+        value: &U,
+        this: &Self,
+        base: &PosMarker<B>,
+    ) -> BinResult<()>
+    where
+        U: BinWrite<Args<'static> = ()>,
+    {
+        let pos = writer.stream_position()?;
+        let offset_value = pos - base.pos.get();
+        this.do_writeback(offset_value, writer, endian)?;
+        // Continue writing the real value this writer is specified for
+        value.write_options(writer, endian, ())
+    }
+
     /// Call this write to fill a PosMarker value to the size of the wrapped object that was written.
     #[binrw::writer(writer, endian)]
     pub fn write_and_fill_size<U>(value: &U, this: &Self) -> BinResult<()>
@@ -140,7 +167,7 @@ where
 {
     fn default() -> Self {
         Self {
-            pos: core::cell::Cell::new(0),
+            pos: core::cell::Cell::new(u64::MAX),
             value: T::default(),
         }
     }
