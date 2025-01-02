@@ -42,6 +42,12 @@ pub enum SMBMessageContent {
     SMBCreateRequest(create::SMB2CreateRequest),
     #[br(pre_assert(smb_command == &SMB2Command::Create && flags_server_to_redir))]
     SMBCreateResponse(create::SMB2CreateResponse),
+
+    // close
+    #[br(pre_assert(smb_command == &SMB2Command::Close && !flags_server_to_redir))]
+    SMBCloseRequest(create::SMB2CloseRequest),
+    #[br(pre_assert(smb_command == &SMB2Command::Close && flags_server_to_redir))]
+    SMBCloseResponse(create::SMB2CloseResponse),
 }
 
 impl SMBMessageContent {
@@ -56,6 +62,7 @@ impl SMBMessageContent {
                 SMB2Command::TreeDisconnect
             }
             SMBCreateRequest(_) | SMBCreateResponse(_) => SMB2Command::Create,
+            SMBCloseRequest(_) | SMBCloseResponse(_) => SMB2Command::Close,
         }
     }
 }

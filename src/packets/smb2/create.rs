@@ -215,7 +215,7 @@ impl SMB2CreateContext {
 
 #[binrw::binrw]
 #[derive(Debug)]
-struct SMB2CloseRequest {
+pub struct SMB2CloseRequest {
     #[bw(calc = 24)]
     #[br(assert(_structure_size == 24))]
     _structure_size: u16,
@@ -225,27 +225,27 @@ struct SMB2CloseRequest {
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u32,
-    file_id: u128,
+    pub file_id: u128,
 }
 
 #[binrw::binrw]
 #[derive(Debug)]
-struct SMB2CloseResponse {
+pub struct SMB2CloseResponse {
     #[bw(calc = 60)]
     #[br(assert(_structure_size == 60))]
     _structure_size: u16,
     // TODO: impl flags.
-    flags: u16,
+    pub flags: u16,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u32,
-    creation_time: u64,
-    last_access_time: u64,
-    last_write_time: u64,
-    change_time: u64,
-    allocation_size: u64,
-    endof_file: u64,
-    file_attributes: u32,
+    pub creation_time: u64,
+    pub last_access_time: u64,
+    pub last_write_time: u64,
+    pub change_time: u64,
+    pub allocation_size: u64,
+    pub endof_file: u64,
+    pub file_attributes: u32,
 }
 
 #[cfg(test)]
