@@ -14,20 +14,20 @@ pub struct SMB2CreateRequest {
     #[bw(calc = 0)] // reserved
     #[br(assert(_security_flags == 0))]
     _security_flags: u8,
-    requested_oplock_level: OplockLevel,
-    impersonation_level: ImpersonationLevel,
-    smb_create_flags: u64,
+    pub requested_oplock_level: OplockLevel,
+    pub impersonation_level: ImpersonationLevel,
+    pub smb_create_flags: u64,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u64,
-    desired_access: u32,
-    file_attributes: u32,
-    share_access: SMB2ShareAccessFlags,
-    create_disposition: CreateDisposition,
-    create_options: u32,
+    pub desired_access: u32,
+    pub file_attributes: u32,
+    pub share_access: SMB2ShareAccessFlags,
+    pub create_disposition: CreateDisposition,
+    pub create_options: u32,
     #[bw(calc = PosMarker::default())]
     _name_offset: PosMarker<u16>,
-    #[bw(calc = dbg!(u16::try_from(name.len()).unwrap().checked_mul(2).unwrap()))]
+    #[bw(calc = u16::try_from(name.len()).unwrap().checked_mul(2).unwrap())]
     name_length: u16,
     #[bw(calc = PosMarker::default())]
     _create_contexts_offset: PosMarker<u32>,
@@ -37,12 +37,12 @@ pub struct SMB2CreateRequest {
     #[brw(align_before = 8)]
     #[br(count = name_length)]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_name_offset))]
-    name: Vec<u16>,
+    pub name: Vec<u16>,
 
     #[brw(align_before = 8)]
     #[br(map_stream = |s| s.take_seek(_create_contexts_length.value.into()), parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = write_context_list, args(&_create_contexts_offset, &_create_contexts_length))]
-    contexts: Vec<SMB2CreateContext>,
+    pub contexts: Vec<SMB2CreateContext>,
 }
 
 #[binrw::binrw]
@@ -72,9 +72,9 @@ pub enum CreateDisposition {
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct SMB2ShareAccessFlags {
-    read: bool,
-    write: bool,
-    delete: bool,
+    pub read: bool,
+    pub write: bool,
+    pub delete: bool,
     #[allow(non_snake_case)]
     _reserved: B29,
 }
@@ -108,7 +108,7 @@ pub struct SMB2CreateResponse {
     create_contexts_offset: PosMarker<u32>, // from smb header start
     #[bw(calc = PosMarker::default())]
     create_contexts_length: PosMarker<u32>, // bytes
-    #[br(seek_before = SeekFrom::Start(dbg!(create_contexts_offset.value as u64)))]
+    #[br(seek_before = SeekFrom::Start(create_contexts_offset.value as u64))]
     #[br(map_stream = |s| s.take_seek(create_contexts_length.value.into()), parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = write_context_list, args(&create_contexts_offset, &create_contexts_length))]
     create_contexts: Vec<SMB2CreateContext>,
@@ -134,7 +134,7 @@ fn write_context_list(
     // 2. write the list, pass on `is_last`.
     for (i, context) in contexts.iter().enumerate() {
         let is_last = i == contexts.len() - 1;
-        context.write_options(writer, endian, (is_last,))?;
+        context.write_options(writer, endian, (!is_last,))?;
     }
 
     // 2.b. write size of the list
@@ -185,11 +185,11 @@ pub struct SMB2CreateContext {
     #[brw(align_before = 8)]
     #[br(count = name_length)]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_name_offset))]
-    name: Vec<u8>,
+    pub name: Vec<u8>,
     #[brw(align_before = 8)]
     #[br(count = data_length)]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_data_offset))]
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 
     // The following value writes next if has_next is true,
     #[bw(if(has_next))]
@@ -200,6 +200,17 @@ pub struct SMB2CreateContext {
     // When reading, move the stream to the next context if there is one.
     #[br(seek_before = if _next.value > 0 {SeekFrom::Start(_next.pos.get() + _next.value as u64)} else {SeekFrom::Current(0)})]
     fill_next: (),
+}
+
+impl SMB2CreateContext {
+    pub fn new(name: &str, data: Vec<u8>) -> SMB2CreateContext {
+        assert!(name.is_ascii());
+        SMB2CreateContext {
+            name: name.as_bytes().to_vec(),
+            data: data,
+            fill_next: ()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -221,7 +232,10 @@ mod tests {
             smb_create_flags: 0,
             desired_access: 0x00100081,
             file_attributes: 0,
-            share_access: SMB2ShareAccessFlags::new().with_read(true).with_write(true).with_delete(true),
+            share_access: SMB2ShareAccessFlags::new()
+                .with_read(true)
+                .with_write(true)
+                .with_delete(true),
             create_disposition: CreateDisposition::Open,
             create_options: 0x00020020,
             name: "hello".encode_utf16().collect(),
@@ -254,7 +268,7 @@ mod tests {
             .unwrap();
         let data_without_header = &data[SMB2MessageHeader::STRUCT_SIZE..];
         assert!(
-            dbg!(data_without_header)
+            data_without_header
                 == vec![
                     0x39, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
                     0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x81, 0x0, 0x10, 0x0, 0x0, 0x0,

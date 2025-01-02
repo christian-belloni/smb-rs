@@ -3,6 +3,10 @@ use std::{cell::OnceCell, error::Error};
 use crate::{
     msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
     packets::smb2::{
+        create::{
+            CreateDisposition, ImpersonationLevel, OplockLevel, SMB2CreateContext,
+            SMB2CreateRequest, SMB2ShareAccessFlags,
+        },
         message::{SMB2Message, SMBMessageContent},
         tree_connect::{SMB2TreeConnectRequest, SMB2TreeDisconnectRequest},
     },
@@ -13,7 +17,7 @@ type Upstream = SMBHandlerReference<SMBSessionMessageHandler>;
 
 #[derive(Debug)]
 struct TreeConnectInfo {
-    tree_id: u32
+    tree_id: u32,
 }
 
 pub struct SMBTree {
@@ -51,9 +55,44 @@ impl SMBTree {
             self.name,
             response.message.header.tree_id
         );
-        self.connect_info.set(TreeConnectInfo {
-            tree_id: response.message.header.tree_id,
-        }).unwrap();
+        self.connect_info
+            .set(TreeConnectInfo {
+                tree_id: response.message.header.tree_id,
+            })
+            .unwrap();
+        Ok(())
+    }
+
+    pub fn create(&mut self, name: String) -> Result<(), Box<dyn Error>> {
+        self.send(OutgoingSMBMessage::new(SMB2Message::new(
+            SMBMessageContent::SMBCreateRequest(SMB2CreateRequest {
+                requested_oplock_level: OplockLevel::None,
+                impersonation_level: ImpersonationLevel::Impersonation,
+                smb_create_flags: 0,
+                desired_access: 0x00100081,
+                file_attributes: 0,
+                share_access: SMB2ShareAccessFlags::from_bytes([0x07, 0x00, 0x00, 0x00]),
+                create_disposition: CreateDisposition::Open,
+                create_options: 0,
+                name: name.encode_utf16().collect(),
+                contexts: vec![
+                    SMB2CreateContext::new(
+                        "DH2Q",
+                        vec![
+                            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                            0x0, 0x0, 0x20, 0xa3, 0x79, 0xc6, 0xa0, 0xc0, 0xef, 0x11, 0x8b, 0x7b,
+                            0x0, 0xc, 0x29, 0x80, 0x16, 0x82,
+                        ],
+                    ),
+                    SMB2CreateContext::new("MxAc", vec![]),
+                    SMB2CreateContext::new("QFid", vec![]),
+                ],
+            }),
+        )))?;
+        let response = self.receive()?;
+        if response.message.header.status != 0 {
+            return Err("File creation failed!".into());
+        }
         Ok(())
     }
 
@@ -97,9 +136,11 @@ impl SMBMessageHandler for SMBTree {
 
 impl Drop for SMBTree {
     fn drop(&mut self) {
-        self.disconnect().or_else(|e| {
-            log::error!("Failed to disconnect from tree {}: {}", self.name, e);
-            Err(e)
-        }).ok();
+        self.disconnect()
+            .or_else(|e| {
+                log::error!("Failed to disconnect from tree {}: {}", self.name, e);
+                Err(e)
+            })
+            .ok();
     }
 }
