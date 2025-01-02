@@ -2,7 +2,6 @@ use binrw::prelude::*;
 
 use crate::pos_marker::PosMarker;
 
-
 #[binrw::binrw]
 #[derive(Debug)]
 pub struct SMB2SessionSetupRequest {
@@ -20,7 +19,7 @@ pub struct SMB2SessionSetupRequest {
     pub previous_session_id: u64,
     #[br(count = security_buffer_length)]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_security_buffer_offset))]
-    pub buffer: Vec<u8>
+    pub buffer: Vec<u8>,
 }
 
 impl SMB2SessionSetupRequest {
@@ -31,7 +30,7 @@ impl SMB2SessionSetupRequest {
             capabilities: 1,
             channel: 0,
             previous_session_id: 0,
-            buffer
+            buffer,
         }
     }
 }
@@ -48,7 +47,7 @@ pub struct SMB2SessionSetupResponse {
     security_buffer_length: u16,
     #[br(count = security_buffer_length)]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&security_buffer_offset))]
-    pub buffer: Vec<u8>
+    pub buffer: Vec<u8>,
 }
 
 #[binrw::binrw]
@@ -59,7 +58,7 @@ pub struct SMB2LogoffRequest {
     structure_size: u16,
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
-    reserved: u16
+    reserved: u16,
 }
 
 #[binrw::binrw]
@@ -70,5 +69,5 @@ pub struct SMB2LogoffResponse {
     structure_size: u16,
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
-    reserved: u16
+    reserved: u16,
 }

@@ -48,7 +48,7 @@ pub struct SMB2MessageHeader {
     pub reserved: u32,
     pub tree_id: u32,
     pub session_id: u64,
-    pub signature: u128
+    pub signature: u128,
 }
 
 impl SMB2MessageHeader {

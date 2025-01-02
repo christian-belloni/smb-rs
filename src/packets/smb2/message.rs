@@ -49,10 +49,12 @@ impl SMBMessageContent {
         use SMBMessageContent::*;
         match self {
             SMBNegotiateRequest(_) | SMBNegotiateResponse(_) => SMB2Command::Negotiate,
-            SMBSessionSetupRequest(_) | SMBSessionSetupResponse(_)  => SMB2Command::SessionSetup,
+            SMBSessionSetupRequest(_) | SMBSessionSetupResponse(_) => SMB2Command::SessionSetup,
             SMBLogoffRequest(_) | SMBLogoffResponse(_) => SMB2Command::Logoff,
             SMBTreeConnectRequest(_) | SMBTreeConnectResponse(_) => SMB2Command::TreeConnect,
-            SMBTreeDisconnectRequest(_) | SMBTreeDisconnectResponse(_) => SMB2Command::TreeDisconnect,
+            SMBTreeDisconnectRequest(_) | SMBTreeDisconnectResponse(_) => {
+                SMB2Command::TreeDisconnect
+            }
             SMBCreateRequest(_) | SMBCreateResponse(_) => SMB2Command::Create,
         }
     }
@@ -64,9 +66,8 @@ impl SMBMessageContent {
 pub struct SMB2Message {
     pub header: SMB2MessageHeader,
     #[brw(args(&header.command, header.flags.server_to_redir()))]
-    pub content: SMBMessageContent
+    pub content: SMBMessageContent,
 }
-
 
 impl SMB2Message {
     pub fn new(content: SMBMessageContent) -> SMB2Message {
@@ -82,9 +83,9 @@ impl SMB2Message {
                 reserved: 0x0000feff,
                 tree_id: 0,
                 session_id: 0,
-                signature: 0
+                signature: 0,
             },
-            content
+            content,
         }
     }
 }

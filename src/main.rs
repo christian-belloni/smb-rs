@@ -1,6 +1,5 @@
-use std::error::Error;
 use smb::smb_client::SMBClient;
-
+use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();

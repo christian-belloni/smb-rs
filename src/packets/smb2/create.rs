@@ -208,9 +208,44 @@ impl SMB2CreateContext {
         SMB2CreateContext {
             name: name.as_bytes().to_vec(),
             data: data,
-            fill_next: ()
+            fill_next: (),
         }
     }
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
+struct SMB2CloseRequest {
+    #[bw(calc = 24)]
+    #[br(assert(_structure_size == 24))]
+    _structure_size: u16,
+    #[bw(calc = 1)] // SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB
+    #[br(assert(_flags == 1))]
+    _flags: u16,
+    #[bw(calc = 0)]
+    #[br(assert(_reserved == 0))]
+    _reserved: u32,
+    file_id: u128,
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
+struct SMB2CloseResponse {
+    #[bw(calc = 60)]
+    #[br(assert(_structure_size == 60))]
+    _structure_size: u16,
+    // TODO: impl flags.
+    flags: u16,
+    #[bw(calc = 0)]
+    #[br(assert(_reserved == 0))]
+    _reserved: u32,
+    creation_time: u64,
+    last_access_time: u64,
+    last_write_time: u64,
+    change_time: u64,
+    allocation_size: u64,
+    endof_file: u64,
+    file_attributes: u32,
 }
 
 #[cfg(test)]
@@ -226,6 +261,7 @@ mod tests {
 
     #[test]
     pub fn test_create_request_written_correctly() {
+        let file_name = "hello";
         let request = SMB2CreateRequest {
             requested_oplock_level: OplockLevel::None,
             impersonation_level: ImpersonationLevel::Impersonation,
@@ -238,27 +274,18 @@ mod tests {
                 .with_delete(true),
             create_disposition: CreateDisposition::Open,
             create_options: 0x00020020,
-            name: "hello".encode_utf16().collect(),
+            name: file_name.encode_utf16().collect(),
             contexts: vec![
-                SMB2CreateContext {
-                    name: b"DH2Q".to_vec(),
-                    data: vec![
+                SMB2CreateContext::new(
+                    "DH2Q",
+                    vec![
                         0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
                         0x0, 0x20, 0xa3, 0x79, 0xc6, 0xa0, 0xc0, 0xef, 0x11, 0x8b, 0x7b, 0x0, 0xc,
                         0x29, 0x80, 0x16, 0x82,
                     ],
-                    fill_next: (),
-                },
-                SMB2CreateContext {
-                    name: b"MxAc".to_vec(),
-                    data: vec![],
-                    fill_next: (),
-                },
-                SMB2CreateContext {
-                    name: b"QFid".to_vec(),
-                    data: vec![],
-                    fill_next: (),
-                },
+                ),
+                SMB2CreateContext::new("MxAc", vec![]),
+                SMB2CreateContext::new("QFid", vec![]),
             ],
         };
 

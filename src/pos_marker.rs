@@ -10,7 +10,10 @@ pub struct PosMarker<T> {
     pub value: T,
 }
 
-impl<T> PosMarker<T> where T: Into<u64> + Copy {
+impl<T> PosMarker<T>
+where
+    T: Into<u64> + Copy,
+{
     /// This function assumes the PosMarker is used to describe an offset from it's location.
     /// You can use it to get a `SeekFrom` to seek to the position described by the PosMarker
     pub fn seek_relative(&self) -> SeekFrom {

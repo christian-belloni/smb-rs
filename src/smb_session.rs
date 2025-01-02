@@ -106,10 +106,7 @@ impl SMBSession {
                         // Derive keys and set-up the final session.
                         let ntlm_key = authenticator.session_key()?.to_vec();
                         // Derive signing key, and set-up the session.
-                        self.key_setup(
-                            &ntlm_key,
-                            result.preauth_hash.unwrap(),
-                        )?;
+                        self.key_setup(&ntlm_key, result.preauth_hash.unwrap())?;
                     }
 
                     let response = self.handler.receive()?;
@@ -230,7 +227,11 @@ impl SMBSigner {
         let mut header_writer =
             Cursor::new(&mut raw_data.content[0..SMB2MessageHeader::STRUCT_SIZE]);
         header.write(&mut header_writer)?;
-        log::debug!("Message #{} signed (signature={}).", header.message_id, header.signature);
+        log::debug!(
+            "Message #{} signed (signature={}).",
+            header.message_id,
+            header.signature
+        );
         Ok(())
     }
 
@@ -285,7 +286,7 @@ impl SMBSessionMessageHandler {
             SMBCrypto::make_signing_algo(
                 SigningAlgorithmId::AesCmac,
                 self.signing_key.as_ref().unwrap(),
-                message
+                message,
             )
             .unwrap(),
         ))

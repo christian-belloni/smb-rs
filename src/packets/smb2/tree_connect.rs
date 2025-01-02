@@ -28,7 +28,7 @@ pub struct SMB2TreeConnectRequest {
     #[brw(little)]
     #[br(count = path_length)]
     #[bw(write_with=PosMarker::write_and_fill_start_offset, args(&_path_offset))]
-    pub buffer: Vec<u16>
+    pub buffer: Vec<u16>,
 }
 
 impl SMB2TreeConnectRequest {
@@ -61,7 +61,7 @@ pub enum SMB2TreeConnectShareFlagsCacheMode {
     Manual,
     Auto,
     Vdo,
-    NoCache
+    NoCache,
 }
 
 #[bitfield]
@@ -81,7 +81,7 @@ pub struct SMB2TreeShareFlags {
     force_levelii_oplock: bool,
     enable_hash_v1: bool,
     enable_hash_v2: bool,
-    encrypt_data : bool,
+    encrypt_data: bool,
 
     #[allow(non_snake_case)]
     _reserved2: B2,
@@ -108,7 +108,7 @@ struct SMB2TreeCapabilities {
 
     redirect_to_owner: bool,
     #[allow(non_snake_case)]
-    _reserved: B23
+    _reserved: B23,
 }
 
 #[binrw::binrw]
@@ -128,7 +128,7 @@ pub struct SMB2TreeDisconnectRequest {
     structure_size: u16,
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
-    reserved: u16
+    reserved: u16,
 }
 
 #[binrw::binrw]
@@ -139,5 +139,5 @@ pub struct SMB2TreeDisconnectResponse {
     structure_size: u16,
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
-    reserved: u16
+    reserved: u16,
 }

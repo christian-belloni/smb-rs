@@ -41,7 +41,7 @@ impl SMBCrypto {
         message: &SMB2Message,
     ) -> Result<Box<dyn SMBSigningAlgo>, Box<dyn Error>> {
         if !Self::SIGNING_ALGOS.contains(&signing_algorithm) {
-            return Err(format!("Unsupported signing algorithm {:?}", signing_algorithm).into())
+            return Err(format!("Unsupported signing algorithm {:?}", signing_algorithm).into());
         }
         match signing_algorithm {
             SigningAlgorithmId::AesCmac => Ok(SMBCmac128Signer::build(signing_key)?),
@@ -50,8 +50,8 @@ impl SMBCrypto {
         }
     }
 
-    pub const SIGNING_ALGOS: [SigningAlgorithmId; 2] = [SigningAlgorithmId::AesCmac, SigningAlgorithmId::AesGmac];
-
+    pub const SIGNING_ALGOS: [SigningAlgorithmId; 2] =
+        [SigningAlgorithmId::AesCmac, SigningAlgorithmId::AesGmac];
 }
 
 struct HmacSha256KeyHandle {

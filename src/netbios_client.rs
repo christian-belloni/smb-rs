@@ -1,19 +1,20 @@
-use std::{io::{Read, Write}, net::TcpStream};
+use std::{
+    io::{Read, Write},
+    net::TcpStream,
+};
 
-use binrw::prelude::*;
 use binrw::io::NoSeek;
+use binrw::prelude::*;
 
-use crate::packets::netbios::{NetBiosTcpMessage, NetBiosMessageContent, NetBiosTcpMessageHeader};
+use crate::packets::netbios::{NetBiosMessageContent, NetBiosTcpMessage, NetBiosTcpMessageHeader};
 
 pub struct NetBiosClient {
-    connection: Option<TcpStream>
+    connection: Option<TcpStream>,
 }
 
 impl NetBiosClient {
     pub fn new() -> NetBiosClient {
-        NetBiosClient {
-            connection: None
-        }
+        NetBiosClient { connection: None }
     }
 
     /// Connects to a NetBios server in the specified address.
@@ -31,7 +32,8 @@ impl NetBiosClient {
     /// Sends a raw byte array of a NetBios message.
     pub fn send_raw(&mut self, data: NetBiosTcpMessage) -> Result<(), Box<dyn std::error::Error>> {
         // TODO(?): assert data is a valid and not-too-large NetBios message.
-        self.connection.as_ref()
+        self.connection
+            .as_ref()
             .ok_or("NetBiosClient is not connected")?
             .write_all(&data.to_bytes()?)?;
 
@@ -40,9 +42,11 @@ impl NetBiosClient {
 
     // Recieves and parses a NetBios message header, without parsing the message data.
     pub fn recieve_bytes(&mut self) -> Result<NetBiosTcpMessage, Box<dyn std::error::Error>> {
-        let mut tcp = self.connection.as_ref()
+        let mut tcp = self
+            .connection
+            .as_ref()
             .ok_or("NetBiosClient is not connected")?;
-        
+
         // Recieve header.
         let header_receiver = &mut NoSeek::new(&mut tcp);
         let header = NetBiosTcpMessageHeader::read(header_receiver)?;

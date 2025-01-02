@@ -1,5 +1,5 @@
-use binrw::prelude::*;
 use binrw::io::TakeSeekExt;
+use binrw::prelude::*;
 
 use crate::pos_marker::PosMarker;
 
@@ -37,7 +37,7 @@ pub struct SMB1NegotiateMessage {
     byte_count: PosMarker<u16>,
     #[br(map_stream = |s| s.take_seek(byte_count.value.into()), parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = PosMarker::write_and_fill_size, args(&byte_count))]
-    dialects: Vec<Smb1Dialect>
+    dialects: Vec<Smb1Dialect>,
 }
 
 impl SMB1NegotiateMessage {
@@ -58,17 +58,19 @@ impl SMB1NegotiateMessage {
                 Smb1Dialect {
                     name: binrw::NullString::from("SMB 2.???"),
                 },
-            ]
+            ],
         }
     }
 
     pub fn is_smb2_supported(&self) -> bool {
-        self.dialects.iter().any(|d| d.name.to_string() == "SMB 2.002")
+        self.dialects
+            .iter()
+            .any(|d| d.name.to_string() == "SMB 2.002")
     }
 }
 
 #[derive(BinRead, BinWrite, Debug)]
 #[brw(magic(b"\x02"))]
 pub struct Smb1Dialect {
-    name: binrw::NullString
+    name: binrw::NullString,
 }

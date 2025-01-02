@@ -1,8 +1,8 @@
 use std::io::Cursor;
 
-use binrw::prelude::*;
-use binrw::io::TakeSeekExt;
 use crate::pos_marker_3byte::PosMarker3Byte;
+use binrw::io::TakeSeekExt;
+use binrw::prelude::*;
 
 use super::{smb1, smb2};
 
@@ -15,7 +15,7 @@ pub struct NetBiosTcpMessage {
     // use stream_protocol_length to determine the length of the stream_protocol:
     #[br(map_stream = |s| s.take_seek(header.stream_protocol_length.value.into()), parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = PosMarker3Byte::write_and_fill_size, args(&header.stream_protocol_length))]
-    pub content: Vec<u8>
+    pub content: Vec<u8>,
 }
 
 #[binrw::binrw]
@@ -28,7 +28,7 @@ pub struct NetBiosTcpMessageHeader {
 impl Default for NetBiosTcpMessageHeader {
     fn default() -> NetBiosTcpMessageHeader {
         NetBiosTcpMessageHeader {
-            stream_protocol_length: PosMarker3Byte::default()
+            stream_protocol_length: PosMarker3Byte::default(),
         }
     }
 }
@@ -38,10 +38,14 @@ impl NetBiosTcpMessage {
         Ok(NetBiosMessageContent::try_from(self.content.as_slice())?)
     }
 
-    pub fn build(content: &NetBiosMessageContent) -> Result<NetBiosTcpMessage, Box<dyn std::error::Error>> {
-        let mut content_writer = Cursor::new(vec!());
+    pub fn build(
+        content: &NetBiosMessageContent,
+    ) -> Result<NetBiosTcpMessage, Box<dyn std::error::Error>> {
+        let mut content_writer = Cursor::new(vec![]);
         content.write(&mut content_writer)?;
-        Ok(NetBiosTcpMessage { content: content_writer.into_inner() })
+        Ok(NetBiosTcpMessage {
+            content: content_writer.into_inner(),
+        })
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, binrw::Error> {
@@ -55,7 +59,7 @@ impl NetBiosTcpMessage {
 #[brw(big)]
 pub enum NetBiosMessageContent {
     SMB2Message(smb2::message::SMB2Message),
-    SMB1Message(smb1::SMB1NegotiateMessage)
+    SMB1Message(smb1::SMB1NegotiateMessage),
 }
 
 impl TryFrom<&[u8]> for NetBiosMessageContent {
