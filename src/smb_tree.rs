@@ -21,29 +21,27 @@ struct TreeConnectInfo {
 }
 
 pub struct SMBTree {
-    upstream: Upstream,
+    handler: SMBHandlerReference<SMBTreeMessageHandler>,
     name: String,
-    connect_info: OnceCell<TreeConnectInfo>,
 }
 
 impl SMBTree {
     pub fn new(name: String, upstream: Upstream) -> SMBTree {
         SMBTree {
-            upstream,
+            handler: SMBTreeMessageHandler::new(upstream),
             name,
-            connect_info: OnceCell::new(),
         }
     }
 
     pub fn connect(&mut self) -> Result<(), Box<dyn Error>> {
-        if self.connect_info.get().is_some() {
+        if self.handler.borrow().connect_info().is_some() {
             return Err("Tree connection already established!".into());
         }
         // send and receive tree request & response.
-        self.send(OutgoingSMBMessage::new(SMB2Message::new(
+        self.handler.send(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBTreeConnectRequest(SMB2TreeConnectRequest::new(&self.name)),
         )))?;
-        let response = self.receive()?;
+        let response = self.handler.receive()?;
 
         let _response_content = match response.message.content {
             SMBMessageContent::SMBTreeConnectResponse(response) => Some(response),
@@ -55,7 +53,9 @@ impl SMBTree {
             self.name,
             response.message.header.tree_id
         );
-        self.connect_info
+        self.handler
+            .borrow_mut()
+            .connect_info
             .set(TreeConnectInfo {
                 tree_id: response.message.header.tree_id,
             })
@@ -64,7 +64,7 @@ impl SMBTree {
     }
 
     pub fn create(&mut self, name: String) -> Result<(), Box<dyn Error>> {
-        self.send(OutgoingSMBMessage::new(SMB2Message::new(
+        self.handler.send(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBCreateRequest(SMB2CreateRequest {
                 requested_oplock_level: OplockLevel::None,
                 impersonation_level: ImpersonationLevel::Impersonation,
@@ -89,33 +89,67 @@ impl SMBTree {
                 ],
             }),
         )))?;
-        let response = self.receive()?;
+        let response = self.handler.receive()?;
         if response.message.header.status != 0 {
             return Err("File creation failed!".into());
         }
+        let content = match response.message.content {
+            SMBMessageContent::SMBCreateResponse(response) => response,
+            _ => panic!("Unexpected response"),
+        };
+        log::info!("Created file {}, (@{})", name, content.file_id);
         Ok(())
     }
 
     fn disconnect(&mut self) -> Result<(), Box<dyn Error>> {
-        if self.connect_info.get().is_none() {
+        if self.handler.borrow_mut().connect_info.get().is_none() {
             return Err("Tree connection not established!".into());
         };
 
         // send and receive tree disconnect request & response.
-        self.send(OutgoingSMBMessage::new(SMB2Message::new(
+        self.handler.send(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBTreeDisconnectRequest(SMB2TreeDisconnectRequest::default()),
         )))?;
-        let response = self.receive()?;
+        let response = self.handler.receive()?;
         if response.message.header.status != 0 {
             return Err("Tree disconnect failed!".into());
         }
         log::info!("Disconnected from tree {}", self.name);
-        self.connect_info.take();
+        self.handler.borrow_mut().connect_info.take();
         Ok(())
     }
 }
 
-impl SMBMessageHandler for SMBTree {
+impl Drop for SMBTree {
+    fn drop(&mut self) {
+        self.disconnect()
+            .or_else(|e| {
+                log::error!("Failed to disconnect from tree {}: {}", self.name, e);
+                Err(e)
+            })
+            .ok();
+    }
+}
+
+struct SMBTreeMessageHandler {
+    upstream: Upstream,
+    connect_info: OnceCell<TreeConnectInfo>,
+}
+
+impl SMBTreeMessageHandler {
+    pub fn new(upstream: Upstream) -> SMBHandlerReference<SMBTreeMessageHandler> {
+        SMBHandlerReference::new(SMBTreeMessageHandler {
+            upstream,
+            connect_info: OnceCell::new(),
+        })
+    }
+
+    fn connect_info(&self) -> Option<&TreeConnectInfo> {
+        self.connect_info.get()
+    }
+}
+
+impl SMBMessageHandler for SMBTreeMessageHandler {
     fn send(
         &mut self,
         mut msg: crate::msg_handler::OutgoingSMBMessage,
@@ -131,16 +165,5 @@ impl SMBMessageHandler for SMBTree {
         &mut self,
     ) -> Result<crate::msg_handler::IncomingSMBMessage, Box<dyn std::error::Error>> {
         self.upstream.borrow_mut().receive()
-    }
-}
-
-impl Drop for SMBTree {
-    fn drop(&mut self) {
-        self.disconnect()
-            .or_else(|e| {
-                log::error!("Failed to disconnect from tree {}: {}", self.name, e);
-                Err(e)
-            })
-            .ok();
     }
 }

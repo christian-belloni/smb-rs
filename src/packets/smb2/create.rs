@@ -85,23 +85,23 @@ pub struct SMB2CreateResponse {
     #[bw(calc = 89)]
     #[br(assert(structure_size == 89))]
     structure_size: u16,
-    oplock_level: OplockLevel,
+    pub oplock_level: OplockLevel,
     // always 1 or 0, depends on dialect.
     #[br(assert(flags == 0 || flags == 1))]
     #[bw(assert(*flags == 0 || *flags == 1))]
-    flags: u8,
-    create_action: CreateAction,
-    creation_time: u64,
-    last_access_time: u64,
-    last_write_time: u64,
-    change_time: u64,
-    allocation_size: u64,
-    endof_file: u64,
-    file_attributes: u32,
+    pub flags: u8,
+    pub create_action: CreateAction,
+    pub creation_time: u64,
+    pub last_access_time: u64,
+    pub last_write_time: u64,
+    pub change_time: u64,
+    pub allocation_size: u64,
+    pub endof_file: u64,
+    pub file_attributes: u32,
     #[bw(calc = 0)]
     #[br(assert(_reserved2 == 0))]
     _reserved2: u32,
-    file_id: u128,
+    pub file_id: u128,
     // assert it's 8-aligned
     #[br(assert(create_contexts_offset.value & 0x7 == 0))]
     #[bw(calc = PosMarker::default())]
@@ -111,7 +111,7 @@ pub struct SMB2CreateResponse {
     #[br(seek_before = SeekFrom::Start(create_contexts_offset.value as u64))]
     #[br(map_stream = |s| s.take_seek(create_contexts_length.value.into()), parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = write_context_list, args(&create_contexts_offset, &create_contexts_length))]
-    create_contexts: Vec<SMB2CreateContext>,
+    pub create_contexts: Vec<SMB2CreateContext>,
 }
 
 /// Writes the create context list.
