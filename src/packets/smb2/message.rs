@@ -50,27 +50,27 @@ pub enum SMBMessageContent {
 
     // flush
     #[br(pre_assert(smb_command == &SMB2Command::Flush && !flags_server_to_redir))]
-    SMBFlushRequest(fileops::SMB2FlushRequest),
+    SMBFlushRequest(file::SMB2FlushRequest),
     #[br(pre_assert(smb_command == &SMB2Command::Flush && flags_server_to_redir))]
-    SMBFlushResponse(fileops::SMB2FlushResponse),
+    SMBFlushResponse(file::SMB2FlushResponse),
 
     // read
     #[br(pre_assert(smb_command == &SMB2Command::Read && !flags_server_to_redir))]
-    SMBReadRequest(fileops::SMB2ReadRequest),
+    SMBReadRequest(file::SMB2ReadRequest),
     #[br(pre_assert(smb_command == &SMB2Command::Read && flags_server_to_redir))]
-    SMBReadResponse(fileops::SMB2ReadResponse),
+    SMBReadResponse(file::SMB2ReadResponse),
 
     // write
     #[br(pre_assert(smb_command == &SMB2Command::Write && !flags_server_to_redir))]
-    SMBWriteRequest(fileops::SMB2WriteRequest),
+    SMBWriteRequest(file::SMB2WriteRequest),
     #[br(pre_assert(smb_command == &SMB2Command::Write && flags_server_to_redir))]
-    SMBWriteResponse(fileops::SMB2WriteResponse),
+    SMBWriteResponse(file::SMB2WriteResponse),
 
     // query directory
     #[br(pre_assert(smb_command == &SMB2Command::QueryDirectory && !flags_server_to_redir))]
-    SMBQueryDirectoryRequest(query_dir::SMB2QueryDirectoryRequest),
+    SMBQueryDirectoryRequest(dir::SMB2QueryDirectoryRequest),
     #[br(pre_assert(smb_command == &SMB2Command::QueryDirectory && flags_server_to_redir))]
-    SMBQueryDirectoryResponse(query_dir::SMB2QueryDirectoryResponse),
+    SMBQueryDirectoryResponse(dir::SMB2QueryDirectoryResponse),
 }
 
 impl SMBMessageContent {

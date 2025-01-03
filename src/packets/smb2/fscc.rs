@@ -126,8 +126,6 @@ pub struct DirAccessMask {
     pub generic_read: bool,
 }
 
-
-
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr = u8)]
 pub enum FileInformationClass {
@@ -150,28 +148,34 @@ pub enum FileInformationClass {
 #[derive(Debug)]
 #[brw(import(c: FileInformationClass))]
 #[brw(little)]
-pub enum QueryResponseResultVector {
+pub enum DirectoryInfoVector {
     #[br(pre_assert(c == FileInformationClass::IdBothDirectoryInformation))]
-    IdBothDirectoryInformation(IdBothDirectoryInformation),
+    IdBothDirectoryInformation(IdBothDirectoryInfoVector),
 }
 
-impl QueryResponseResultVector {
+impl DirectoryInfoVector {
     pub fn parse(payload: &[u8], class: FileInformationClass) -> Result<Self, binrw::Error> {
         let mut cursor = Cursor::new(payload);
         Self::read_args(&mut cursor, (class,))
     }
 }
 
-impl QueryResponseResultVector {
+impl DirectoryInfoVector {
     pub const SUPPORTED_CLASSES: [FileInformationClass; 1] =
         [FileInformationClass::DirectoryInformation];
 }
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct IdBothDirectoryInformation {
+pub struct IdBothDirectoryInfoVector {
     #[br(parse_with = binrw::helpers::until_eof)]
     val: Vec<BothDirectoryInformationItem>,
+}
+
+impl Into<Vec<BothDirectoryInformationItem>> for IdBothDirectoryInfoVector {
+    fn into(self) -> Vec<BothDirectoryInformationItem> {
+        self.val
+    }
 }
 
 #[binrw::binrw]

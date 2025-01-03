@@ -7,7 +7,7 @@ use crate::{
         message::{SMB2Message, SMBMessageContent},
         tree_connect::{SMB2TreeConnectRequest, SMB2TreeDisconnectRequest},
     },
-    smb_file::SMBFile,
+    smb_handle::{SMBHandle, SMBResource},
     smb_session::SMBSessionMessageHandler,
 };
 
@@ -61,10 +61,10 @@ impl SMBTree {
         Ok(())
     }
 
-    pub fn create(&mut self, file_name: String) -> Result<SMBFile, Box<dyn Error>> {
-        let mut result = SMBFile::new(file_name, self.handler.clone());
-        result.create(CreateDisposition::Open)?;
-        Ok(result)
+    /// Connects to a resource (file, directory, etc.) on the remote server by it's name.
+    pub fn create(&mut self, file_name: String) -> Result<SMBResource, Box<dyn Error>> {
+        let result = SMBHandle::new(file_name, self.handler.clone());
+        Ok(result.create(CreateDisposition::Open)?)
     }
 
     fn disconnect(&mut self) -> Result<(), Box<dyn Error>> {

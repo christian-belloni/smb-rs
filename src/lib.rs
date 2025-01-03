@@ -7,6 +7,8 @@ pub mod pos_marker;
 pub mod pos_marker_3byte;
 pub mod smb_client;
 pub mod smb_crypto;
+pub mod smb_dir;
 pub mod smb_file;
+pub mod smb_handle;
 pub mod smb_session;
 pub mod smb_tree;

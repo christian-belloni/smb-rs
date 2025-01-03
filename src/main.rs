@@ -8,7 +8,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     smb.negotiate()?;
     let mut session = smb.authenticate("LocalAdmin".to_string(), "123456".to_string())?;
     let mut tree = session.tree_connect(r"\\AVIVVM\MyShare".to_string())?;
-    let mut file = tree.create("hello".to_string())?;
-    file.query()?;
+    let mut file = tree.create("hello".to_string())?.unwrap_dir();
+    for item in file.query("*")?.iter() {
+        println!("{:?}", item);
+    }
     Ok(())
 }
