@@ -1,5 +1,4 @@
 use binrw::prelude::*;
-use create::SMB2CreateRequest;
 
 use super::header::*;
 use super::*;
@@ -49,6 +48,24 @@ pub enum SMBMessageContent {
     #[br(pre_assert(smb_command == &SMB2Command::Close && flags_server_to_redir))]
     SMBCloseResponse(create::SMB2CloseResponse),
 
+    // flush
+    #[br(pre_assert(smb_command == &SMB2Command::Flush && !flags_server_to_redir))]
+    SMBFlushRequest(fileops::SMB2FlushRequest),
+    #[br(pre_assert(smb_command == &SMB2Command::Flush && flags_server_to_redir))]
+    SMBFlushResponse(fileops::SMB2FlushResponse),
+
+    // read
+    #[br(pre_assert(smb_command == &SMB2Command::Read && !flags_server_to_redir))]
+    SMBReadRequest(fileops::SMB2ReadRequest),
+    #[br(pre_assert(smb_command == &SMB2Command::Read && flags_server_to_redir))]
+    SMBReadResponse(fileops::SMB2ReadResponse),
+
+    // write
+    #[br(pre_assert(smb_command == &SMB2Command::Write && !flags_server_to_redir))]
+    SMBWriteRequest(fileops::SMB2WriteRequest),
+    #[br(pre_assert(smb_command == &SMB2Command::Write && flags_server_to_redir))]
+    SMBWriteResponse(fileops::SMB2WriteResponse),
+
     // query directory
     #[br(pre_assert(smb_command == &SMB2Command::QueryDirectory && !flags_server_to_redir))]
     SMBQueryDirectoryRequest(query_dir::SMB2QueryDirectoryRequest),
@@ -69,6 +86,9 @@ impl SMBMessageContent {
             }
             SMBCreateRequest(_) | SMBCreateResponse(_) => SMB2Command::Create,
             SMBCloseRequest(_) | SMBCloseResponse(_) => SMB2Command::Close,
+            SMBFlushRequest(_) | SMBFlushResponse(_) => SMB2Command::Flush,
+            SMBReadRequest(_) | SMBReadResponse(_) => SMB2Command::Read,
+            SMBWriteRequest(_) | SMBWriteResponse(_) => SMB2Command::Write,
             SMBQueryDirectoryRequest(_) | SMBQueryDirectoryResponse(_) => {
                 SMB2Command::QueryDirectory
             }

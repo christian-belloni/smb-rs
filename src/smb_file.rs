@@ -96,7 +96,10 @@ impl SMBFile {
             SMBMessageContent::SMBQueryDirectoryResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
-        let result = QueryResponseResultVector::parse(&content.output_buffer, FileInformationClass::IdBothDirectoryInformation)?;
+        let result = QueryResponseResultVector::parse(
+            &content.output_buffer,
+            FileInformationClass::IdBothDirectoryInformation,
+        )?;
         dbg!(&result);
         Ok(())
     }

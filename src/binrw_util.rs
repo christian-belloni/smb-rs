@@ -1,7 +1,7 @@
-use std::{io::prelude::*, string::FromUtf16Error};
 use binrw::io::Write;
-use core::fmt::{self, Write as _};
 use binrw::{prelude::*, Endian};
+use core::fmt::{self, Write as _};
+use std::{io::prelude::*, string::FromUtf16Error};
 
 /// Based on binrw::strings::NullWideString, but terminated by provided size rather than null char.
 #[derive(Clone, Eq, PartialEq, Default)]
@@ -39,7 +39,7 @@ impl BinRead for SizedWideString {
         for _ in 0..size_chars {
             let val = <u16>::read_options(reader, endian, ())?;
             values.push(val);
-        };
+        }
         Ok(Self(values))
     }
 }
