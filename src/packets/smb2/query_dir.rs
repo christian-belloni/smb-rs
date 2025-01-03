@@ -4,7 +4,7 @@ use std::io::{Cursor, SeekFrom};
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use crate::pos_marker::PosMarker;
+use crate::{binrw_util::SizedWideString, pos_marker::PosMarker};
 
 #[binrw::binrw]
 #[derive(Debug)]
@@ -21,14 +21,14 @@ pub struct SMB2QueryDirectoryRequest {
     pub file_id: u128,
     #[bw(calc = PosMarker::default())]
     pub file_name_offset: PosMarker<u16>,
-    #[bw(try_calc = TryInto::<u16>::try_into(file_name.len()).unwrap().checked_mul(2).ok_or("file_name too long"))]
+    #[bw(try_calc = file_name.size().try_into())]
     file_name_length: u16, // in bytes.
     pub output_buffer_length: u32,
     #[br(seek_before = SeekFrom::Start(file_name_offset.value as u64))]
     // map stream take until eof:
-    #[br(map_stream = |s| s.take_seek(file_name_length as u64), parse_with = binrw::helpers::until_eof)]
+    #[br(args(file_name_length as u64))]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&file_name_offset))]
-    pub file_name: Vec<u16>,
+    pub file_name: SizedWideString,
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
@@ -90,7 +90,7 @@ pub struct BothDirectoryInformationItem {
     end_of_file: u64,
     allocation_size: u64,
     file_attributes: u32,
-    #[bw(calc = file_name.len() as u32 * 2)]
+    #[bw(try_calc = file_name.size().try_into())]
     _file_name_length: u32, // bytes
     ea_size: u32,
     short_name_length: u8,
@@ -102,8 +102,8 @@ pub struct BothDirectoryInformationItem {
     #[br(assert(dbg!(_reserved2) == 0))]
     _reserved2: u16,
     fild_id: u64,
-    #[br(count = _file_name_length / 2)]
-    file_name: Vec<u16>,
+    #[br(args(_file_name_length as u64))]
+    file_name: SizedWideString,
     // Seek to next item if exists.
     #[br(seek_before = _next_entry_offset.seek_relative(true))]
     _seek_next_if_exists: (),

@@ -1,5 +1,6 @@
 use std::io::SeekFrom;
 
+use crate::binrw_util::SizedWideString;
 use crate::pos_marker::PosMarker;
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
@@ -27,17 +28,17 @@ pub struct SMB2CreateRequest {
     pub create_options: u32,
     #[bw(calc = PosMarker::default())]
     _name_offset: PosMarker<u16>,
-    #[bw(calc = u16::try_from(name.len()).unwrap().checked_mul(2).unwrap())]
-    name_length: u16,
+    #[bw(try_calc = name.size().try_into())]
+    name_length: u16, // bytes
     #[bw(calc = PosMarker::default())]
     _create_contexts_offset: PosMarker<u32>,
     #[bw(calc = PosMarker::default())]
     _create_contexts_length: PosMarker<u32>,
 
     #[brw(align_before = 8)]
-    #[br(count = name_length)]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_name_offset))]
-    pub name: Vec<u16>,
+    #[br(args(name_length as u64))]
+    pub name: SizedWideString,
 
     #[brw(align_before = 8)]
     #[br(map_stream = |s| s.take_seek(_create_contexts_length.value.into()), parse_with = binrw::helpers::until_eof)]
@@ -274,7 +275,7 @@ mod tests {
                 .with_delete(true),
             create_disposition: CreateDisposition::Open,
             create_options: 0x00020020,
-            name: file_name.encode_utf16().collect(),
+            name: file_name.into(),
             contexts: vec![
                 SMB2CreateContext::new(
                     "DH2Q",

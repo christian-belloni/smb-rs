@@ -1,7 +1,7 @@
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use crate::pos_marker::PosMarker;
+use crate::{binrw_util::SizedWideString, pos_marker::PosMarker};
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
@@ -22,20 +22,20 @@ pub struct SMB2TreeConnectRequest {
     pub flags: SMB2TreeConnectRquestFlags,
     #[bw(calc = PosMarker::default())]
     _path_offset: PosMarker<u16>,
-    #[bw(try_calc((buffer.len() as u16).checked_mul(2).ok_or(format!("buffer length overflow {}", buffer.len()))))]
+    #[bw(try_calc = buffer.size().try_into())]
     path_length: u16,
     // TODO: Support extension
     #[brw(little)]
-    #[br(count = path_length)]
+    #[br(args(path_length as u64))]
     #[bw(write_with=PosMarker::write_and_fill_start_offset, args(&_path_offset))]
-    pub buffer: Vec<u16>,
+    pub buffer: SizedWideString,
 }
 
 impl SMB2TreeConnectRequest {
     pub fn new(name: &String) -> SMB2TreeConnectRequest {
         SMB2TreeConnectRequest {
             flags: SMB2TreeConnectRquestFlags::new(),
-            buffer: name.encode_utf16().collect(),
+            buffer: name.clone().into(),
         }
     }
 }

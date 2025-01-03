@@ -40,7 +40,7 @@ impl SMBFile {
                 share_access: SMB2ShareAccessFlags::from_bytes([0x07, 0x00, 0x00, 0x00]),
                 create_disposition: CreateDisposition::Open,
                 create_options: 0,
-                name: self.file_name.encode_utf16().collect(),
+                name: self.file_name.clone().into(),
                 contexts: vec![
                     SMB2CreateContext::new(
                         "DH2Q",
@@ -88,7 +88,7 @@ impl SMBFile {
                 file_index: 0,
                 file_id: *self.file_id.get().unwrap(),
                 output_buffer_length: 0x10000,
-                file_name: "*".encode_utf16().collect(),
+                file_name: "*".into(),
             }),
         )))?;
         let response = self.receive()?;
