@@ -150,12 +150,13 @@ mod gmac {
     }
 
     #[bitfield]
-    #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
-    #[bw(map = |&x| Self::into_bytes(x))]
     struct NonceSuffixFlags {
-        is_server: bool,
-        is_cancel: bool,
-        zero: B30,
+        #[allow(unused)]
+        pub is_server: bool,
+        #[allow(unused)]
+        pub is_cancel: bool,
+        #[allow(non_snake_case)]
+        pub _zero: B30,
     }
 
     impl SMBGmac128Signer {
@@ -177,7 +178,7 @@ mod gmac {
             let b = NonceSuffixFlags::new()
                 .with_is_cancel(message.content.associated_cmd() == SMB2Command::Cancel)
                 .with_is_server(false)
-                .bytes;
+                .into_bytes();
             debug_assert!(b.len() == 4);
             result[8..].copy_from_slice(&b);
 

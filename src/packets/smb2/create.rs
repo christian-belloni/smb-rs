@@ -1,5 +1,6 @@
 use std::io::SeekFrom;
 
+use super::fscc::*;
 use crate::binrw_util::SizedWideString;
 use crate::pos_marker::PosMarker;
 use binrw::io::TakeSeekExt;
@@ -22,7 +23,7 @@ pub struct SMB2CreateRequest {
     #[br(assert(_reserved == 0))]
     _reserved: u64,
     pub desired_access: u32,
-    pub file_attributes: u32,
+    pub file_attributes: FileAttributes,
     pub share_access: SMB2ShareAccessFlags,
     pub create_disposition: CreateDisposition,
     pub create_options: u32,
@@ -98,7 +99,7 @@ pub struct SMB2CreateResponse {
     pub change_time: u64,
     pub allocation_size: u64,
     pub endof_file: u64,
-    pub file_attributes: u32,
+    pub file_attributes: FileAttributes,
     #[bw(calc = 0)]
     #[br(assert(_reserved2 == 0))]
     _reserved2: u32,
@@ -246,7 +247,7 @@ pub struct SMB2CloseResponse {
     pub change_time: u64,
     pub allocation_size: u64,
     pub endof_file: u64,
-    pub file_attributes: u32,
+    pub file_attributes: FileAttributes,
 }
 
 #[cfg(test)]
@@ -268,7 +269,7 @@ mod tests {
             impersonation_level: ImpersonationLevel::Impersonation,
             smb_create_flags: 0,
             desired_access: 0x00100081,
-            file_attributes: 0,
+            file_attributes: FileAttributes::new(),
             share_access: SMB2ShareAccessFlags::new()
                 .with_read(true)
                 .with_write(true)
@@ -353,7 +354,7 @@ mod tests {
                 change_time: 133783939554544738,
                 allocation_size: 0,
                 endof_file: 0,
-                file_attributes: 16,
+                file_attributes: FileAttributes::new().with_directory(true),
                 file_id: 950737950337192747837452976457,
                 create_contexts: vec![
                     SMB2CreateContext {

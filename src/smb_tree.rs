@@ -3,10 +3,7 @@ use std::{cell::OnceCell, error::Error};
 use crate::{
     msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
     packets::smb2::{
-        create::{
-            CreateDisposition, ImpersonationLevel, OplockLevel, SMB2CreateContext,
-            SMB2CreateRequest, SMB2ShareAccessFlags,
-        },
+        create::CreateDisposition,
         message::{SMB2Message, SMBMessageContent},
         tree_connect::{SMB2TreeConnectRequest, SMB2TreeDisconnectRequest},
     },
@@ -66,7 +63,7 @@ impl SMBTree {
 
     pub fn create(&mut self, file_name: String) -> Result<SMBFile, Box<dyn Error>> {
         let mut result = SMBFile::new(file_name, self.handler.clone());
-        result.create()?;
+        result.create(CreateDisposition::Open)?;
         Ok(result)
     }
 

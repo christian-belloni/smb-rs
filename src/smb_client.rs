@@ -1,6 +1,5 @@
 use binrw::prelude::*;
 use core::panic;
-use modular_bitfield::prelude::*;
 use rand::Rng;
 use sha2::{Digest, Sha512};
 use std::{cell::OnceCell, error::Error, fmt::Display};
@@ -70,15 +69,15 @@ impl Default for PreauthHashState {
 
 #[derive(Debug)]
 pub struct SmbNegotiateState {
-    server_guid: u128,
+    pub server_guid: u128,
 
-    max_transact_size: u32,
-    max_read_size: u32,
-    max_write_size: u32,
+    pub max_transact_size: u32,
+    pub max_read_size: u32,
+    pub max_write_size: u32,
 
-    gss_negotiate_token: Vec<u8>,
+    pub gss_negotiate_token: Vec<u8>,
 
-    selected_dialect: SMBDialect,
+    pub selected_dialect: SMBDialect,
 }
 
 impl SmbNegotiateState {
@@ -335,7 +334,7 @@ impl SMBMessageHandler for SMBClientMessageHandler {
         let raw = self.netbios_client.recieve_bytes()?;
         self.step_preauth_hash(&raw);
         let netbios_message = raw.parse()?;
-        let mut smb2_message = match netbios_message {
+        let smb2_message = match netbios_message {
             NetBiosMessageContent::SMB2Message(smb2_message) => Some(smb2_message),
             _ => None,
         }

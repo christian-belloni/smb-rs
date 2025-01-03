@@ -1,5 +1,6 @@
 pub mod create;
 pub mod fileops;
+pub mod fscc;
 pub mod header;
 pub mod message;
 pub mod negotiate;

@@ -1,6 +1,6 @@
 use std::{fmt::Debug, io::SeekFrom};
 
-use binrw::{error::CustomError, BinRead, BinResult, BinWrite, Endian};
+use binrw::{BinRead, BinResult, BinWrite, Endian};
 
 /**
  * Source: https://github.com/jam1garner/binrw/discussions/229

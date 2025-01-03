@@ -1,5 +1,5 @@
+use der::AnyRef;
 use der::{asn1::OctetStringRef, oid::ObjectIdentifier, Decode, Encode};
-use der::{AnyRef, Tagged};
 use gss_api::negotiation::*;
 use gss_api::InitialContextToken;
 use sspi::{

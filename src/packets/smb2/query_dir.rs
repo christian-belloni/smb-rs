@@ -1,10 +1,12 @@
 use binrw::io::TakeSeekExt;
-use std::io::{Cursor, SeekFrom};
+use std::io::SeekFrom;
 
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
 use crate::{binrw_util::SizedWideString, pos_marker::PosMarker};
+
+use super::fscc::*;
 
 #[binrw::binrw]
 #[derive(Debug)]
@@ -29,84 +31,6 @@ pub struct SMB2QueryDirectoryRequest {
     #[br(args(file_name_length as u64))]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&file_name_offset))]
     pub file_name: SizedWideString,
-}
-
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
-#[brw(repr = u8)]
-pub enum FileInformationClass {
-    DirectoryInformation = 0x01,
-    FullDirectoryInformation = 0x02,
-    IdFullDirectoryInformation = 0x26,
-    BothDirectoryInformation = 0x03,
-    IdBothDirectoryInformation = 0x25,
-    NamesInformation = 0x0C,
-    IdExtdDirectoryInformation = 0x3c,
-    Id64ExtdDirectoryInformation = 0x4e,
-    Id64ExtdBothDirectoryInformation = 0x4f,
-    IdAllExtdDirectoryInformation = 0x50,
-    IdAllExtdBothDirectoryInformation = 0x51,
-    // reserved.
-    InformationClassReserved = 0x64,
-}
-
-#[binrw::binrw]
-#[derive(Debug)]
-#[brw(import(c: FileInformationClass))]
-#[brw(little)]
-pub enum QueryResponseResultVector {
-    #[br(pre_assert(c == FileInformationClass::IdBothDirectoryInformation))]
-    IdBothDirectoryInformation(IdBothDirectoryInformation),
-}
-
-impl QueryResponseResultVector {
-    pub fn parse(payload: &[u8], class: FileInformationClass) -> Result<Self, binrw::Error> {
-        let mut cursor = Cursor::new(payload);
-        Self::read_args(&mut cursor, (class,))
-    }
-}
-
-impl QueryResponseResultVector {
-    pub const SUPPORTED_CLASSES: [FileInformationClass; 1] =
-        [FileInformationClass::DirectoryInformation];
-}
-
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct IdBothDirectoryInformation {
-    #[br(parse_with = binrw::helpers::until_eof)]
-    val: Vec<BothDirectoryInformationItem>,
-}
-
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct BothDirectoryInformationItem {
-    #[bw(calc = PosMarker::default())]
-    _next_entry_offset: PosMarker<u32>,
-    file_index: u32,
-    creation_time: u64,
-    last_access_time: u64,
-    last_write_time: u64,
-    change_time: u64,
-    end_of_file: u64,
-    allocation_size: u64,
-    file_attributes: u32,
-    #[bw(try_calc = file_name.size().try_into())]
-    _file_name_length: u32, // bytes
-    ea_size: u32,
-    short_name_length: u8,
-    #[bw(calc = 0)]
-    #[br(assert(_reserved1 == 0))]
-    _reserved1: u8,
-    short_name: [u16; 12], // 8.3
-    #[bw(calc = 0)]
-    #[br(assert(_reserved2 == 0))]
-    _reserved2: u16,
-    fild_id: u64,
-    #[br(args(_file_name_length as u64))]
-    file_name: SizedWideString,
-    // Seek to next item if exists.
-    #[br(seek_before = _next_entry_offset.seek_relative(true))]
-    _seek_next_if_exists: (),
 }
 
 #[bitfield]

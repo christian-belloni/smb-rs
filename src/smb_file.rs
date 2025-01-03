@@ -4,6 +4,7 @@ use crate::{
     msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
     packets::smb2::{
         create::*,
+        fscc::{FileAttributes, FileInformationClass, QueryResponseResultVector},
         message::{SMB2Message, SMBMessageContent},
         query_dir::*,
     },
@@ -29,16 +30,19 @@ impl SMBFile {
         }
     }
 
-    pub fn create(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn create(&mut self, create_disposition: CreateDisposition) -> Result<(), Box<dyn Error>> {
         self.send(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBCreateRequest(SMB2CreateRequest {
                 requested_oplock_level: OplockLevel::None,
                 impersonation_level: ImpersonationLevel::Impersonation,
                 smb_create_flags: 0,
                 desired_access: 0x00100081,
-                file_attributes: 0,
-                share_access: SMB2ShareAccessFlags::from_bytes([0x07, 0x00, 0x00, 0x00]),
-                create_disposition: CreateDisposition::Open,
+                file_attributes: FileAttributes::new(),
+                share_access: SMB2ShareAccessFlags::new()
+                    .with_read(true)
+                    .with_write(true)
+                    .with_delete(true),
+                create_disposition,
                 create_options: 0,
                 name: self.file_name.clone().into(),
                 contexts: vec![
@@ -71,7 +75,7 @@ impl SMBFile {
             .map_err(|_| "File ID already set")?;
 
         self.is_dir
-            .set(content.file_attributes & 0x10 != 0)
+            .set(content.file_attributes.directory())
             .map_err(|_| "Is dir already set")?;
 
         Ok(())
