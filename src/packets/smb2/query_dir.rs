@@ -99,7 +99,7 @@ pub struct BothDirectoryInformationItem {
     _reserved1: u8,
     short_name: [u16; 12], // 8.3
     #[bw(calc = 0)]
-    #[br(assert(dbg!(_reserved2) == 0))]
+    #[br(assert(_reserved2 == 0))]
     _reserved2: u16,
     fild_id: u64,
     #[br(args(_file_name_length as u64))]

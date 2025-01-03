@@ -1,6 +1,7 @@
-use binrw::io::SeekFrom;
+use binrw::io::{SeekFrom, TakeSeekExt};
 use binrw::prelude::*;
 
+use crate::binrw_util::SizedWideString;
 use crate::pos_marker::PosMarker;
 
 #[binrw::binrw]
@@ -54,8 +55,6 @@ impl SMBNegotiateRequest {
             negotiate_context_list: Some(vec![
                 SMBNegotiateContext {
                     context_type: SMBNegotiateContextType::PreauthIntegrityCapabilities,
-                    data_length: 38,
-                    reserved: 0,
                     data: SMBNegotiateContextValue::PreauthIntegrityCapabilities(
                         PreauthIntegrityCapabilities {
                             hash_algorithms: vec![HashAlgorithm::Sha512],
@@ -65,8 +64,6 @@ impl SMBNegotiateRequest {
                 },
                 SMBNegotiateContext {
                     context_type: SMBNegotiateContextType::EncryptionCapabilities,
-                    data_length: 10,
-                    reserved: 0,
                     data: SMBNegotiateContextValue::EncryptionCapabilities(
                         EncryptionCapabilities {
                             cipher_count: 4,
@@ -81,8 +78,6 @@ impl SMBNegotiateRequest {
                 },
                 SMBNegotiateContext {
                     context_type: SMBNegotiateContextType::CompressionCapabilities,
-                    data_length: 10,
-                    reserved: 0,
                     data: SMBNegotiateContextValue::CompressionCapabilities(
                         CompressionCapabilities {
                             compression_algorithm_count: 1,
@@ -94,19 +89,15 @@ impl SMBNegotiateRequest {
                 },
                 SMBNegotiateContext {
                     context_type: SMBNegotiateContextType::SigningCapabilities,
-                    data_length: 6,
-                    reserved: 0,
                     data: SMBNegotiateContextValue::SigningCapabilities(SigningCapabilities {
                         signing_algorithms,
                     }),
                 },
                 SMBNegotiateContext {
                     context_type: SMBNegotiateContextType::NetnameNegotiateContextId,
-                    data_length: 12,
-                    reserved: 0,
                     data: SMBNegotiateContextValue::NetnameNegotiateContextId(
                         NetnameNegotiateContextId {
-                            netname: binrw::NullWideString::from(client_netname),
+                            netname: client_netname.into(),
                         },
                     ),
                 },
@@ -185,14 +176,20 @@ impl TryFrom<SMBNegotiateResponseDialect> for SMBDialect {
     }
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[binrw::binrw]
+#[derive(Debug)]
 pub struct SMBNegotiateContext {
     // The entire context is 8-byte aligned.
     #[brw(align_before = 8)]
     pub context_type: SMBNegotiateContextType,
-    data_length: u16,
+    #[bw(calc = PosMarker::default())]
+    data_length: PosMarker<u16>,
+    #[bw(calc = 0)]
+    #[br(assert(reserved == 0))]
     reserved: u32,
     #[br(args(&context_type))]
+    #[br(map_stream = |s| s.take_seek(data_length.value as u64))]
+    #[bw(write_with = PosMarker::write_and_fill_size, args(&data_length))]
     pub data: SMBNegotiateContextValue,
 }
 
@@ -275,7 +272,8 @@ pub struct CompressionCapabilities {
 
 #[derive(BinRead, BinWrite, Debug)]
 pub struct NetnameNegotiateContextId {
-    netname: binrw::NullWideString,
+    #[br(parse_with = binrw::helpers::until_eof)]
+    netname: SizedWideString,
 }
 
 #[derive(BinRead, BinWrite, Debug)]

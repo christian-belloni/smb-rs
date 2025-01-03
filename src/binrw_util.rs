@@ -85,6 +85,12 @@ impl TryFrom<SizedWideString> for String {
     }
 }
 
+impl FromIterator<u16> for SizedWideString {
+    fn from_iter<T: IntoIterator<Item = u16>>(iter: T) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
 impl core::ops::Deref for SizedWideString {
     type Target = Vec<u16>;
 
