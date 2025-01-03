@@ -83,7 +83,7 @@ impl SMBFile {
 
         self.send(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBQueryDirectoryRequest(SMB2QueryDirectoryRequest {
-                file_information_class: FileInformationClass::BothDirectoryInformation,
+                file_information_class: FileInformationClass::IdBothDirectoryInformation,
                 flags: QueryDirectoryFlags::new().with_restart_scans(true),
                 file_index: 0,
                 file_id: *self.file_id.get().unwrap(),
@@ -92,7 +92,12 @@ impl SMBFile {
             }),
         )))?;
         let response = self.receive()?;
-        dbg!(&response);
+        let content = match response.message.content {
+            SMBMessageContent::SMBQueryDirectoryResponse(response) => response,
+            _ => panic!("Unexpected response"),
+        };
+        let result = QueryResponseResultVector::parse(&content.output_buffer, FileInformationClass::IdBothDirectoryInformation)?;
+        dbg!(&result);
         Ok(())
     }
 

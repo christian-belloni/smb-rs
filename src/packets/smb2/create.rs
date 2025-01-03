@@ -198,7 +198,7 @@ pub struct SMB2CreateContext {
     #[bw(align_before = 8)]
     #[bw(write_with = PosMarker::write_and_fill_relative_offset, args(&_next))]
     // When reading, move the stream to the next context if there is one.
-    #[br(seek_before = if _next.value > 0 {_next.seek_relative()} else {SeekFrom::Current(0)})]
+    #[br(seek_before = _next.seek_relative(true))]
     fill_next: (),
 }
 

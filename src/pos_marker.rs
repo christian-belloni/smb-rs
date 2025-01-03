@@ -16,9 +16,14 @@ where
 {
     /// This function assumes the PosMarker is used to describe an offset from it's location.
     /// You can use it to get a `SeekFrom` to seek to the position described by the PosMarker
-    pub fn seek_relative(&self) -> SeekFrom {
+    pub fn seek_relative(&self, zero_check: bool) -> SeekFrom {
         debug_assert!(self.pos.get() != u64::MAX); // sanity
-        SeekFrom::Start(self.pos.get() + self.value.into())
+        let pos = SeekFrom::Start(self.pos.get() + self.value.into());
+        if !zero_check || Into::<u64>::into(self.value) > 0 {
+            pos
+        } else {
+            SeekFrom::Current(0)
+        }
     }
 }
 
