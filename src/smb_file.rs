@@ -5,6 +5,7 @@ use crate::{
     packets::smb2::{
         create::*,
         message::{SMB2Message, SMBMessageContent},
+        query_dir::*,
     },
     smb_tree::SMBTreeMessageHandler,
 };
@@ -14,6 +15,7 @@ type Upstream = SMBHandlerReference<SMBTreeMessageHandler>;
 pub struct SMBFile {
     file_name: String,
     file_id: OnceCell<u128>,
+    is_dir: OnceCell<bool>,
     upstream: Upstream,
 }
 
@@ -22,6 +24,7 @@ impl SMBFile {
         SMBFile {
             file_name,
             file_id: OnceCell::default(),
+            is_dir: OnceCell::default(),
             upstream,
         }
     }
@@ -67,6 +70,29 @@ impl SMBFile {
             .set(content.file_id)
             .map_err(|_| "File ID already set")?;
 
+        self.is_dir
+            .set(content.file_attributes & 0x10 != 0)
+            .map_err(|_| "Is dir already set")?;
+
+        Ok(())
+    }
+
+    pub fn query(&mut self) -> Result<(), Box<dyn Error>> {
+        assert!(self.is_dir.get().unwrap());
+        log::debug!("Querying directory {}", self.file_name);
+
+        self.send(OutgoingSMBMessage::new(SMB2Message::new(
+            SMBMessageContent::SMBQueryDirectoryRequest(SMB2QueryDirectoryRequest {
+                file_information_class: FileInformationClass::BothDirectoryInformation,
+                flags: QueryDirectoryFlags::new().with_restart_scans(true),
+                file_index: 0,
+                file_id: *self.file_id.get().unwrap(),
+                output_buffer_length: 0x10000,
+                file_name: "*".encode_utf16().collect(),
+            }),
+        )))?;
+        let response = self.receive()?;
+        dbg!(&response);
         Ok(())
     }
 

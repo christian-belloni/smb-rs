@@ -39,6 +39,7 @@ impl SendMessageResult {
     }
 }
 
+#[derive(Debug)]
 pub struct IncomingSMBMessage {
     pub message: SMB2Message,
     pub raw: NetBiosTcpMessage,

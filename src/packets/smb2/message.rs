@@ -48,6 +48,12 @@ pub enum SMBMessageContent {
     SMBCloseRequest(create::SMB2CloseRequest),
     #[br(pre_assert(smb_command == &SMB2Command::Close && flags_server_to_redir))]
     SMBCloseResponse(create::SMB2CloseResponse),
+
+    // query directory
+    #[br(pre_assert(smb_command == &SMB2Command::QueryDirectory && !flags_server_to_redir))]
+    SMBQueryDirectoryRequest(query_dir::SMB2QueryDirectoryRequest),
+    #[br(pre_assert(smb_command == &SMB2Command::QueryDirectory && flags_server_to_redir))]
+    SMBQueryDirectoryResponse(query_dir::SMB2QueryDirectoryResponse),
 }
 
 impl SMBMessageContent {
@@ -63,6 +69,9 @@ impl SMBMessageContent {
             }
             SMBCreateRequest(_) | SMBCreateResponse(_) => SMB2Command::Create,
             SMBCloseRequest(_) | SMBCloseResponse(_) => SMB2Command::Close,
+            SMBQueryDirectoryRequest(_) | SMBQueryDirectoryResponse(_) => {
+                SMB2Command::QueryDirectory
+            }
         }
     }
 }
