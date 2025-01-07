@@ -1,5 +1,8 @@
-use smb::smb_client::SMBClient;
-use std::{error::Error, io::Read};
+use smb::{
+    packets::smb2::{create::CreateDisposition, fscc::FileAccessMask},
+    smb_client::SMBClient,
+};
+use std::{error::Error, io::prelude::*};
 
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
@@ -8,12 +11,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     smb.negotiate()?;
     let mut session = smb.authenticate("LocalAdmin".to_string(), "123456".to_string())?;
     let mut tree = session.tree_connect(r"\\AVIVVM\MyShare".to_string())?;
-    let file = tree.create("hello.txt".to_string())?;
+    let file = tree.create(
+        "day.txt".to_string(),
+        CreateDisposition::Open,
+        FileAccessMask::new()
+            .with_generic_read(true)
+            .with_generic_write(true),
+    )?;
     match file {
         smb::smb_handle::SMBResource::File(mut smbfile) => {
-            let mut buf = [0u8; 0x1000];
+            // Let's read some data from the file.
+            let mut buf = [0; 1024];
             let n = smbfile.read(&mut buf)?;
             println!("{:?}", String::from_utf8_lossy(&buf[..n]));
+
+            // Let's write some data to the file.
+            smbfile.write_all(b"Hello, world!")?;
         }
         smb::smb_handle::SMBResource::Directory(mut smbdirectory) => {
             for item in smbdirectory.query("*")? {

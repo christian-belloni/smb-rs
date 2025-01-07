@@ -53,7 +53,7 @@ pub struct FileAttributes {
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct FilePipePrinterAccessMask {
+pub struct FileAccessMask {
     pub file_read_data: bool,
     pub file_write_data: bool,
     pub file_append_data: bool,

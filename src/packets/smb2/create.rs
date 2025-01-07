@@ -22,7 +22,7 @@ pub struct SMB2CreateRequest {
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u64,
-    pub desired_access: u32,
+    pub desired_access: FileAccessMask,
     pub file_attributes: FileAttributes,
     pub share_access: SMB2ShareAccessFlags,
     pub create_disposition: CreateDisposition,
@@ -268,7 +268,7 @@ mod tests {
             requested_oplock_level: OplockLevel::None,
             impersonation_level: ImpersonationLevel::Impersonation,
             smb_create_flags: 0,
-            desired_access: 0x00100081,
+            desired_access: FileAccessMask::from_bytes(0x00100081u32.to_le_bytes()),
             file_attributes: FileAttributes::new(),
             share_access: SMB2ShareAccessFlags::new()
                 .with_read(true)

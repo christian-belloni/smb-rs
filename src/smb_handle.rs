@@ -4,7 +4,7 @@ use crate::{
     msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
     packets::smb2::{
         create::*,
-        fscc::FileAttributes,
+        fscc::{FileAttributes, FileAccessMask},
         message::{SMB2Message, SMBMessageContent},
     },
     smb_dir::SMBDirectory,
@@ -79,6 +79,7 @@ impl SMBHandle {
     pub fn create(
         mut self,
         create_disposition: CreateDisposition,
+        desired_access: FileAccessMask,
     ) -> Result<SMBResource, Box<dyn Error>> {
         assert!(self.create_response.get().is_none(), "Handle already open!");
 
@@ -87,7 +88,7 @@ impl SMBHandle {
                 requested_oplock_level: OplockLevel::None,
                 impersonation_level: ImpersonationLevel::Impersonation,
                 smb_create_flags: 0,
-                desired_access: 0x00100081,
+                desired_access,
                 file_attributes: FileAttributes::new(),
                 share_access: SMB2ShareAccessFlags::new()
                     .with_read(true)
