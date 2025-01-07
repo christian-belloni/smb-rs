@@ -40,8 +40,7 @@ impl SMBDirectory {
             &content.output_buffer,
             FileInformationClass::IdBothDirectoryInformation,
         )? {
-            DirectoryInfoVector::IdBothDirectoryInformation(val) => val,
-            _ => panic!("Unexpected response"),
+            DirectoryInfoVector::IdBothDirectoryInformation(val) => val
         };
         Ok(result.into())
     }

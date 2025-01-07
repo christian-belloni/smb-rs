@@ -154,8 +154,7 @@ mod gmac {
         pub is_server: bool,
         #[allow(unused)]
         pub is_cancel: bool,
-        #[allow(non_snake_case)]
-        pub _zero: B30,
+        #[skip] __: B30,
     }
 
     impl SMBGmac128Signer {

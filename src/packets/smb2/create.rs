@@ -77,8 +77,7 @@ pub struct SMB2ShareAccessFlags {
     pub read: bool,
     pub write: bool,
     pub delete: bool,
-    #[allow(non_snake_case)]
-    _reserved: B29,
+    #[skip] __: B29,
 }
 
 #[binrw::binrw]

@@ -17,7 +17,7 @@ use crate::{
             message::{SMB2Message, SMBMessageContent},
             negotiate::{
                 HashAlgorithm, SMBDialect, SMBNegotiateContextType, SMBNegotiateContextValue,
-                SMBNegotiateRequest, SMBNegotiateResponseDialect, SigningAlgorithmId,
+                SMBNegotiateRequest, SMBNegotiateResponseDialect,
             },
         },
     },

@@ -89,6 +89,13 @@ impl Write for SMBFile {
             return Ok(0);
         }
 
+        log::debug!(
+            "Writing {} bytes at offset {} to {}",
+            buf.len(),
+            self.pos,
+            self.handle.name()
+        );
+
         self.send(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBWriteRequest(SMB2WriteRequest {
                 offset: self.pos,

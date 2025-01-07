@@ -110,8 +110,7 @@ impl SMB2ReadResponse {
 pub struct ReadFlags {
     pub read_unbuffered: bool,
     pub read_compressed: bool,
-    #[allow(non_snake_case)]
-    _reserved: B6,
+    #[skip] __: B6,
 }
 
 #[binrw::binrw]
@@ -183,8 +182,7 @@ pub struct SMB2WriteResponse {
 pub struct WriteFlags {
     pub write_unbuffered: bool,
     pub write_through: bool,
-    #[allow(non_snake_case)]
-    _reserved: B30,
+    #[skip] __: B30,
 }
 
 #[cfg(test)]

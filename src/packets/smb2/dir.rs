@@ -41,8 +41,7 @@ pub struct QueryDirectoryFlags {
     pub return_single_entry: bool,
     pub index_specified: bool,
     pub reopen: bool,
-    #[allow(non_snake_case)]
-    _reserved: B4,
+    #[skip] __: B4,
 }
 
 #[binrw::binrw]

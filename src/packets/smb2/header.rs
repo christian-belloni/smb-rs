@@ -64,10 +64,8 @@ pub struct SMB2HeaderFlags {
     pub related_operations: bool,
     pub signed: bool,
     pub priority_mask: B3,
-    #[allow(non_snake_case)]
-    _reserved1: B21,
+    #[skip] __: B21,
     pub dfs_operations: bool,
     pub replay_operation: bool,
-    #[allow(non_snake_case)]
-    _reserved2: B2,
+    #[skip] __: B2,
 }
