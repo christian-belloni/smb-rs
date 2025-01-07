@@ -176,7 +176,7 @@ impl SMBClient {
         // If signing algorithm is not AES-GMAC, we're not supporting it just yet.
         if !context_list.iter().any(|context| match &context.data {
             SMBNegotiateContextValue::SigningCapabilities(sc) => {
-                sc.signing_algorithms.contains(&SigningAlgorithmId::AesCmac)
+                sc.signing_algorithms.iter().any(|a| SMBCrypto::SIGNING_ALGOS.contains(a))
             }
             _ => false,
         }) {

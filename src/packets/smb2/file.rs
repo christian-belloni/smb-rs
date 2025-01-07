@@ -59,6 +59,11 @@ pub struct SMB2ReadRequest {
     #[bw(calc = 0)]
     #[br(assert(_read_channel_info_length == 0))]
     _read_channel_info_length: u16,
+
+    // Well, that's a little awkward, but since we never provide a blob, and yet,
+    // Msft decided it makes sense to make the structure size 0x31, we need to add this padding.
+    #[bw(calc = 0)]
+    _pad_blob_placeholder: u8,
 }
 
 #[binrw::binrw]
@@ -92,7 +97,7 @@ pub struct SMB2ReadResponse {
     #[br(count = _data_length)]
     #[bw(assert(buffer.len() > 0))] // sanity _data_length > 0 on write.
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_data_offset))]
-    buffer: Vec<u8>,
+    pub buffer: Vec<u8>,
 }
 
 impl SMB2ReadResponse {

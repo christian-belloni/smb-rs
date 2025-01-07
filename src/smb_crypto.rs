@@ -50,8 +50,8 @@ impl SMBCrypto {
         }
     }
 
-    pub const SIGNING_ALGOS: [SigningAlgorithmId; 2] =
-        [SigningAlgorithmId::AesCmac, SigningAlgorithmId::AesGmac];
+    pub const SIGNING_ALGOS: [SigningAlgorithmId; 1] =
+        [SigningAlgorithmId::AesCmac];//, SigningAlgorithmId::AesGmac];
 }
 
 struct HmacSha256KeyHandle {

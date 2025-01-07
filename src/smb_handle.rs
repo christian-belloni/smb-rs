@@ -19,7 +19,7 @@ type Upstream = SMBHandlerReference<SMBTreeMessageHandler>;
 /// This can be a file, a directory, a named pipe, etc.
 pub struct SMBHandle {
     name: String,
-    file_id: OnceCell<u128>,
+    create_response: OnceCell<SMB2CreateResponse>,
     upstream: Upstream,
 }
 
@@ -71,7 +71,7 @@ impl SMBHandle {
     pub fn new(name: String, upstream: Upstream) -> Self {
         SMBHandle {
             name,
-            file_id: OnceCell::default(),
+            create_response: OnceCell::new(),
             upstream,
         }
     }
@@ -80,6 +80,8 @@ impl SMBHandle {
         mut self,
         create_disposition: CreateDisposition,
     ) -> Result<SMBResource, Box<dyn Error>> {
+        assert!(self.create_response.get().is_none(), "Handle already open!");
+
         self.send(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBCreateRequest(SMB2CreateRequest {
                 requested_oplock_level: OplockLevel::None,
@@ -119,11 +121,11 @@ impl SMBHandle {
         };
         log::info!("Created file {}, (@{})", self.name, content.file_id);
 
-        self.file_id
-            .set(content.file_id)
-            .map_err(|_| "File ID already set")?;
-
         let is_dir = content.file_attributes.directory();
+
+        self.create_response
+            .set(content)
+            .map_err(|_| "Create response already set")?;
 
         if is_dir {
             Ok(SMBResource::Directory(SMBDirectory::new(self)))
@@ -137,16 +139,20 @@ impl SMBHandle {
     }
 
     pub fn file_id(&self) -> Option<u128> {
-        self.file_id.get().copied()
+        self.create_response.get().map(|r| r.file_id)
+    }
+
+    pub fn create_response(&self) -> Option<&SMB2CreateResponse> {
+        self.create_response.get()
     }
 
     /// Close the handle.
     fn close(&mut self) -> Result<(), Box<dyn Error>> {
-        if self.file_id.get().is_none() {
+        if self.create_response.get().is_none() {
             return Err("Handle not open".into());
         };
 
-        let file_id = self.file_id.take().unwrap();
+        let file_id = self.create_response.take().unwrap().file_id;
         log::debug!("Closing handle for {} (@{})", self.name, file_id);
         self.send(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBCloseRequest(SMB2CloseRequest { file_id }),
