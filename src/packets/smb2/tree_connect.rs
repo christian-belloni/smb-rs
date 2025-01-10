@@ -10,7 +10,8 @@ pub struct SMB2TreeConnectRquestFlags {
     pub cluster_reconnect: bool,
     pub redirect_to_owner: bool,
     pub extension_present: bool,
-    #[skip] __: B13,
+    #[skip]
+    __: B13,
 }
 
 #[binrw::binrw]
@@ -70,7 +71,8 @@ pub enum SMB2TreeConnectShareFlagsCacheMode {
 pub struct SMB2TreeShareFlags {
     pub dfs: bool,
     pub dfs_root: bool,
-    #[skip] __: B2,
+    #[skip]
+    __: B2,
     pub caching_mode: SMB2TreeConnectShareFlagsCacheMode,
 
     pub restrict_exclusive_opens: bool,
@@ -82,19 +84,23 @@ pub struct SMB2TreeShareFlags {
     pub enable_hash_v2: bool,
     pub encrypt_data: bool,
 
-    #[skip] __: B2,
+    #[skip]
+    __: B2,
     pub identity_remoting: bool,
-    #[skip] __: B1,
+    #[skip]
+    __: B1,
     pub compress_data: bool,
     pub isolated_transport: bool,
-    #[skip] __: B10,
+    #[skip]
+    __: B10,
 }
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct SMB2TreeCapabilities {
-    #[skip] __: B3,
+    #[skip]
+    __: B3,
     pub dfs: bool,
     pub continuous_availability: bool,
     pub scaleout: bool,
@@ -102,7 +108,8 @@ pub struct SMB2TreeCapabilities {
     pub asymmetric: bool,
 
     pub redirect_to_owner: bool,
-    #[skip] __: B23,
+    #[skip]
+    __: B23,
 }
 
 #[binrw::binrw]

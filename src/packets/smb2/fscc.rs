@@ -17,11 +17,13 @@ pub struct FileAttributes {
     pub readonly: bool,
     pub hidden: bool,
     pub system: bool,
-    #[skip] __: bool,
+    #[skip]
+    __: bool,
 
     pub directory: bool,
     pub archive: bool,
-    #[skip] __: bool,
+    #[skip]
+    __: bool,
     pub normal: bool,
 
     pub temporary: bool,
@@ -34,15 +36,18 @@ pub struct FileAttributes {
     pub encrypted: bool,
     pub integrity_stream: bool,
 
-    #[skip] __: bool,
+    #[skip]
+    __: bool,
     pub no_scrub_data: bool,
     pub recall_on_open: bool,
     pub pinned: bool,
 
     pub unpinned: bool,
-    #[skip] __: bool,
+    #[skip]
+    __: bool,
     pub recall_on_data_access: bool,
-    #[skip] __: B9
+    #[skip]
+    __: B9,
 }
 
 #[bitfield]
@@ -60,7 +65,8 @@ pub struct FileAccessMask {
     pub file_read_attributes: bool,
 
     pub file_write_attributes: bool,
-    #[skip] __: B7,
+    #[skip]
+    __: B7,
 
     pub delete: bool,
     pub read_control: bool,
@@ -68,11 +74,13 @@ pub struct FileAccessMask {
     pub write_owner: bool,
 
     pub synchronize: bool,
-    #[skip] __: B3,
+    #[skip]
+    __: B3,
 
     pub access_system_security: bool,
     pub maximum_allowed: bool,
-    #[skip] __: B2,
+    #[skip]
+    __: B2,
 
     pub generic_all: bool,
     pub generic_execute: bool,
@@ -95,7 +103,8 @@ pub struct DirAccessMask {
     pub file_read_attributes: bool,
 
     pub file_write_attributes: bool,
-    #[skip] __: B7,
+    #[skip]
+    __: B7,
 
     pub delete: bool,
     pub read_control: bool,
@@ -103,11 +112,13 @@ pub struct DirAccessMask {
     pub write_owner: bool,
 
     pub synchronize: bool,
-    #[skip] __: B3,
+    #[skip]
+    __: B3,
 
     pub access_system_security: bool,
     pub maximum_allowed: bool,
-    #[skip] __: B2,
+    #[skip]
+    __: B2,
 
     pub generic_all: bool,
     pub generic_execute: bool,
@@ -117,7 +128,7 @@ pub struct DirAccessMask {
 
 impl From<FileAccessMask> for DirAccessMask {
     fn from(mask: FileAccessMask) -> Self {
-        // The bits are the same, just the names are different. 
+        // The bits are the same, just the names are different.
         Self::from_bytes(mask.into_bytes())
     }
 }

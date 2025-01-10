@@ -8,7 +8,7 @@ use crate::{
         message::{SMB2Message, SMBMessageContent},
         tree_connect::{SMB2TreeConnectRequest, SMB2TreeDisconnectRequest},
     },
-    smb_resource::{SMBHandle, SMBResource},
+    smb_resource::SMBResource,
     smb_session::SMBSessionMessageHandler,
 };
 
@@ -37,10 +37,9 @@ impl SMBTree {
             return Err("Tree connection already established!".into());
         }
         // send and receive tree request & response.
-        self.handler.send(OutgoingSMBMessage::new(SMB2Message::new(
+        let response = self.handler.send_receive(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBTreeConnectRequest(SMB2TreeConnectRequest::new(&self.name)),
         )))?;
-        let response = self.handler.receive()?;
 
         let _response_content = match response.message.content {
             SMBMessageContent::SMBTreeConnectResponse(response) => Some(response),
@@ -83,13 +82,12 @@ impl SMBTree {
         };
 
         // send and receive tree disconnect request & response.
-        self.handler.send(OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBTreeDisconnectRequest(SMB2TreeDisconnectRequest::default()),
-        )))?;
-        let response = self.handler.receive()?;
-        if response.message.header.status != 0 {
-            return Err("Tree disconnect failed!".into());
-        }
+        let _response = self
+            .handler
+            .send_receive(OutgoingSMBMessage::new(SMB2Message::new(
+                SMBMessageContent::SMBTreeDisconnectRequest(SMB2TreeDisconnectRequest::default()),
+            )))?;
+
         log::info!("Disconnected from tree {}", self.name);
         self.handler.borrow_mut().connect_info.take();
         Ok(())
@@ -137,9 +135,10 @@ impl SMBMessageHandler for SMBTreeMessageHandler {
         self.upstream.borrow_mut().send(msg)
     }
 
-    fn receive(
+    fn receive_options(
         &mut self,
+        options: crate::msg_handler::ReceiveOptions,
     ) -> Result<crate::msg_handler::IncomingSMBMessage, Box<dyn std::error::Error>> {
-        self.upstream.borrow_mut().receive()
+        self.upstream.borrow_mut().receive_options(options)
     }
 }

@@ -116,7 +116,8 @@ pub struct SMBNegotiateResponse {
     pub security_mode: u16,
     pub dialect_revision: SMBNegotiateResponseDialect,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
-    negotiate_context_count: u16, // TODO: if dialect contains 0x0311
+    #[br(assert(if dialect_revision == SMBNegotiateResponseDialect::Smb0311 { negotiate_context_count > 0 } else { negotiate_context_count == 0 }))]
+    negotiate_context_count: u16,
     pub server_guid: u128,
     pub capabilities: u32,
     pub max_transact_size: u32,

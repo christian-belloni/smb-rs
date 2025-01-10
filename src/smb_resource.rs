@@ -3,9 +3,7 @@ use std::error::Error;
 use crate::{
     msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
     packets::smb2::{
-        create::*,
-        fscc::{FileAccessMask, FileAttributes},
-        message::{SMB2Message, SMBMessageContent},
+        create::*, fscc::{FileAccessMask, FileAttributes}, header::SMB2Command, message::{SMB2Message, SMBMessageContent}
     },
     smb_dir::SMBDirectory,
     smb_file::SMBFile,
@@ -22,11 +20,12 @@ pub enum SMBResource {
 
 impl SMBResource {
     pub fn create(
-        name: String, mut upstream: Upstream,
+        name: String,
+        mut upstream: Upstream,
         create_disposition: CreateDisposition,
         desired_access: FileAccessMask,
     ) -> Result<SMBResource, Box<dyn Error>> {
-        upstream.send(OutgoingSMBMessage::new(SMB2Message::new(
+        let response = upstream.send_receive(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBCreateRequest(SMB2CreateRequest {
                 requested_oplock_level: OplockLevel::None,
                 impersonation_level: ImpersonationLevel::Impersonation,
@@ -52,10 +51,6 @@ impl SMBResource {
             }),
         )))?;
 
-        let response = upstream.receive()?;
-        if response.message.header.status != 0 {
-            return Err("File creation failed!".into());
-        }
         let content = match response.message.content {
             SMBMessageContent::SMBCreateResponse(response) => response,
             _ => panic!("Unexpected response"),
@@ -73,15 +68,22 @@ impl SMBResource {
         // Common information is held in the handle object.
         let handle = SMBHandle {
             name,
-            upstream,
+            handler: SMBMessageHandleHandler::new(upstream),
             file_id: content.file_id,
         };
 
         // Construct specific resource and return it.
         if is_dir {
-            Ok(SMBResource::Directory(SMBDirectory::new(handle, access.into())))
+            Ok(SMBResource::Directory(SMBDirectory::new(
+                handle,
+                access.into(),
+            )))
         } else {
-            Ok(SMBResource::File(SMBFile::new(handle, access, content.endof_file)))
+            Ok(SMBResource::File(SMBFile::new(
+                handle,
+                access,
+                content.endof_file,
+            )))
         }
     }
 
@@ -122,13 +124,12 @@ impl SMBResource {
     }
 }
 
-
 /// Holds the common information for an opened SMB resource.
 pub struct SMBHandle {
     name: String,
-    upstream: Upstream,
+    handler: SMBHandlerReference<SMBMessageHandleHandler>,
 
-    file_id: u128
+    file_id: u128,
 }
 
 impl SMBHandle {
@@ -147,13 +148,11 @@ impl SMBHandle {
         }
 
         log::debug!("Closing handle for {} (@{})", self.name, self.file_id);
-        self.send(OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBCloseRequest(SMB2CloseRequest { file_id: self.file_id }),
+        let _response = self.handler.send_receive(OutgoingSMBMessage::new(SMB2Message::new(
+            SMBMessageContent::SMBCloseRequest(SMB2CloseRequest {
+                file_id: self.file_id,
+            }),
         )))?;
-        let response = self.receive()?;
-        if response.message.header.status != 0 {
-            return Err("Handle close failed!".into());
-        }
 
         self.file_id = u128::MAX;
         log::info!("Closed file {}.", self.name);
@@ -164,6 +163,16 @@ impl SMBHandle {
     #[inline]
     pub fn is_valid(&self) -> bool {
         self.file_id != u128::MAX
+    }
+
+    /// Send and receive a message, returning the result.
+    /// See [SMBHandlerReference::send] and [SMBHandlerReference::receive] for details.
+    #[inline]
+    pub fn send_receive(
+        &mut self,
+        msg: OutgoingSMBMessage,
+    ) -> Result<crate::msg_handler::IncomingSMBMessage, Box<dyn std::error::Error>> {
+        self.handler.send_receive(msg)
     }
 }
 
@@ -178,7 +187,17 @@ impl Drop for SMBHandle {
     }
 }
 
-impl SMBMessageHandler for SMBHandle {
+struct SMBMessageHandleHandler {
+    upstream: Upstream,
+}
+
+impl SMBMessageHandleHandler {
+    pub fn new(upstream: Upstream) -> SMBHandlerReference<SMBMessageHandleHandler> {
+        SMBHandlerReference::new(SMBMessageHandleHandler { upstream })
+    }
+}
+
+impl SMBMessageHandler for SMBMessageHandleHandler {
     #[inline]
     fn send(
         &mut self,
@@ -188,9 +207,10 @@ impl SMBMessageHandler for SMBHandle {
     }
 
     #[inline]
-    fn receive(
+    fn receive_options(
         &mut self,
+        options: crate::msg_handler::ReceiveOptions,
     ) -> Result<crate::msg_handler::IncomingSMBMessage, Box<dyn std::error::Error>> {
-        self.upstream.receive()
+        self.upstream.receive_options(options)
     }
 }

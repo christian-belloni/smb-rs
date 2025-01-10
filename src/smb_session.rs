@@ -5,8 +5,8 @@ use std::{cell::OnceCell, error::Error, io::Cursor};
 use crate::{
     authenticator::GssAuthenticator,
     msg_handler::{
-        IncomingSMBMessage, OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler,
-        SendMessageResult,
+        IncomingSMBMessage, OutgoingSMBMessage, ReceiveOptions, SMBHandlerReference,
+        SMBMessageHandler, SendMessageResult,
     },
     packets::{
         netbios::NetBiosTcpMessage,
@@ -55,12 +55,12 @@ impl SMBSession {
         let request = OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
         ));
-        self.handler.send(request)?;
+
         // response hash is processed later, in the loop.
-        let response = self.handler.receive()?;
-        if response.message.header.status != SMB2Status::MoreProcessingRequired as u32 {
-            return Err("Expected STATUS_MORE_PROCESSING_REQUIRED".into());
-        }
+        let response = self.handler.send_receive_options(
+            request,
+            ReceiveOptions::new().status(SMB2Status::MoreProcessingRequired),
+        )?;
 
         // Set session id.
         self.handler
@@ -109,7 +109,14 @@ impl SMBSession {
                         self.key_setup(&ntlm_key, result.preauth_hash.unwrap())?;
                     }
 
-                    let response = self.handler.receive()?;
+                    let expected_status = if is_about_to_finish {
+                        SMB2Status::Success
+                    } else {
+                        SMB2Status::MoreProcessingRequired
+                    };
+                    let response = self
+                        .handler
+                        .receive_options(ReceiveOptions::new().status(expected_status))?;
 
                     Some(response)
                 }
@@ -164,13 +171,11 @@ impl SMBSession {
     fn logoff(&mut self) -> Result<(), Box<dyn Error>> {
         log::debug!("Logging off session.");
 
-        self.handler.send(OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBLogoffRequest(Default::default()),
-        )))?;
-        let response = self.handler.receive()?;
-        if response.message.header.status != SMB2Status::Success as u32 {
-            return Err("Expected STATUS_SUCCESS!".into());
-        }
+        let _response = self
+            .handler
+            .send_receive(OutgoingSMBMessage::new(SMB2Message::new(
+                SMBMessageContent::SMBLogoffRequest(Default::default()),
+            )))?;
 
         // Reset session ID and keys.
         self.handler.borrow_mut().session_id.take();
@@ -307,8 +312,11 @@ impl SMBMessageHandler for SMBSessionMessageHandler {
         self.upstream.borrow_mut().send(msg)
     }
 
-    fn receive(&mut self) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
-        let mut incoming = self.upstream.borrow_mut().receive()?;
+    fn receive_options(
+        &mut self,
+        options: crate::msg_handler::ReceiveOptions,
+    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+        let mut incoming = self.upstream.borrow_mut().receive_options(options)?;
         // TODO: check whether this is the correct case to do such a thing.
         if self.should_sign() {
             // Skip authentication is message ID is -1 or status is pending.

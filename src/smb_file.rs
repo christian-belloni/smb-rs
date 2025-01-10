@@ -3,7 +3,9 @@ use std::io::prelude::*;
 use crate::{
     msg_handler::{OutgoingSMBMessage, SMBMessageHandler},
     packets::smb2::{
-        file::{ReadFlags, SMB2FlushRequest, SMB2ReadRequest, SMB2WriteRequest, WriteFlags}, fscc::FileAccessMask, message::{SMB2Message, SMBMessageContent}
+        file::{ReadFlags, SMB2FlushRequest, SMB2ReadRequest, SMB2WriteRequest, WriteFlags},
+        fscc::FileAccessMask,
+        message::{SMB2Message, SMBMessageContent},
     },
 };
 
@@ -19,7 +21,12 @@ pub struct SMBFile {
 
 impl SMBFile {
     pub fn new(handle: SMBHandle, access: FileAccessMask, end_of_file: u64) -> Self {
-        SMBFile { handle, pos: 0, access, end_of_file }
+        SMBFile {
+            handle,
+            pos: 0,
+            access,
+            end_of_file,
+        }
     }
 }
 
@@ -52,19 +59,18 @@ impl Read for SMBFile {
             self.pos,
             self.handle.name()
         );
-        self.send(OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBReadRequest(SMB2ReadRequest {
-                padding: 0,
-                flags: ReadFlags::new(),
-                length: buf.len() as u32,
-                offset: self.pos,
-                file_id: self.handle.file_id(),
-                minimum_count: 1,
-            }),
-        )))
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         let response = self
-            .receive()
+            .handle
+            .send_receive(OutgoingSMBMessage::new(SMB2Message::new(
+                SMBMessageContent::SMBReadRequest(SMB2ReadRequest {
+                    padding: 0,
+                    flags: ReadFlags::new(),
+                    length: buf.len() as u32,
+                    offset: self.pos,
+                    file_id: self.handle.file_id(),
+                    minimum_count: 1,
+                }),
+            )))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         let content = match response.message.content {
             SMBMessageContent::SMBReadResponse(response) => response,
@@ -97,18 +103,18 @@ impl Write for SMBFile {
             self.handle.name()
         );
 
-        self.send(OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBWriteRequest(SMB2WriteRequest {
-                offset: self.pos,
-                file_id: self.handle.file_id(),
-                flags: WriteFlags::new(),
-                buffer: buf.to_vec(),
-            }),
-        )))
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         let response = self
-            .receive()
+            .handle
+            .send_receive(OutgoingSMBMessage::new(SMB2Message::new(
+                SMBMessageContent::SMBWriteRequest(SMB2WriteRequest {
+                    offset: self.pos,
+                    file_id: self.handle.file_id(),
+                    flags: WriteFlags::new(),
+                    buffer: buf.to_vec(),
+                }),
+            )))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
         if response.message.header.status != 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -130,15 +136,14 @@ impl Write for SMBFile {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.send(OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBFlushRequest(SMB2FlushRequest {
-                file_id: self.handle.file_id(),
-            }),
-        )))
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        let response = self
-            .receive()
+        let response = self.handle
+            .send_receive(OutgoingSMBMessage::new(SMB2Message::new(
+                SMBMessageContent::SMBFlushRequest(SMB2FlushRequest {
+                    file_id: self.handle.file_id(),
+                }),
+            )))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        
         if response.message.header.status != 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -147,22 +152,5 @@ impl Write for SMBFile {
         }
         log::debug!("Flushed {}.", self.handle.name());
         Ok(())
-    }
-}
-
-impl SMBMessageHandler for SMBFile {
-    #[inline]
-    fn send(
-        &mut self,
-        msg: crate::msg_handler::OutgoingSMBMessage,
-    ) -> Result<crate::msg_handler::SendMessageResult, Box<dyn std::error::Error>> {
-        self.handle.send(msg)
-    }
-
-    #[inline]
-    fn receive(
-        &mut self,
-    ) -> Result<crate::msg_handler::IncomingSMBMessage, Box<dyn std::error::Error>> {
-        self.handle.receive()
     }
 }

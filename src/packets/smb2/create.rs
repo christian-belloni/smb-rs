@@ -255,7 +255,6 @@ impl<const T: bool> SMB2CreateContext<T> {
         }
     }
 
-
     /// Writes the create context list.
     ///
     /// Handles the following issues:
@@ -315,9 +314,9 @@ pub struct SMB2CloseRequest {
     #[bw(calc = 24)]
     #[br(assert(_structure_size == 24))]
     _structure_size: u16,
-    #[bw(calc = 1)] // SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB
-    #[br(assert(_flags == 1))]
-    _flags: u16,
+    #[bw(calc = CloseFlags::new().with_postquery_attrib(true))] // SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB
+    #[br(assert(_flags == CloseFlags::new().with_postquery_attrib(true)))]
+    _flags: CloseFlags,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u32,
@@ -330,8 +329,7 @@ pub struct SMB2CloseResponse {
     #[bw(calc = 60)]
     #[br(assert(_structure_size == 60))]
     _structure_size: u16,
-    // TODO: impl flags.
-    pub flags: u16,
+    pub flags: CloseFlags,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u32,
@@ -342,6 +340,15 @@ pub struct SMB2CloseResponse {
     pub allocation_size: u64,
     pub endof_file: u64,
     pub file_attributes: FileAttributes,
+}
+
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct CloseFlags {
+    pub postquery_attrib: bool,
+    #[skip]
+    __: B15,
 }
 
 #[cfg(test)]

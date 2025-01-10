@@ -14,6 +14,7 @@ use crate::{
         netbios::{NetBiosMessageContent, NetBiosTcpMessage},
         smb1::SMB1NegotiateMessage,
         smb2::{
+            header::SMB2Command,
             message::{SMB2Message, SMBMessageContent},
             negotiate::{
                 HashAlgorithm, SMBDialect, SMBNegotiateContextType, SMBNegotiateContextValue,
@@ -125,7 +126,7 @@ impl SMBClient {
             ))?;
 
         // 2. Expect SMB2 negotiate response
-        let smb2_response = self.handler.receive()?;
+        let smb2_response = self.handler.receive(SMB2Command::Negotiate)?;
         let smb2_negotiate_response = match smb2_response.message.content {
             SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
             _ => None,
@@ -145,18 +146,18 @@ impl SMBClient {
         self.handler.borrow_mut().preauth_hash = Some(PreauthHashState::default());
 
         // Send SMB2 negotiate request
-        let neg_req = OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest::new(
-                "AVIV-MBP".to_string(),
-                self.handler.borrow().client_guid,
-                SMBCrypto::SIGNING_ALGOS.into(),
-            )),
-        ));
-        self.handler.send(neg_req)?;
+        let client_guid = self.handler.borrow().client_guid;
+        let response = self
+            .handler
+            .send_receive(OutgoingSMBMessage::new(SMB2Message::new(
+                SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest::new(
+                    "AVIV-MBP".to_string(),
+                    client_guid,
+                    SMBCrypto::SIGNING_ALGOS.into(),
+                )),
+            )))?;
 
-        let smb2_response_raw = self.handler.receive()?;
-
-        let smb2_negotiate_response = match smb2_response_raw.message.content {
+        let smb2_negotiate_response = match response.message.content {
             SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
             _ => None,
         }
@@ -331,26 +332,37 @@ impl SMBMessageHandler for SMBClientMessageHandler {
         Ok(SendMessageResult::new(hash.clone()))
     }
 
-    fn receive(&mut self) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+    fn receive_options(
+        &mut self,
+        options: crate::msg_handler::ReceiveOptions,
+    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
         let raw = self.netbios_client.recieve_bytes()?;
+
         self.step_preauth_hash(&raw);
-        let netbios_message = raw.parse()?;
-        let smb2_message = match netbios_message {
+
+        let smb2_message = match raw.parse()? {
             NetBiosMessageContent::SMB2Message(smb2_message) => Some(smb2_message),
             _ => None,
         }
         .ok_or("Expected SMB2 message")?;
-        // TODO: FIX COMMAND RECEIVE MATCHING!
-        // if smb2_message.header.command != command {
-        //     return Err("Unexpected SMB2 command".into());
-        // };
+
+        // Command matching (if needed).
+        if let Some(cmd) = options.cmd {
+            if smb2_message.header.command != cmd {
+                return Err("Unexpected SMB2 command".into());
+            }
+        }
+
+        // Direction matching.
         if !smb2_message.header.flags.server_to_redir() {
             return Err("Unexpected SMB2 message direction (Not a response)".into());
         }
-        // TODO: Implement this mechanism more wisely.
-        // if require_success && smb2_message.header.status != SMB2Status::Success as u32 {
-        //     return Err("SMB2 message status is not success".into());
-        // }
+
+        // Expected status matching.
+        if smb2_message.header.status != options.status as u32 {
+            return Err(format!("Unexpected SMB2 status: {:?}", smb2_message.header.status).into());
+        }
+
         Ok(IncomingSMBMessage {
             message: smb2_message,
             raw,

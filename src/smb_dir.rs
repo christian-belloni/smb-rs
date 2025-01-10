@@ -22,7 +22,7 @@ impl SMBDirectory {
     ) -> Result<Vec<BothDirectoryInformationItem>, Box<dyn std::error::Error>> {
         log::debug!("Querying directory {}", self.handle.name());
 
-        self.send(OutgoingSMBMessage::new(SMB2Message::new(
+        let response = self.handle.send_receive(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBQueryDirectoryRequest(SMB2QueryDirectoryRequest {
                 file_information_class: FileInformationClass::IdBothDirectoryInformation,
                 flags: QueryDirectoryFlags::new().with_restart_scans(true),
@@ -32,7 +32,7 @@ impl SMBDirectory {
                 file_name: pattern.into(),
             }),
         )))?;
-        let response = self.receive()?;
+
         let content = match response.message.content {
             SMBMessageContent::SMBQueryDirectoryResponse(response) => response,
             _ => panic!("Unexpected response"),
@@ -41,25 +41,8 @@ impl SMBDirectory {
             &content.output_buffer,
             FileInformationClass::IdBothDirectoryInformation,
         )? {
-            DirectoryInfoVector::IdBothDirectoryInformation(val) => val
+            DirectoryInfoVector::IdBothDirectoryInformation(val) => val,
         };
         Ok(result.into())
-    }
-}
-
-impl SMBMessageHandler for SMBDirectory {
-    #[inline]
-    fn send(
-        &mut self,
-        msg: crate::msg_handler::OutgoingSMBMessage,
-    ) -> Result<crate::msg_handler::SendMessageResult, Box<dyn std::error::Error>> {
-        self.handle.send(msg)
-    }
-
-    #[inline]
-    fn receive(
-        &mut self,
-    ) -> Result<crate::msg_handler::IncomingSMBMessage, Box<dyn std::error::Error>> {
-        self.handle.receive()
     }
 }

@@ -152,7 +152,7 @@ where
     where
         U: BinWrite,
         S: BinWrite<Args<'static> = ()> + TryFrom<u64>,
-        S::Error : binrw::error::CustomError + 'static,
+        S::Error: binrw::error::CustomError + 'static,
     {
         let pos = writer.stream_position()?;
         // Write offset

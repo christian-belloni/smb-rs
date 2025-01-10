@@ -25,6 +25,7 @@ pub enum SMB2Command {
     OplockBreak = 0x12,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SMB2Status {
     Success = 0,
     StatusPending = 0x00000103,
@@ -64,8 +65,10 @@ pub struct SMB2HeaderFlags {
     pub related_operations: bool,
     pub signed: bool,
     pub priority_mask: B3,
-    #[skip] __: B21,
+    #[skip]
+    __: B21,
     pub dfs_operations: bool,
     pub replay_operation: bool,
-    #[skip] __: B2,
+    #[skip]
+    __: B2,
 }
