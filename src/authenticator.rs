@@ -2,6 +2,7 @@ use der::AnyRef;
 use der::{asn1::OctetStringRef, oid::ObjectIdentifier, Decode, Encode};
 use gss_api::negotiation::*;
 use gss_api::InitialContextToken;
+use sspi::SignatureFlags;
 use sspi::{
     ntlm::NtlmConfig, AcquireCredentialsHandleResult, AuthIdentity, AuthIdentityBuffers,
     ClientRequestFlags, CredentialUse, DataRepresentation, InitializeSecurityContextResult, Ntlm,
@@ -84,9 +85,9 @@ impl GssAuthenticator {
     pub fn next(&mut self, next_token: &Vec<u8>) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
         match self.auth_session.is_complete()? {
             true => {
-                let mic_to_validate = Self::get_mic_from_complete(next_token)?;
+                let mut mic_to_validate = Self::get_mic_from_complete(next_token)?;
                 self.auth_session
-                    .gss_validatemic(&mut self.mech_types_data_sent, &mic_to_validate)?;
+                    .gss_validatemic(&mut self.mech_types_data_sent, &mut mic_to_validate)?;
                 self.server_accepted_auth_valid = true;
                 Ok(None)
             }
@@ -170,7 +171,7 @@ pub trait GssAuthTokenHandler {
     fn gss_validatemic(
         &mut self,
         buffer: &mut Vec<u8>,
-        signature: &[u8],
+        signature: &mut [u8],
     ) -> Result<(), Box<dyn Error>>;
     fn is_complete(&self) -> Result<bool, Box<dyn Error>>;
     fn session_key(&self) -> Result<[u8; 16], Box<dyn Error>>;
@@ -268,18 +269,28 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
         let token_dest_buffer =
             SecurityBuffer::with_security_buffer_type(SecurityBufferType::Token)?
                 .with_data(&mut token_dest)?;
-        self.ntlm
-            .sign_and_revert_state(&mut vec![data_buffer, token_dest_buffer], self.seq_num)?;
-        self.seq_num += 1;
+        let mut ntlm_copy = self.ntlm.clone();
+        ntlm_copy.make_signature(
+            SignatureFlags::empty(),
+            &mut [data_buffer, token_dest_buffer],
+            self.seq_num,
+        )?;
         Ok(token_dest)
     }
 
     fn gss_validatemic(
         &mut self,
         buffer: &mut Vec<u8>,
-        signature: &[u8],
+        signature: &mut [u8],
     ) -> Result<(), Box<dyn Error>> {
-        self.ntlm.verify_and_revert_state(&buffer, 0, signature)?;
+        let mut ntlm_copy = self.ntlm.clone();
+        let data_buffer = SecurityBuffer::with_security_buffer_type(SecurityBufferType::Data)?
+            .with_data(buffer)?;
+        let signature_buffer =
+            SecurityBuffer::with_security_buffer_type(SecurityBufferType::Token)?
+                .with_data(signature)?;
+        let mut buffers = [data_buffer, signature_buffer];
+        ntlm_copy.verify_signature(SignatureFlags::empty(), &mut buffers, self.seq_num)?;
         Ok(())
     }
 
