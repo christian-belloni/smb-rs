@@ -1,4 +1,4 @@
-use std::{cell::OnceCell, error::Error};
+use std::error::Error;
 
 use crate::{
     msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
@@ -14,15 +14,6 @@ use crate::{
 
 type Upstream = SMBHandlerReference<SMBTreeMessageHandler>;
 
-/// An abstract file handle for a "created" SMB2 resource.
-///
-/// This can be a file, a directory, a named pipe, etc.
-pub struct SMBHandle {
-    name: String,
-    create_response: OnceCell<SMB2CreateResponse>,
-    upstream: Upstream,
-}
-
 /// A resource opened by a create request.
 pub enum SMBResource {
     File(SMBFile),
@@ -30,6 +21,70 @@ pub enum SMBResource {
 }
 
 impl SMBResource {
+    pub fn create(
+        name: String, mut upstream: Upstream,
+        create_disposition: CreateDisposition,
+        desired_access: FileAccessMask,
+    ) -> Result<SMBResource, Box<dyn Error>> {
+        upstream.send(OutgoingSMBMessage::new(SMB2Message::new(
+            SMBMessageContent::SMBCreateRequest(SMB2CreateRequest {
+                requested_oplock_level: OplockLevel::None,
+                impersonation_level: ImpersonationLevel::Impersonation,
+                smb_create_flags: 0,
+                desired_access,
+                file_attributes: FileAttributes::new(),
+                share_access: SMB2ShareAccessFlags::new()
+                    .with_read(true)
+                    .with_write(true)
+                    .with_delete(true),
+                create_disposition,
+                create_options: 0,
+                name: name.clone().into(),
+                contexts: vec![
+                    SMB2CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
+                        timeout: 0,
+                        flags: 0,
+                        create_guid: 273489604278964,
+                    })),
+                    SMB2CreateContext::new(CreateContextData::MxAcReq(())),
+                    SMB2CreateContext::new(CreateContextData::QFidReq(())),
+                ],
+            }),
+        )))?;
+
+        let response = upstream.receive()?;
+        if response.message.header.status != 0 {
+            return Err("File creation failed!".into());
+        }
+        let content = match response.message.content {
+            SMBMessageContent::SMBCreateResponse(response) => response,
+            _ => panic!("Unexpected response"),
+        };
+        log::info!("Created file {}, (@{})", name, content.file_id);
+
+        let is_dir = content.file_attributes.directory();
+
+        // Get maximal access
+        let access = match content.maximal_access_context() {
+            Some(response) => response.maximal_access,
+            _ => return Err("MxAc response not found".into()),
+        };
+
+        // Common information is held in the handle object.
+        let handle = SMBHandle {
+            name,
+            upstream,
+            file_id: content.file_id,
+        };
+
+        // Construct specific resource and return it.
+        if is_dir {
+            Ok(SMBResource::Directory(SMBDirectory::new(handle, access.into())))
+        } else {
+            Ok(SMBResource::File(SMBFile::new(handle, access, content.endof_file)))
+        }
+    }
+
     pub fn as_file(&self) -> Option<&SMBFile> {
         match self {
             SMBResource::File(f) => Some(f),
@@ -67,102 +122,48 @@ impl SMBResource {
     }
 }
 
+
+/// Holds the common information for an opened SMB resource.
+pub struct SMBHandle {
+    name: String,
+    upstream: Upstream,
+
+    file_id: u128
+}
+
 impl SMBHandle {
-    pub fn new(name: String, upstream: Upstream) -> Self {
-        SMBHandle {
-            name,
-            create_response: OnceCell::new(),
-            upstream,
-        }
-    }
-
-    pub fn create(
-        mut self,
-        create_disposition: CreateDisposition,
-        desired_access: FileAccessMask,
-    ) -> Result<SMBResource, Box<dyn Error>> {
-        assert!(self.create_response.get().is_none(), "Handle already open!");
-
-        self.send(OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBCreateRequest(SMB2CreateRequest {
-                requested_oplock_level: OplockLevel::None,
-                impersonation_level: ImpersonationLevel::Impersonation,
-                smb_create_flags: 0,
-                desired_access,
-                file_attributes: FileAttributes::new(),
-                share_access: SMB2ShareAccessFlags::new()
-                    .with_read(true)
-                    .with_write(true)
-                    .with_delete(true),
-                create_disposition,
-                create_options: 0,
-                name: self.name.clone().into(),
-                contexts: vec![
-                    SMB2CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
-                        timeout: 0,
-                        flags: 0,
-                        create_guid: 273489604278964,
-                    })),
-                    SMB2CreateContext::new(CreateContextData::MxAcReq(())),
-                    SMB2CreateContext::new(CreateContextData::QFidReq(())),
-                ],
-            }),
-        )))?;
-
-        let response = self.receive()?;
-        if response.message.header.status != 0 {
-            return Err("File creation failed!".into());
-        }
-        let content = match response.message.content {
-            SMBMessageContent::SMBCreateResponse(response) => response,
-            _ => panic!("Unexpected response"),
-        };
-        log::info!("Created file {}, (@{})", self.name, content.file_id);
-
-        let is_dir = content.file_attributes.directory();
-
-        self.create_response
-            .set(content)
-            .map_err(|_| "Create response already set")?;
-
-        if is_dir {
-            Ok(SMBResource::Directory(SMBDirectory::new(self)))
-        } else {
-            Ok(SMBResource::File(SMBFile::new(self)))
-        }
-    }
-
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn file_id(&self) -> Option<u128> {
-        self.create_response.get().map(|r| r.file_id)
-    }
-
-    pub fn create_response(&self) -> Option<&SMB2CreateResponse> {
-        self.create_response.get()
+    pub fn file_id(&self) -> u128 {
+        self.file_id
     }
 
     /// Close the handle.
     fn close(&mut self) -> Result<(), Box<dyn Error>> {
-        if self.create_response.get().is_none() {
-            return Err("Handle not open".into());
-        };
+        if !self.is_valid() {
+            return Err("File ID invalid -- Is this an already closed handle?!".into());
+        }
 
-        let file_id = self.create_response.take().unwrap().file_id;
-        log::debug!("Closing handle for {} (@{})", self.name, file_id);
+        log::debug!("Closing handle for {} (@{})", self.name, self.file_id);
         self.send(OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBCloseRequest(SMB2CloseRequest { file_id }),
+            SMBMessageContent::SMBCloseRequest(SMB2CloseRequest { file_id: self.file_id }),
         )))?;
         let response = self.receive()?;
         if response.message.header.status != 0 {
             return Err("Handle close failed!".into());
         }
 
+        self.file_id = u128::MAX;
         log::info!("Closed file {}.", self.name);
 
         Ok(())
+    }
+
+    #[inline]
+    pub fn is_valid(&self) -> bool {
+        self.file_id != u128::MAX
     }
 }
 

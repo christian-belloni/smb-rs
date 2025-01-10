@@ -3,22 +3,23 @@ use std::io::prelude::*;
 use crate::{
     msg_handler::{OutgoingSMBMessage, SMBMessageHandler},
     packets::smb2::{
-        file::{ReadFlags, SMB2FlushRequest, SMB2ReadRequest, SMB2WriteRequest, WriteFlags},
-        message::{SMB2Message, SMBMessageContent},
+        file::{ReadFlags, SMB2FlushRequest, SMB2ReadRequest, SMB2WriteRequest, WriteFlags}, fscc::FileAccessMask, message::{SMB2Message, SMBMessageContent}
     },
 };
 
-use super::smb_handle::SMBHandle;
+use super::smb_resource::SMBHandle;
 
 pub struct SMBFile {
     handle: SMBHandle,
     pos: u64,
+
+    access: FileAccessMask,
+    end_of_file: u64,
 }
 
 impl SMBFile {
-    pub fn new(handle: SMBHandle) -> Self {
-        assert!(handle.create_response().is_some());
-        SMBFile { handle, pos: 0 }
+    pub fn new(handle: SMBHandle, access: FileAccessMask, end_of_file: u64) -> Self {
+        SMBFile { handle, pos: 0, access, end_of_file }
     }
 }
 
@@ -29,7 +30,7 @@ impl Seek for SMBFile {
                 self.pos = pos;
             }
             std::io::SeekFrom::End(pos) => {
-                self.pos = self.handle.create_response().unwrap().endof_file as u64 + pos as u64;
+                self.pos = self.end_of_file + pos as u64;
             }
             std::io::SeekFrom::Current(pos) => {
                 self.pos = self.pos + pos as u64;
@@ -57,7 +58,7 @@ impl Read for SMBFile {
                 flags: ReadFlags::new(),
                 length: buf.len() as u32,
                 offset: self.pos,
-                file_id: self.handle.create_response().unwrap().file_id,
+                file_id: self.handle.file_id(),
                 minimum_count: 1,
             }),
         )))
@@ -99,7 +100,7 @@ impl Write for SMBFile {
         self.send(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBWriteRequest(SMB2WriteRequest {
                 offset: self.pos,
-                file_id: self.handle.create_response().unwrap().file_id,
+                file_id: self.handle.file_id(),
                 flags: WriteFlags::new(),
                 buffer: buf.to_vec(),
             }),
@@ -131,7 +132,7 @@ impl Write for SMBFile {
     fn flush(&mut self) -> std::io::Result<()> {
         self.send(OutgoingSMBMessage::new(SMB2Message::new(
             SMBMessageContent::SMBFlushRequest(SMB2FlushRequest {
-                file_id: self.handle.create_response().unwrap().file_id,
+                file_id: self.handle.file_id(),
             }),
         )))
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;

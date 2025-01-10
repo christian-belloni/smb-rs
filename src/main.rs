@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .with_generic_write(true),
     )?;
     match file {
-        smb::smb_handle::SMBResource::File(mut smbfile) => {
+        smb::smb_resource::SMBResource::File(mut smbfile) => {
             // Let's read some data from the file.
             let mut buf = [0; 1024];
             let n = smbfile.read(&mut buf)?;
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Let's write some data to the file.
             smbfile.write_all(b"Hello, world!")?;
         }
-        smb::smb_handle::SMBResource::Directory(mut smbdirectory) => {
+        smb::smb_resource::SMBResource::Directory(mut smbdirectory) => {
             for item in smbdirectory.query("*")? {
                 println!("{:?}", item);
             }

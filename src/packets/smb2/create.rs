@@ -43,7 +43,7 @@ pub struct SMB2CreateRequest {
 
     #[brw(align_before = 8)]
     #[br(map_stream = |s| s.take_seek(_create_contexts_length.value.into()), parse_with = binrw::helpers::until_eof)]
-    #[bw(write_with = write_context_list, args(&_create_contexts_offset, &_create_contexts_length))]
+    #[bw(write_with = SMB2CreateContext::write_list, args(&_create_contexts_offset, &_create_contexts_length))]
     pub contexts: Vec<SMB2CreateContext<true>>,
 }
 
@@ -112,37 +112,17 @@ pub struct SMB2CreateResponse {
     create_contexts_length: PosMarker<u32>, // bytes
     #[br(seek_before = SeekFrom::Start(create_contexts_offset.value as u64))]
     #[br(map_stream = |s| s.take_seek(create_contexts_length.value.into()), parse_with = binrw::helpers::until_eof)]
-    #[bw(write_with = write_context_list, args(&create_contexts_offset, &create_contexts_length))]
+    #[bw(write_with = SMB2CreateContext::write_list, args(&create_contexts_offset, &create_contexts_length))]
     pub create_contexts: Vec<SMB2CreateContext<false>>,
 }
 
-/// Writes the create context list.
-///
-/// Handles the following issues:
-/// 1. Both offset and BYTE size have to be written to some PosMarker<>s.
-/// 2. The next parameter shall only be filled if there is a next context.
-///
-/// This function assumes all import()s for contexts stay the same.
-/// Modify with caution.
-#[binrw::writer(writer, endian)]
-fn write_context_list<const T: bool>(
-    contexts: &Vec<SMB2CreateContext<T>>,
-    offset_dest: &PosMarker<u32>,
-    size_bytes_dest: &PosMarker<u32>,
-) -> BinResult<()> {
-    // 1.a. write start offset and get back to the end of the file
-    let start_offset = offset_dest.do_writeback_offset(writer, endian)?;
-
-    // 2. write the list, pass on `has_next`
-    for (i, context) in contexts.iter().enumerate() {
-        let has_next = i != contexts.len() - 1; // not last?
-        context.write_options(writer, endian, (has_next,))?;
+impl SMB2CreateResponse {
+    pub fn maximal_access_context(&self) -> Option<&MxAcResp> {
+        self.create_contexts.iter().find_map(|c| match &c.data {
+            CreateContextData::MxAcResp(r) => Some(r),
+            _ => None,
+        })
     }
-
-    // 2.b. write size of the list
-    let size_bytes = writer.stream_position()? - start_offset;
-    size_bytes_dest.do_writeback(size_bytes, writer, endian)?;
-    Ok(())
 }
 
 #[binrw::binrw]
@@ -245,15 +225,15 @@ pub struct DH2QReq {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct MxAcResp {
-    query_status: u32,
-    maximal_access: FileAccessMask,
+    pub query_status: u32,
+    pub maximal_access: FileAccessMask,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct QFidResp {
-    file_id: u64,
-    volume_id: u64,
+    pub file_id: u64,
+    pub volume_id: u64,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u128,
@@ -262,8 +242,8 @@ pub struct QFidResp {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct DH2QResp {
-    timeout: u32,
-    flags: u32,
+    pub timeout: u32,
+    pub flags: u32,
 }
 
 impl<const T: bool> SMB2CreateContext<T> {
@@ -273,6 +253,36 @@ impl<const T: bool> SMB2CreateContext<T> {
             data,
             fill_next: (),
         }
+    }
+
+
+    /// Writes the create context list.
+    ///
+    /// Handles the following issues:
+    /// 1. Both offset and BYTE size have to be written to some PosMarker<>s.
+    /// 2. The next parameter shall only be filled if there is a next context.
+    ///
+    /// This function assumes all import()s for contexts stay the same.
+    /// Modify with caution.
+    #[binrw::writer(writer, endian)]
+    fn write_list(
+        contexts: &Vec<SMB2CreateContext<T>>,
+        offset_dest: &PosMarker<u32>,
+        size_bytes_dest: &PosMarker<u32>,
+    ) -> BinResult<()> {
+        // 1.a. write start offset and get back to the end of the file
+        let start_offset = offset_dest.do_writeback_offset(writer, endian)?;
+
+        // 2. write the list, pass on `has_next`
+        for (i, context) in contexts.iter().enumerate() {
+            let has_next = i != contexts.len() - 1; // not last?
+            context.write_options(writer, endian, (has_next,))?;
+        }
+
+        // 2.b. write size of the list
+        let size_bytes = writer.stream_position()? - start_offset;
+        size_bytes_dest.do_writeback(size_bytes, writer, endian)?;
+        Ok(())
     }
 }
 

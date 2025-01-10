@@ -115,6 +115,13 @@ pub struct DirAccessMask {
     pub generic_read: bool,
 }
 
+impl From<FileAccessMask> for DirAccessMask {
+    fn from(mask: FileAccessMask) -> Self {
+        // The bits are the same, just the names are different. 
+        Self::from_bytes(mask.into_bytes())
+    }
+}
+
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr = u8)]
 pub enum FileInformationClass {

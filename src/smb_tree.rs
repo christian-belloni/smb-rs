@@ -3,9 +3,12 @@ use std::{cell::OnceCell, error::Error};
 use crate::{
     msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
     packets::smb2::{
-        create::CreateDisposition, fscc::FileAccessMask, message::{SMB2Message, SMBMessageContent}, tree_connect::{SMB2TreeConnectRequest, SMB2TreeDisconnectRequest}
+        create::CreateDisposition,
+        fscc::FileAccessMask,
+        message::{SMB2Message, SMBMessageContent},
+        tree_connect::{SMB2TreeConnectRequest, SMB2TreeDisconnectRequest},
     },
-    smb_handle::{SMBHandle, SMBResource},
+    smb_resource::{SMBHandle, SMBResource},
     smb_session::SMBSessionMessageHandler,
 };
 
@@ -60,9 +63,18 @@ impl SMBTree {
     }
 
     /// Connects to a resource (file, directory, etc.) on the remote server by it's name.
-    pub fn create(&mut self, file_name: String, disposition: CreateDisposition, desired_access: FileAccessMask) -> Result<SMBResource, Box<dyn Error>> {
-        let result = SMBHandle::new(file_name, self.handler.clone());
-        Ok(result.create(disposition, desired_access)?)
+    pub fn create(
+        &mut self,
+        file_name: String,
+        disposition: CreateDisposition,
+        desired_access: FileAccessMask,
+    ) -> Result<SMBResource, Box<dyn Error>> {
+        Ok(SMBResource::create(
+            file_name,
+            self.handler.clone(),
+            disposition,
+            desired_access,
+        )?)
     }
 
     fn disconnect(&mut self) -> Result<(), Box<dyn Error>> {
