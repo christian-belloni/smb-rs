@@ -141,6 +141,33 @@ where
         value.write_options(writer, endian, ())
     }
 
+    #[binrw::writer(writer, endian)]
+    pub fn write_and_fill_offset_and_size_with_base_args<U, B, S>(
+        value: &U,
+        this_offset: &Self,
+        this_size: &PosMarker<S>,
+        base: &PosMarker<B>,
+        args: U::Args<'_>,
+    ) -> BinResult<()>
+    where
+        U: BinWrite,
+        S: BinWrite<Args<'static> = ()> + TryFrom<u64>,
+        S::Error : binrw::error::CustomError + 'static,
+    {
+        let pos = writer.stream_position()?;
+        // Write offset
+        let offset_value = pos - base.pos.get();
+        this_offset.do_writeback(offset_value, writer, endian)?;
+
+        // Continue writing the real value this writer is specified for
+        value.write_options(writer, endian, args)?;
+
+        // Write size
+        let size = writer.stream_position()? - pos;
+        this_size.do_writeback(size, writer, endian)?;
+        Ok(())
+    }
+
     /// Call this write to fill a PosMarker value to the size of the wrapped object that was written.
     #[binrw::writer(writer, endian)]
     pub fn write_and_fill_size<U>(value: &U, this: &Self) -> BinResult<()>

@@ -46,7 +46,7 @@ pub struct FileAttributes {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct FileAccessMask {
     pub file_read_data: bool,

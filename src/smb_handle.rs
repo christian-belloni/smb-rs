@@ -4,7 +4,7 @@ use crate::{
     msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
     packets::smb2::{
         create::*,
-        fscc::{FileAttributes, FileAccessMask},
+        fscc::{FileAccessMask, FileAttributes},
         message::{SMB2Message, SMBMessageContent},
     },
     smb_dir::SMBDirectory,
@@ -98,16 +98,13 @@ impl SMBHandle {
                 create_options: 0,
                 name: self.name.clone().into(),
                 contexts: vec![
-                    SMB2CreateContext::new(
-                        "DH2Q",
-                        vec![
-                            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-                            0x0, 0x0, 0x20, 0xa3, 0x79, 0xc6, 0xa0, 0xc0, 0xef, 0x11, 0x8b, 0x7b,
-                            0x0, 0xc, 0x29, 0x80, 0x16, 0x82,
-                        ],
-                    ),
-                    SMB2CreateContext::new("MxAc", vec![]),
-                    SMB2CreateContext::new("QFid", vec![]),
+                    SMB2CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
+                        timeout: 0,
+                        flags: 0,
+                        create_guid: 273489604278964,
+                    })),
+                    SMB2CreateContext::new(CreateContextData::MxAcReq(())),
+                    SMB2CreateContext::new(CreateContextData::QFidReq(())),
                 ],
             }),
         )))?;

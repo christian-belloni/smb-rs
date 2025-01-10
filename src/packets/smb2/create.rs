@@ -44,7 +44,7 @@ pub struct SMB2CreateRequest {
     #[brw(align_before = 8)]
     #[br(map_stream = |s| s.take_seek(_create_contexts_length.value.into()), parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = write_context_list, args(&_create_contexts_offset, &_create_contexts_length))]
-    pub contexts: Vec<SMB2CreateContext>,
+    pub contexts: Vec<SMB2CreateContext<true>>,
 }
 
 #[binrw::binrw]
@@ -77,7 +77,8 @@ pub struct SMB2ShareAccessFlags {
     pub read: bool,
     pub write: bool,
     pub delete: bool,
-    #[skip] __: B29,
+    #[skip]
+    __: B29,
 }
 
 #[binrw::binrw]
@@ -112,7 +113,7 @@ pub struct SMB2CreateResponse {
     #[br(seek_before = SeekFrom::Start(create_contexts_offset.value as u64))]
     #[br(map_stream = |s| s.take_seek(create_contexts_length.value.into()), parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = write_context_list, args(&create_contexts_offset, &create_contexts_length))]
-    pub create_contexts: Vec<SMB2CreateContext>,
+    pub create_contexts: Vec<SMB2CreateContext<false>>,
 }
 
 /// Writes the create context list.
@@ -124,8 +125,8 @@ pub struct SMB2CreateResponse {
 /// This function assumes all import()s for contexts stay the same.
 /// Modify with caution.
 #[binrw::writer(writer, endian)]
-fn write_context_list(
-    contexts: &Vec<SMB2CreateContext>,
+fn write_context_list<const T: bool>(
+    contexts: &Vec<SMB2CreateContext<T>>,
     offset_dest: &PosMarker<u32>,
     size_bytes_dest: &PosMarker<u32>,
 ) -> BinResult<()> {
@@ -169,7 +170,7 @@ pub enum CreateAction {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[bw(import(has_next: bool))]
-pub struct SMB2CreateContext {
+pub struct SMB2CreateContext<const IS_REQUEST: bool> {
     #[bw(calc = PosMarker::default())]
     _next: PosMarker<u32>, // from current location
     #[bw(calc = PosMarker::default())]
@@ -181,16 +182,16 @@ pub struct SMB2CreateContext {
     reserved: u16,
     #[bw(calc = PosMarker::default())]
     _data_offset: PosMarker<u16>,
-    #[bw(calc = u32::try_from(data.len()).unwrap())]
-    data_length: u32,
+    #[bw(calc = PosMarker::default())]
+    _data_length: PosMarker<u32>,
     #[brw(align_before = 8)]
     #[br(count = name_length)]
     #[bw(write_with = PosMarker::write_and_fill_offset_with_base, args(&_name_offset, &_next))]
     pub name: Vec<u8>,
     #[brw(align_before = 8)]
-    #[br(count = data_length)]
-    #[bw(write_with = PosMarker::write_and_fill_offset_with_base, args(&_data_offset, &_next))]
-    pub data: Vec<u8>,
+    #[bw(write_with = PosMarker::write_and_fill_offset_and_size_with_base_args, args(&_data_offset, &_data_length, &_next, (name,)))]
+    #[br(args(&name))]
+    pub data: CreateContextData<IS_REQUEST>,
 
     // The following value writes next if has_next is true,
     #[bw(if(has_next))]
@@ -203,13 +204,97 @@ pub struct SMB2CreateContext {
     fill_next: (),
 }
 
-impl SMB2CreateContext {
-    pub fn new(name: &str, data: Vec<u8>) -> SMB2CreateContext {
-        assert!(name.is_ascii());
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+#[brw(import(name: &Vec<u8>))]
+pub enum CreateContextData<const IS_REQUEST: bool> {
+    #[br(pre_assert(IS_REQUEST && name.as_slice() == Self::DH2Q))]
+    #[bw(assert(IS_REQUEST && name.as_slice() == Self::DH2Q))]
+    DH2QReq(DH2QReq),
+    #[br(pre_assert(IS_REQUEST && name.as_slice() == Self::MxAc))]
+    #[bw(assert(IS_REQUEST && name.as_slice() == Self::MxAc))]
+    MxAcReq(()),
+    #[br(pre_assert(IS_REQUEST && name.as_slice() == Self::QFid))]
+    #[bw(assert(IS_REQUEST && name.as_slice() == Self::QFid))]
+    QFidReq(()),
+
+    #[br(pre_assert(!IS_REQUEST && name.as_slice() == Self::DH2Q))]
+    #[bw(assert(!IS_REQUEST && name.as_slice() == Self::DH2Q))]
+    DH2QResp(DH2QResp),
+    #[br(pre_assert(!IS_REQUEST && name.as_slice() == Self::MxAc))]
+    #[bw(assert(!IS_REQUEST && name.as_slice() == Self::MxAc))]
+    MxAcResp(MxAcResp),
+    #[br(pre_assert(!IS_REQUEST && name.as_slice() == Self::QFid))]
+    #[bw(assert(!IS_REQUEST && name.as_slice() == Self::QFid))]
+    QFidResp(QFidResp),
+
+    Empty(()),
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct DH2QReq {
+    pub timeout: u32,
+    pub flags: u32,
+    #[bw(calc = 0)]
+    #[br(assert(_reserved == 0))]
+    _reserved: u64,
+    pub create_guid: u128,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct MxAcResp {
+    query_status: u32,
+    maximal_access: FileAccessMask,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct QFidResp {
+    file_id: u64,
+    volume_id: u64,
+    #[bw(calc = 0)]
+    #[br(assert(_reserved == 0))]
+    _reserved: u128,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct DH2QResp {
+    timeout: u32,
+    flags: u32,
+}
+
+impl<const T: bool> SMB2CreateContext<T> {
+    pub fn new(data: CreateContextData<T>) -> SMB2CreateContext<T> {
         SMB2CreateContext {
-            name: name.as_bytes().to_vec(),
-            data: data,
+            name: data.name().to_vec(),
+            data,
             fill_next: (),
+        }
+    }
+}
+
+impl<const T: bool> CreateContextData<T> {
+    const DH2Q: &[u8] = b"DH2Q";
+    const MxAc: &[u8] = b"MxAc";
+    const QFid: &[u8] = b"QFid";
+
+    pub fn name(&self) -> &[u8] {
+        match T {
+            false => match self {
+                CreateContextData::DH2QResp(_) => Self::DH2Q,
+                CreateContextData::MxAcResp(_) => Self::MxAc,
+                CreateContextData::QFidResp(_) => Self::QFid,
+                _ => panic!("Invalid context type"),
+            },
+            true => match self {
+                CreateContextData::DH2QReq(_) => Self::DH2Q,
+                CreateContextData::MxAcReq(_) => Self::MxAc,
+                CreateContextData::QFidReq(_) => Self::QFid,
+                _ => panic!("Invalid context type"),
+            },
         }
     }
 }
@@ -277,16 +362,13 @@ mod tests {
             create_options: 0x00020020,
             name: file_name.into(),
             contexts: vec![
-                SMB2CreateContext::new(
-                    "DH2Q",
-                    vec![
-                        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-                        0x0, 0x20, 0xa3, 0x79, 0xc6, 0xa0, 0xc0, 0xef, 0x11, 0x8b, 0x7b, 0x0, 0xc,
-                        0x29, 0x80, 0x16, 0x82,
-                    ],
-                ),
-                SMB2CreateContext::new("MxAc", vec![]),
-                SMB2CreateContext::new("QFid", vec![]),
+                SMB2CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
+                    timeout: 0,
+                    flags: 0,
+                    create_guid: 0x821680290c007b8b11efc0a0c679a320,
+                })),
+                SMB2CreateContext::new(CreateContextData::MxAcReq(())),
+                SMB2CreateContext::new(CreateContextData::QFidReq(())),
             ],
         };
 
@@ -356,20 +438,14 @@ mod tests {
                 file_attributes: FileAttributes::new().with_directory(true),
                 file_id: 950737950337192747837452976457,
                 create_contexts: vec![
-                    SMB2CreateContext {
-                        name: b"MxAc".to_vec(),
-                        data: vec![0, 0, 0, 0, 0xff, 0x01, 0x1f, 0x00],
-                        fill_next: ()
-                    },
-                    SMB2CreateContext {
-                        name: b"QFid".to_vec(),
-                        data: vec![
-                            0x2a, 0xe7, 0x1, 0x0, 0x0, 0x0, 0x4, 0x0, 0xd9, 0xcf, 0x17, 0xb0, 0x0,
-                            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-                            0x0, 0x0, 0x0, 0x0, 0x0
-                        ],
-                        fill_next: ()
-                    },
+                    SMB2CreateContext::new(CreateContextData::MxAcResp(MxAcResp {
+                        query_status: 0,
+                        maximal_access: FileAccessMask::from_bytes(0x001f01ffu32.to_le_bytes()),
+                    })),
+                    SMB2CreateContext::new(CreateContextData::QFidResp(QFidResp {
+                        file_id: 0x400000001e72a,
+                        volume_id: 0xb017cfd9,
+                    })),
                 ]
             }
         )
