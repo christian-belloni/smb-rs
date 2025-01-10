@@ -126,7 +126,7 @@ impl SMBClient {
             ))?;
 
         // 2. Expect SMB2 negotiate response
-        let smb2_response = self.handler.receive(SMB2Command::Negotiate)?;
+        let smb2_response = self.handler.recv(SMB2Command::Negotiate)?;
         let smb2_negotiate_response = match smb2_response.message.content {
             SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
             _ => None,
@@ -149,13 +149,13 @@ impl SMBClient {
         let client_guid = self.handler.borrow().client_guid;
         let response = self
             .handler
-            .send_receive(OutgoingSMBMessage::new(SMB2Message::new(
-                SMBMessageContent::SMBNegotiateRequest(SMBNegotiateRequest::new(
+            .send_recv(SMBMessageContent::SMBNegotiateRequest(
+                SMBNegotiateRequest::new(
                     "AVIV-MBP".to_string(),
                     client_guid,
                     SMBCrypto::SIGNING_ALGOS.into(),
-                )),
-            )))?;
+                ),
+            ))?;
 
         let smb2_negotiate_response = match response.message.content {
             SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
@@ -293,7 +293,7 @@ impl SMBClientMessageHandler {
 }
 
 impl SMBMessageHandler for SMBClientMessageHandler {
-    fn send(
+    fn hsendo(
         &mut self,
         mut msg: OutgoingSMBMessage,
     ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
@@ -332,7 +332,7 @@ impl SMBMessageHandler for SMBClientMessageHandler {
         Ok(SendMessageResult::new(hash.clone()))
     }
 
-    fn receive_options(
+    fn hrecvo(
         &mut self,
         options: crate::msg_handler::ReceiveOptions,
     ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {

@@ -1,9 +1,11 @@
 use std::error::Error;
 
 use crate::{
-    msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
+    msg_handler::{SMBHandlerReference, SMBMessageHandler},
     packets::smb2::{
-        create::*, fscc::{FileAccessMask, FileAttributes}, header::SMB2Command, message::{SMB2Message, SMBMessageContent}
+        create::*,
+        fscc::{FileAccessMask, FileAttributes},
+        message::SMBMessageContent,
     },
     smb_dir::SMBDirectory,
     smb_file::SMBFile,
@@ -25,8 +27,8 @@ impl SMBResource {
         create_disposition: CreateDisposition,
         desired_access: FileAccessMask,
     ) -> Result<SMBResource, Box<dyn Error>> {
-        let response = upstream.send_receive(OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBCreateRequest(SMB2CreateRequest {
+        let response =
+            upstream.send_recv(SMBMessageContent::SMBCreateRequest(SMB2CreateRequest {
                 requested_oplock_level: OplockLevel::None,
                 impersonation_level: ImpersonationLevel::Impersonation,
                 smb_create_flags: 0,
@@ -48,8 +50,7 @@ impl SMBResource {
                     SMB2CreateContext::new(CreateContextData::MxAcReq(())),
                     SMB2CreateContext::new(CreateContextData::QFidReq(())),
                 ],
-            }),
-        )))?;
+            }))?;
 
         let content = match response.message.content {
             SMBMessageContent::SMBCreateResponse(response) => response,
@@ -148,11 +149,11 @@ impl SMBHandle {
         }
 
         log::debug!("Closing handle for {} (@{})", self.name, self.file_id);
-        let _response = self.handler.send_receive(OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBCloseRequest(SMB2CloseRequest {
-                file_id: self.file_id,
-            }),
-        )))?;
+        let _response =
+            self.handler
+                .send_recv(SMBMessageContent::SMBCloseRequest(SMB2CloseRequest {
+                    file_id: self.file_id,
+                }))?;
 
         self.file_id = u128::MAX;
         log::info!("Closed file {}.", self.name);
@@ -170,9 +171,9 @@ impl SMBHandle {
     #[inline]
     pub fn send_receive(
         &mut self,
-        msg: OutgoingSMBMessage,
+        msg: SMBMessageContent,
     ) -> Result<crate::msg_handler::IncomingSMBMessage, Box<dyn std::error::Error>> {
-        self.handler.send_receive(msg)
+        self.handler.send_recv(msg)
     }
 }
 
@@ -199,18 +200,18 @@ impl SMBMessageHandleHandler {
 
 impl SMBMessageHandler for SMBMessageHandleHandler {
     #[inline]
-    fn send(
+    fn hsendo(
         &mut self,
         msg: crate::msg_handler::OutgoingSMBMessage,
     ) -> Result<crate::msg_handler::SendMessageResult, Box<dyn std::error::Error>> {
-        self.upstream.send(msg)
+        self.upstream.borrow_mut().hsendo(msg)
     }
 
     #[inline]
-    fn receive_options(
+    fn hrecvo(
         &mut self,
         options: crate::msg_handler::ReceiveOptions,
     ) -> Result<crate::msg_handler::IncomingSMBMessage, Box<dyn std::error::Error>> {
-        self.upstream.receive_options(options)
+        self.upstream.borrow_mut().hrecvo(options)
     }
 }

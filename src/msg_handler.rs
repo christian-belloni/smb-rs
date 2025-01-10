@@ -3,7 +3,10 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     packets::{
         netbios::NetBiosTcpMessage,
-        smb2::{header::{SMB2Command, SMB2Status}, message::SMB2Message},
+        smb2::{
+            header::{SMB2Command, SMB2Status},
+            message::{SMB2Message, SMBMessageContent},
+        },
     },
     smb_client::PreauthHashValue,
     smb_session::SMBSigner,
@@ -49,7 +52,7 @@ pub struct IncomingSMBMessage {
 }
 
 /// Options for receiving a message.
-/// 
+///
 /// Use a builder pattern to set the options:
 /// ```
 /// let options = ReceiveOptions::new()
@@ -67,7 +70,6 @@ pub struct ReceiveOptions {
 }
 
 impl ReceiveOptions {
-
     pub fn new() -> Self {
         Self::default()
     }
@@ -98,7 +100,7 @@ pub trait SMBMessageHandler {
     /// Send a message to the server, returning the result.
     /// This must be implemented. Each handler in the chain must call the next handler,
     /// after possibly modifying the message.
-    fn send(
+    fn hsendo(
         &mut self,
         msg: OutgoingSMBMessage,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>>;
@@ -106,13 +108,22 @@ pub trait SMBMessageHandler {
     /// Receive a message from the server, returning the result.
     /// This must be implemented, and must call the next handler in the chain,
     /// if there is one, using the provided `ReceiveOptions`.
-    fn receive_options(
+    fn hrecvo(
         &mut self,
         options: ReceiveOptions,
     ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>>;
 }
 
-/// Use this templated struct to hold a handler and access it easily.
+/// A templated shared reference to an SMB message handler.
+///
+/// Provides a more ergonomic way to interact with the handler.
+/// Provided methods are:
+/// - `send*`: Send a message content to the server.
+/// - `receive*`: Receive a message from the server.
+/// - `send*_receive*`: Send a message and receive a response.
+/// - `*o`: Send a message and receive a response with custom options:
+///     - `sendo`: Send a message with custom, low-level handler options.
+///     - `recvo`: Receive a message with custom, low-level handler options.
 pub struct SMBHandlerReference<T: SMBMessageHandler + ?Sized> {
     pub handler: Rc<RefCell<T>>,
 }
@@ -124,54 +135,59 @@ impl<T: SMBMessageHandler> SMBHandlerReference<T> {
         }
     }
 
-    /// [SMBMessageHandler::send]
-    pub fn send(
+    pub fn sendo(
         &mut self,
         msg: OutgoingSMBMessage,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
-        self.handler.borrow_mut().send(msg)
+        self.handler.borrow_mut().hsendo(msg)
     }
 
-    /// [SMBMessageHandler::receive_options]
-    pub fn receive_options(
+    pub fn send(
+        &mut self,
+        msg: SMBMessageContent,
+    ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
+        self.sendo(OutgoingSMBMessage::new(SMB2Message::new((msg))))
+    }
+
+    pub fn recvo(
         &mut self,
         options: ReceiveOptions,
     ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
-        self.handler.borrow_mut().receive_options(options)
+        self.handler.borrow_mut().hrecvo(options)
     }
 
-    /// Receive a message from the server, returning the result,
-    /// using the default options.
-    /// - Expecting a status of [SMB2Status::Success].
-    pub fn receive(&mut self, cmd: SMB2Command) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
-        self.receive_options(ReceiveOptions::new().cmd(Some(cmd)))
+    pub fn recv(
+        &mut self,
+        cmd: SMB2Command,
+    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+        self.recvo(ReceiveOptions::new().cmd(Some(cmd)))
     }
 
-    /// Send and receive a message, returning the result.
-    /// See [SMBHandlerReference::send] and [SMBHandlerReference::receive_options] for details.
-    /// Use [SMBHandlerReference::send_receive] for a more concise version.
-    pub fn send_receive_options(
+    pub fn sendo_recvo(
         &mut self,
         msg: OutgoingSMBMessage,
         options: ReceiveOptions,
     ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
-        self.send(msg)?;
-        self.receive_options(options)
+        self.sendo(msg)?;
+        self.recvo(options)
     }
 
-    /// Send and receive a message, returning the result.
-    /// Expects a successful status and the same command as the sent message.
-    /// To customize the receive options, use [SMBHandlerReference::send_receive_options].
-    pub fn send_receive(
+    pub fn send_recvo(
         &mut self,
-        msg: OutgoingSMBMessage,
+        msg: SMBMessageContent,
+        options: ReceiveOptions,
     ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
-        let cmd = msg.message.header.command;
         self.send(msg)?;
-        self.receive_options(
-            ReceiveOptions::new()
-                .cmd(Some(cmd)),
-        )
+        self.recvo(options)
+    }
+
+    pub fn send_recv(
+        &mut self,
+        msg: SMBMessageContent,
+    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+        let cmd = msg.associated_cmd();
+        self.send(msg)?;
+        self.recvo(ReceiveOptions::new().cmd(Some(cmd)))
     }
 }
 

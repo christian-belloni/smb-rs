@@ -57,7 +57,7 @@ impl SMBSession {
         ));
 
         // response hash is processed later, in the loop.
-        let response = self.handler.send_receive_options(
+        let response = self.handler.sendo_recvo(
             request,
             ReceiveOptions::new().status(SMB2Status::MoreProcessingRequired),
         )?;
@@ -99,7 +99,7 @@ impl SMBSession {
                     ));
                     let is_about_to_finish = authenticator.keys_exchanged() && !self.is_set_up;
                     request.finalize_preauth_hash = is_about_to_finish;
-                    let result = self.handler.send(request)?;
+                    let result = self.handler.sendo(request)?;
 
                     // Keys exchanged? We can set-up the session!
                     if is_about_to_finish {
@@ -116,7 +116,7 @@ impl SMBSession {
                     };
                     let response = self
                         .handler
-                        .receive_options(ReceiveOptions::new().status(expected_status))?;
+                        .recvo(ReceiveOptions::new().status(expected_status))?;
 
                     Some(response)
                 }
@@ -173,9 +173,7 @@ impl SMBSession {
 
         let _response = self
             .handler
-            .send_receive(OutgoingSMBMessage::new(SMB2Message::new(
-                SMBMessageContent::SMBLogoffRequest(Default::default()),
-            )))?;
+            .send_recv(SMBMessageContent::SMBLogoffRequest(Default::default()))?;
 
         // Reset session ID and keys.
         self.handler.borrow_mut().session_id.take();
@@ -299,7 +297,7 @@ impl SMBSessionMessageHandler {
 }
 
 impl SMBMessageHandler for SMBSessionMessageHandler {
-    fn send(
+    fn hsendo(
         &mut self,
         mut msg: OutgoingSMBMessage,
     ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
@@ -309,14 +307,14 @@ impl SMBMessageHandler for SMBSessionMessageHandler {
             msg.signer = Some(self.make_signer(&msg.message)?);
         }
         msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
-        self.upstream.borrow_mut().send(msg)
+        self.upstream.borrow_mut().hsendo(msg)
     }
 
-    fn receive_options(
+    fn hrecvo(
         &mut self,
         options: crate::msg_handler::ReceiveOptions,
     ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
-        let mut incoming = self.upstream.borrow_mut().receive_options(options)?;
+        let mut incoming = self.upstream.borrow_mut().hrecvo(options)?;
         // TODO: check whether this is the correct case to do such a thing.
         if self.should_sign() {
             // Skip authentication is message ID is -1 or status is pending.
