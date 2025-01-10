@@ -1,19 +1,18 @@
 use std::io::prelude::*;
 
-use crate::{
-    msg_handler::{OutgoingSMBMessage, SMBMessageHandler},
-    packets::smb2::{
-        file::{ReadFlags, SMB2FlushRequest, SMB2ReadRequest, SMB2WriteRequest, WriteFlags},
-        fscc::FileAccessMask,
-        message::{SMB2Message, SMBMessageContent},
-    },
+use crate::packets::smb2::{
+    file::{ReadFlags, SMB2FlushRequest, SMB2ReadRequest, SMB2WriteRequest, WriteFlags},
+    fscc::FileAccessMask,
+    message::SMBMessageContent,
 };
 
 use super::smb_resource::SMBHandle;
 
 pub struct SMBFile {
     handle: SMBHandle,
+
     pos: u64,
+    dirty: bool,
 
     access: FileAccessMask,
     end_of_file: u64,
@@ -24,6 +23,7 @@ impl SMBFile {
         SMBFile {
             handle,
             pos: 0,
+            dirty: false,
             access,
             end_of_file,
         }
@@ -51,6 +51,13 @@ impl Read for SMBFile {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if buf.is_empty() {
             return Ok(0);
+        }
+
+        if !self.access.file_read_data() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "No read permission",
+            ));
         }
 
         log::debug!(
@@ -94,6 +101,13 @@ impl Write for SMBFile {
             return Ok(0);
         }
 
+        if !self.access.file_write_data() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "No write permission",
+            ));
+        }
+
         log::debug!(
             "Writing {} bytes at offset {} to {}",
             buf.len(),
@@ -117,6 +131,7 @@ impl Write for SMBFile {
         };
         let actual_written_length = content.count as usize;
         self.pos += actual_written_length as u64;
+        self.dirty = true;
         log::debug!(
             "Wrote {} bytes to {}.",
             actual_written_length,
@@ -126,7 +141,12 @@ impl Write for SMBFile {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        let response = self
+        // Well, no need to flush if nothing has been written...
+        if !self.dirty {
+            return Ok(());
+        }
+
+        let _response = self
             .handle
             .send_receive(SMBMessageContent::SMBFlushRequest(SMB2FlushRequest {
                 file_id: self.handle.file_id(),

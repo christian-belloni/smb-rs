@@ -15,7 +15,7 @@ use crate::{
         smb1::SMB1NegotiateMessage,
         smb2::{
             header::SMB2Command,
-            message::{SMB2Message, SMBMessageContent},
+            message::SMBMessageContent,
             negotiate::{
                 HashAlgorithm, SMBDialect, SMBNegotiateContextType, SMBNegotiateContextValue,
                 SMBNegotiateRequest, SMBNegotiateResponseDialect,

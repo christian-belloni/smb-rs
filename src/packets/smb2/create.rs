@@ -191,21 +191,21 @@ pub enum CreateContextData<const IS_REQUEST: bool> {
     #[br(pre_assert(IS_REQUEST && name.as_slice() == Self::DH2Q))]
     #[bw(assert(IS_REQUEST && name.as_slice() == Self::DH2Q))]
     DH2QReq(DH2QReq),
-    #[br(pre_assert(IS_REQUEST && name.as_slice() == Self::MxAc))]
-    #[bw(assert(IS_REQUEST && name.as_slice() == Self::MxAc))]
+    #[br(pre_assert(IS_REQUEST && name.as_slice() == Self::MXAC))]
+    #[bw(assert(IS_REQUEST && name.as_slice() == Self::MXAC))]
     MxAcReq(()),
-    #[br(pre_assert(IS_REQUEST && name.as_slice() == Self::QFid))]
-    #[bw(assert(IS_REQUEST && name.as_slice() == Self::QFid))]
+    #[br(pre_assert(IS_REQUEST && name.as_slice() == Self::QFID))]
+    #[bw(assert(IS_REQUEST && name.as_slice() == Self::QFID))]
     QFidReq(()),
 
     #[br(pre_assert(!IS_REQUEST && name.as_slice() == Self::DH2Q))]
     #[bw(assert(!IS_REQUEST && name.as_slice() == Self::DH2Q))]
     DH2QResp(DH2QResp),
-    #[br(pre_assert(!IS_REQUEST && name.as_slice() == Self::MxAc))]
-    #[bw(assert(!IS_REQUEST && name.as_slice() == Self::MxAc))]
+    #[br(pre_assert(!IS_REQUEST && name.as_slice() == Self::MXAC))]
+    #[bw(assert(!IS_REQUEST && name.as_slice() == Self::MXAC))]
     MxAcResp(MxAcResp),
-    #[br(pre_assert(!IS_REQUEST && name.as_slice() == Self::QFid))]
-    #[bw(assert(!IS_REQUEST && name.as_slice() == Self::QFid))]
+    #[br(pre_assert(!IS_REQUEST && name.as_slice() == Self::QFID))]
+    #[bw(assert(!IS_REQUEST && name.as_slice() == Self::QFID))]
     QFidResp(QFidResp),
 
     Empty(()),
@@ -287,21 +287,21 @@ impl<const T: bool> SMB2CreateContext<T> {
 
 impl<const T: bool> CreateContextData<T> {
     const DH2Q: &[u8] = b"DH2Q";
-    const MxAc: &[u8] = b"MxAc";
-    const QFid: &[u8] = b"QFid";
+    const MXAC: &[u8] = b"MxAc";
+    const QFID: &[u8] = b"QFid";
 
     pub fn name(&self) -> &[u8] {
         match T {
             false => match self {
                 CreateContextData::DH2QResp(_) => Self::DH2Q,
-                CreateContextData::MxAcResp(_) => Self::MxAc,
-                CreateContextData::QFidResp(_) => Self::QFid,
+                CreateContextData::MxAcResp(_) => Self::MXAC,
+                CreateContextData::QFidResp(_) => Self::QFID,
                 _ => panic!("Invalid context type"),
             },
             true => match self {
                 CreateContextData::DH2QReq(_) => Self::DH2Q,
-                CreateContextData::MxAcReq(_) => Self::MxAc,
-                CreateContextData::QFidReq(_) => Self::QFid,
+                CreateContextData::MxAcReq(_) => Self::MXAC,
+                CreateContextData::QFidReq(_) => Self::QFID,
                 _ => panic!("Invalid context type"),
             },
         }

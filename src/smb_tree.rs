@@ -1,11 +1,11 @@
 use std::{cell::OnceCell, error::Error};
 
 use crate::{
-    msg_handler::{OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler},
+    msg_handler::{SMBHandlerReference, SMBMessageHandler},
     packets::smb2::{
         create::CreateDisposition,
         fscc::FileAccessMask,
-        message::{SMB2Message, SMBMessageContent},
+        message::SMBMessageContent,
         tree_connect::{SMB2TreeConnectRequest, SMB2TreeDisconnectRequest},
     },
     smb_resource::SMBResource,

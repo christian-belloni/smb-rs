@@ -1,7 +1,4 @@
-use crate::{
-    msg_handler::*,
-    packets::smb2::{dir::*, fscc::*, message::*},
-};
+use crate::packets::smb2::{dir::*, fscc::*, message::*};
 
 use super::smb_resource::SMBHandle;
 
@@ -20,6 +17,10 @@ impl SMBDirectory {
         &mut self,
         pattern: &str,
     ) -> Result<Vec<BothDirectoryInformationItem>, Box<dyn std::error::Error>> {
+        if !self.access.file_list_directory() {
+            return Err("No directory list permission".into());
+        }
+
         log::debug!("Querying directory {}", self.handle.name());
 
         let response = self

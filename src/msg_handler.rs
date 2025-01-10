@@ -146,7 +146,7 @@ impl<T: SMBMessageHandler> SMBHandlerReference<T> {
         &mut self,
         msg: SMBMessageContent,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
-        self.sendo(OutgoingSMBMessage::new(SMB2Message::new((msg))))
+        self.sendo(OutgoingSMBMessage::new(SMB2Message::new(msg)))
     }
 
     pub fn recvo(
