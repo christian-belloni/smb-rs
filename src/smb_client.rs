@@ -238,6 +238,7 @@ pub struct ClientMessageHandler {
     client_guid: Guid,
     netbios_client: NetBiosClient,
     current_message_id: u64,
+    credits_balance: u16,
 
     preauth_hash: Option<PreauthHashState>,
 
@@ -252,6 +253,7 @@ impl ClientMessageHandler {
             netbios_client: NetBiosClient::new(),
             negotiate_state: OnceCell::new(),
             current_message_id: 0,
+            credits_balance: 1,
             preauth_hash: None,
         }
     }
@@ -358,6 +360,10 @@ impl MessageHandler for ClientMessageHandler {
             }
             return Err(format!("Unexpected SMB2 status: {:?}", smb2_message.header.status).into());
         }
+
+        // Credits handling. TODO: validate.
+        self.credits_balance -= smb2_message.header.credit_charge;
+        self.credits_balance += smb2_message.header.credit_request;
 
         Ok(IncomingMessage {
             message: smb2_message,

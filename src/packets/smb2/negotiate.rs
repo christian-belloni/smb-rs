@@ -114,7 +114,7 @@ impl NegotiateRequest {
                     context_type: NegotiateContextType::CompressionCapabilities,
                     data: NegotiateContextValue::CompressionCapabilities(CompressionCapabilities {
                         flags: CompressionCapabilitiesFlags::new().with_chained(false),
-                        compression_algorithms: vec![0],
+                        compression_algorithms: vec![CompressionAlgorithm::None],
                     }),
                 },
                 NegotiateContext {
@@ -339,7 +339,18 @@ pub struct CompressionCapabilities {
     _padding: u16,
     flags: CompressionCapabilitiesFlags,
     #[br(count = compression_algorithm_count)]
-    compression_algorithms: Vec<u16>,
+    compression_algorithms: Vec<CompressionAlgorithm>,
+}
+
+#[derive(BinRead, BinWrite, Debug)]
+#[brw(repr(u16))]
+pub enum CompressionAlgorithm {
+    None = 0x0000,
+    LZNT1 = 0x0001,
+    LZ77 = 0x0002,
+    LZ77Huffman = 0x0003,
+    PatternV1 = 0x0004,
+    LZ4 = 0x0005,
 }
 
 #[bitfield]

@@ -168,11 +168,11 @@ mod gmac {
 
     #[bitfield]
     struct NonceSuffixFlags {
-        #[allow(unused)]
+        #[skip(getters)]
         pub msg_id: B64,
-        #[allow(unused)]
+        #[skip(getters)]
         pub is_server: bool,
-        #[allow(unused)]
+        #[skip(getters)]
         pub is_cancel: bool,
         #[skip]
         __: B30,

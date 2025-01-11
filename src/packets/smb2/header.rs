@@ -73,7 +73,8 @@ pub struct Header {
     pub flags: HeaderFlags,
     pub next_command: u32,
     pub message_id: u64,
-    pub reserved: u32,
+    #[bw(calc = 0)]
+    _reserved: u32,
     pub tree_id: u32,
     pub session_id: u64,
     pub signature: u128,

@@ -117,7 +117,6 @@ impl Message {
                 flags: HeaderFlags::new(),
                 next_command: 0,
                 message_id: u64::MAX,
-                reserved: 0x0000feff,
                 tree_id: 0,
                 session_id: 0,
                 signature: 0,

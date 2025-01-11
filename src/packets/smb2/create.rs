@@ -2,6 +2,7 @@ use std::io::SeekFrom;
 
 use super::super::binrw_util::prelude::*;
 use super::fscc::*;
+use super::header::Status;
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
@@ -17,7 +18,9 @@ pub struct CreateRequest {
     _security_flags: u8,
     pub requested_oplock_level: OplockLevel,
     pub impersonation_level: ImpersonationLevel,
-    pub smb_create_flags: u64,
+    #[bw(calc = 0)]
+    #[br(assert(_smb_create_flags == 0))]
+    _smb_create_flags: u64,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u64,
@@ -25,7 +28,7 @@ pub struct CreateRequest {
     pub file_attributes: FileAttributes,
     pub share_access: ShareAccessFlags,
     pub create_disposition: CreateDisposition,
-    pub create_options: u32,
+    pub create_options: CreateOptions,
     #[bw(calc = PosMarker::default())]
     _name_offset: PosMarker<u16>,
     #[bw(try_calc = name.size().try_into())]
@@ -68,6 +71,45 @@ pub enum CreateDisposition {
     OverwriteIf = 0x5,
 }
 
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct CreateOptions {
+    pub directory_file: bool,
+    pub write_through: bool,
+    pub sequential_only: bool,
+    pub no_intermediate_buffering: bool,
+
+    pub synchronous_io_alert: bool,
+    pub synchronous_io_nonalert: bool,
+    pub non_directory_file: bool,
+    #[skip]
+    __: bool,
+
+    pub complete_if_oplocked: bool,
+    pub no_ea_knowledge: bool,
+    pub open_remote_instance: bool,
+    pub random_access: bool,
+
+    pub delete_on_close: bool,
+    pub open_by_file_id: bool,
+    pub open_for_backup_intent: bool,
+    pub no_compression: bool,
+
+    pub open_requiring_oplock: bool,
+    pub disallow_exclusive: bool,
+    #[skip]
+    __: B2,
+
+    pub reserve_opfilter: bool,
+    pub open_reparse_point: bool,
+    pub open_no_recall: bool,
+    pub open_for_free_space_query: bool,
+
+    #[skip]
+    __: B8,
+}
+
 // share_access 4 byte flags:
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
@@ -87,10 +129,7 @@ pub struct CreateResponse {
     #[br(assert(structure_size == 89))]
     structure_size: u16,
     pub oplock_level: OplockLevel,
-    // always 1 or 0, depends on dialect.
-    #[br(assert(flags == 0 || flags == 1))]
-    #[bw(assert(*flags == 0 || *flags == 1))]
-    pub flags: u8,
+    pub flags: CreateResponseFlags,
     pub create_action: CreateAction,
     pub creation_time: FileTime,
     pub last_access_time: FileTime,
@@ -122,6 +161,15 @@ impl CreateResponse {
             _ => None,
         })
     }
+}
+
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct CreateResponseFlags {
+    pub reparsepoint: bool,
+    #[skip]
+    __: B7,
 }
 
 #[binrw::binrw]
@@ -214,17 +262,26 @@ pub enum CreateContextData<const IS_REQUEST: bool> {
 #[derive(Debug, PartialEq, Eq)]
 pub struct DH2QReq {
     pub timeout: u32,
-    pub flags: u32,
+    pub flags: DH2QFlags,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u64,
-    pub create_guid: u128,
+    pub create_guid: Guid,
+}
+
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct DH2QFlags {
+    #[skip] __: bool,
+    pub persistent: bool, // 0x2
+    #[skip] __: B30,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct MxAcResp {
-    pub query_status: u32,
+    pub query_status: Status,
     pub maximal_access: FileAccessMask,
 }
 
@@ -242,7 +299,7 @@ pub struct QFidResp {
 #[derive(Debug, PartialEq, Eq)]
 pub struct DH2QResp {
     pub timeout: u32,
-    pub flags: u32,
+    pub flags: DH2QFlags,
 }
 
 impl<const T: bool> CreateContext<T> {
@@ -367,7 +424,6 @@ mod tests {
         let request = CreateRequest {
             requested_oplock_level: OplockLevel::None,
             impersonation_level: ImpersonationLevel::Impersonation,
-            smb_create_flags: 0,
             desired_access: FileAccessMask::from_bytes(0x00100081u32.to_le_bytes()),
             file_attributes: FileAttributes::new(),
             share_access: ShareAccessFlags::new()
@@ -375,13 +431,15 @@ mod tests {
                 .with_write(true)
                 .with_delete(true),
             create_disposition: CreateDisposition::Open,
-            create_options: 0x00020020,
+            create_options: dbg!(CreateOptions::new()
+                .with_synchronous_io_nonalert(true)
+                .with_disallow_exclusive(true)),
             name: file_name.into(),
             contexts: vec![
                 CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
                     timeout: 0,
-                    flags: 0,
-                    create_guid: 0x821680290c007b8b11efc0a0c679a320,
+                    flags: DH2QFlags::new(),
+                    create_guid: 0x821680290c007b8b11efc0a0c679a320.into(),
                 })),
                 CreateContext::new(CreateContextData::MxAcReq(())),
                 CreateContext::new(CreateContextData::QFidReq(())),
@@ -443,7 +501,7 @@ mod tests {
         assert!(
             m == CreateResponse {
                 oplock_level: OplockLevel::None,
-                flags: 0,
+                flags: CreateResponseFlags::new(),
                 create_action: CreateAction::Opened,
                 creation_time: 133783827154208828.into(),
                 last_access_time: 133797832406291912.into(),
@@ -455,7 +513,7 @@ mod tests {
                 file_id: 950737950337192747837452976457.into(),
                 create_contexts: vec![
                     CreateContext::new(CreateContextData::MxAcResp(MxAcResp {
-                        query_status: 0,
+                        query_status: Status::Success,
                         maximal_access: FileAccessMask::from_bytes(0x001f01ffu32.to_le_bytes()),
                     })),
                     CreateContext::new(CreateContextData::QFidResp(QFidResp {

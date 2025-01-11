@@ -32,7 +32,6 @@ impl Resource {
         let response = upstream.send_recv(Content::CreateRequest(CreateRequest {
             requested_oplock_level: OplockLevel::None,
             impersonation_level: ImpersonationLevel::Impersonation,
-            smb_create_flags: 0,
             desired_access,
             file_attributes: FileAttributes::new(),
             share_access: ShareAccessFlags::new()
@@ -40,13 +39,13 @@ impl Resource {
                 .with_write(true)
                 .with_delete(true),
             create_disposition,
-            create_options: 0,
+            create_options: CreateOptions::new(),
             name: name.clone().into(),
             contexts: vec![
                 CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
                     timeout: 0,
-                    flags: 0,
-                    create_guid: 273489604278964,
+                    flags: DH2QFlags::new(),
+                    create_guid: 273489604278964.into(),
                 })),
                 CreateContext::new(CreateContextData::MxAcReq(())),
                 CreateContext::new(CreateContextData::QFidReq(())),
