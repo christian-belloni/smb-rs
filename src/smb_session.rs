@@ -22,7 +22,7 @@ use crate::{
     smb_tree::Tree,
 };
 
-type SigningKeyValue = [u8; 16];
+type DerivedKeyValue = [u8; 16];
 type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
 
 pub struct Session {
@@ -133,6 +133,12 @@ impl Session {
         self.handler.borrow_mut().signing_key = Some(Self::derive_signing_key(
             exchanged_session_key,
             preauth_integrity_hash,
+            b"SMBSigningKey\x00"
+        )?);
+        self.handler.borrow_mut().encrypting_key = Some(Self::derive_signing_key(
+            exchanged_session_key,
+            preauth_integrity_hash,
+            b"SMBS2CCipherKey\x00"
         )?);
         self.is_set_up = true;
         log::debug!("Session signing key set.");
@@ -142,13 +148,14 @@ impl Session {
     fn derive_signing_key(
         exchanged_session_key: &Vec<u8>,
         preauth_integrity_hash: [u8; 64],
+        label: &[u8]
     ) -> Result<[u8; 16], Box<dyn Error>> {
         assert!(exchanged_session_key.len() == 16);
 
         let mut session_key = [0; 16];
         session_key.copy_from_slice(&exchanged_session_key[0..16]);
         Ok(
-            Crypto::kbkdf_hmacsha256(&session_key, b"SMBSigningKey\x00", &preauth_integrity_hash)?
+            Crypto::kbkdf_hmacsha256(&session_key, label, &preauth_integrity_hash)?
                 .try_into()
                 .unwrap(),
         )
@@ -257,7 +264,8 @@ impl MessageSigner {
 
 pub struct SessionMessageHandler {
     session_id: OnceCell<u64>,
-    signing_key: Option<SigningKeyValue>,
+    signing_key: Option<DerivedKeyValue>,
+    encrypting_key: Option<DerivedKeyValue>,
     signing_algo: SigningAlgorithmId,
     upstream: UpstreamHandlerRef,
 }
@@ -273,6 +281,7 @@ impl SessionMessageHandler {
         HandlerReference::new(SessionMessageHandler {
             session_id: OnceCell::new(),
             signing_key: None,
+            encrypting_key: None,
             signing_algo,
             upstream,
         })
