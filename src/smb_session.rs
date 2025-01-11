@@ -249,6 +249,7 @@ impl SMBSigner {
         let mut header_bytes = Cursor::new([0; SMB2MessageHeader::STRUCT_SIZE]);
         header.write(&mut header_bytes)?;
         header.signature = signture_backup;
+        self.signing_algo.start(&header);
         self.signing_algo.update(&header_bytes.into_inner());
 
         // And write rest of the raw message.
@@ -267,10 +268,13 @@ pub struct SMBSessionMessageHandler {
 }
 
 impl SMBSessionMessageHandler {
-    pub fn new(
-        upstream: UpstreamHandlerRef
-    ) -> SMBHandlerReference<SMBSessionMessageHandler> {
-        let signing_algo = upstream.handler.borrow().negotiate_state().unwrap().get_signing_algo();
+    pub fn new(upstream: UpstreamHandlerRef) -> SMBHandlerReference<SMBSessionMessageHandler> {
+        let signing_algo = upstream
+            .handler
+            .borrow()
+            .negotiate_state()
+            .unwrap()
+            .get_signing_algo();
         SMBHandlerReference::new(SMBSessionMessageHandler {
             session_id: OnceCell::new(),
             signing_key: None,
@@ -283,7 +287,7 @@ impl SMBSessionMessageHandler {
         self.signing_key.is_some()
     }
 
-    fn make_signer(&self, message: &SMB2Message) -> Result<SMBSigner, Box<dyn Error>> {
+    fn make_signer(&self) -> Result<SMBSigner, Box<dyn Error>> {
         if !self.should_sign() {
             return Err("Signing key is not set -- you must succeed a setup() to continue.".into());
         }
@@ -291,12 +295,8 @@ impl SMBSessionMessageHandler {
         debug_assert!(self.signing_key.is_some());
 
         Ok(SMBSigner::new(
-            SMBCrypto::make_signing_algo(
-                self.signing_algo,
-                self.signing_key.as_ref().unwrap(),
-                message,
-            )
-            .unwrap(),
+            SMBCrypto::make_signing_algo(self.signing_algo, self.signing_key.as_ref().unwrap())
+                .unwrap(),
         ))
     }
 }
@@ -309,7 +309,7 @@ impl SMBMessageHandler for SMBSessionMessageHandler {
         // Set signing configuration. Upstream handler shall take care of the rest.
         if self.should_sign() {
             msg.message.header.flags.set_signed(true);
-            msg.signer = Some(self.make_signer(&msg.message)?);
+            msg.signer = Some(self.make_signer()?);
         }
         msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
         self.upstream.borrow_mut().hsendo(msg)
@@ -326,7 +326,7 @@ impl SMBMessageHandler for SMBSessionMessageHandler {
             if incoming.message.header.message_id != u64::MAX
                 && incoming.message.header.status != SMB2Status::StatusPending as u32
             {
-                self.make_signer(&incoming.message)?
+                self.make_signer()?
                     .verify_signature(&mut incoming.message.header, &incoming.raw)?;
             }
         };

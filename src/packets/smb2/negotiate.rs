@@ -145,14 +145,12 @@ impl SMBNegotiateResponse {
             contexts
                 .iter()
                 .find_map(|context| match &context.context_type {
-                    SMBNegotiateContextType::SigningCapabilities => {
-                        match &context.data {
-                            SMBNegotiateContextValue::SigningCapabilities(caps) => {
-                                caps.signing_algorithms.first().copied()
-                            }
-                            _ => None,
+                    SMBNegotiateContextType::SigningCapabilities => match &context.data {
+                        SMBNegotiateContextValue::SigningCapabilities(caps) => {
+                            caps.signing_algorithms.first().copied()
                         }
-                    }
+                        _ => None,
+                    },
                     _ => None,
                 })
         })
@@ -163,12 +161,12 @@ impl SMBNegotiateResponse {
             contexts
                 .iter()
                 .find_map(|context| match &context.context_type {
-                    SMBNegotiateContextType::PreauthIntegrityCapabilities => {
-                        match &context.data {
-                            SMBNegotiateContextValue::PreauthIntegrityCapabilities(caps) => Some(caps.hash_algorithms.as_ref()),
-                            _ => None,
+                    SMBNegotiateContextType::PreauthIntegrityCapabilities => match &context.data {
+                        SMBNegotiateContextValue::PreauthIntegrityCapabilities(caps) => {
+                            Some(caps.hash_algorithms.as_ref())
                         }
-                    }
+                        _ => None,
+                    },
                     _ => None,
                 })
         })

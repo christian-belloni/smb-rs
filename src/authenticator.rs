@@ -269,11 +269,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
             SecurityBuffer::with_security_buffer_type(SecurityBufferType::Token)?
                 .with_data(&mut token_dest)?;
         let mut ntlm_copy = self.ntlm.clone();
-        ntlm_copy.make_signature(
-            0,
-            &mut [data_buffer, token_dest_buffer],
-            self.seq_num,
-        )?;
+        ntlm_copy.make_signature(0, &mut [data_buffer, token_dest_buffer], self.seq_num)?;
         Ok(token_dest)
     }
 
@@ -289,7 +285,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
             SecurityBuffer::with_security_buffer_type(SecurityBufferType::Token)?
                 .with_data(signature)?;
         let mut buffers = [data_buffer, signature_buffer];
-        ntlm_copy.verify_signature( &mut buffers, self.seq_num)?;
+        ntlm_copy.verify_signature(&mut buffers, self.seq_num)?;
         Ok(())
     }
 
