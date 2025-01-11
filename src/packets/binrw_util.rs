@@ -3,9 +3,13 @@
 pub mod pos_marker;
 pub mod pos_marker_3byte;
 pub mod sized_wide_string;
+pub mod guid;
+pub mod file_time;
 
 pub mod prelude {
     pub use super::pos_marker::PosMarker;
     pub use super::pos_marker_3byte::PosMarker3Byte;
     pub use super::sized_wide_string::SizedWideString;
+    pub use super::guid::Guid;
+    pub use super::file_time::FileTime;
 }

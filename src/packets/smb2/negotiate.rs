@@ -1,5 +1,6 @@
 use binrw::io::{SeekFrom, TakeSeekExt};
 use binrw::prelude::*;
+use modular_bitfield::prelude::*;
 
 use super::super::binrw_util::prelude::*;
 
@@ -11,12 +12,12 @@ pub struct NegotiateRequest {
     structure_size: u16,
     #[bw(try_calc(u16::try_from(dialects.len())))]
     dialect_count: u16,
-    pub security_mode: u16,
+    pub security_mode: SecurityMode,
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
     reserved: u16,
-    pub capabilities: u32,
-    pub client_guid: u128,
+    pub capabilities: GlobalCapabilities,
+    pub client_guid: Guid,
     // TODO: The 3 fields below are possibly a union in older versions of SMB.
     negotiate_context_offset: PosMarker<u32>,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
@@ -34,16 +35,49 @@ pub struct NegotiateRequest {
     pub negotiate_context_list: Option<Vec<NegotiateContext>>,
 }
 
+#[bitfield]
+#[derive(BinRead, BinWrite, Debug, Clone, Copy)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct SecurityMode {
+    pub signing_enabled: bool,
+    pub signing_required: bool,
+    #[skip] __: B14
+}
+
+#[bitfield]
+#[derive(BinRead, BinWrite, Debug, Clone, Copy)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct GlobalCapabilities {
+    pub dfs: bool,
+    pub leasing: bool,
+    pub large_mtu: bool,
+    pub multi_channel: bool,
+
+    pub persistent_handles: bool,
+    pub directory_leasing: bool,
+    pub encryption: bool,
+    pub notifications: bool,
+
+    #[skip] __: B24
+}
+
 impl NegotiateRequest {
     pub fn new(
         client_netname: String,
-        client_guid: u128,
+        client_guid: Guid,
         signing_algorithms: Vec<SigningAlgorithmId>,
     ) -> NegotiateRequest {
         NegotiateRequest {
-            security_mode: 0x1,
-            capabilities: 0x7f,
-            client_guid: client_guid,
+            security_mode: SecurityMode::new().with_signing_enabled(true),
+            capabilities: GlobalCapabilities::new()
+                .with_dfs(true)
+                .with_leasing(true)
+                .with_large_mtu(true)
+                .with_multi_channel(true)
+                .with_persistent_handles(true)
+                .with_directory_leasing(true)
+                .with_encryption(true),
+            client_guid,
             dialects: vec![
                 Dialect::Smb0202,
                 Dialect::Smb021,
@@ -108,18 +142,18 @@ pub struct NegotiateResponse {
     #[br(assert(structure_size == 0x41))]
     #[bw(calc = 0x41)]
     structure_size: u16,
-    pub security_mode: u16,
+    pub security_mode: SecurityMode,
     pub dialect_revision: NegotiateDialect,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
     #[br(assert(if dialect_revision == NegotiateDialect::Smb0311 { negotiate_context_count > 0 } else { negotiate_context_count == 0 }))]
     negotiate_context_count: u16,
-    pub server_guid: u128,
-    pub capabilities: u32,
+    pub server_guid: Guid,
+    pub capabilities: GlobalCapabilities,
     pub max_transact_size: u32,
     pub max_read_size: u32,
     pub max_write_size: u32,
-    pub system_time: u64,
-    pub server_start_time: u64,
+    pub system_time: FileTime,
+    pub server_start_time: FileTime,
     security_buffer_offset: PosMarker<u16>,
     #[bw(try_calc(u16::try_from(buffer.len())))]
     security_buffer_length: u16,

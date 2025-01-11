@@ -1,6 +1,6 @@
 use binrw::prelude::*;
 use core::panic;
-use rand::Rng;
+use crate::packets::binrw_util::guid::Guid;
 use sha2::{Digest, Sha512};
 use std::{cell::OnceCell, error::Error, fmt::Display};
 
@@ -69,7 +69,7 @@ impl Default for PreauthHashState {
 
 #[derive(Debug)]
 pub struct SmbNegotiateState {
-    pub server_guid: u128,
+    pub server_guid: Guid,
 
     pub max_transact_size: u32,
     pub max_read_size: u32,
@@ -236,7 +236,7 @@ impl Client {
 
 /// This struct is the internal message handler for the SMB client.
 pub struct ClientMessageHandler {
-    client_guid: u128,
+    client_guid: Guid,
     netbios_client: NetBiosClient,
     current_message_id: u64,
 
@@ -249,7 +249,7 @@ pub struct ClientMessageHandler {
 impl ClientMessageHandler {
     fn new() -> ClientMessageHandler {
         ClientMessageHandler {
-            client_guid: rand::rngs::OsRng.gen(),
+            client_guid: Guid::new(),
             netbios_client: NetBiosClient::new(),
             negotiate_state: OnceCell::new(),
             current_message_id: 0,
