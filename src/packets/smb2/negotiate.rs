@@ -5,7 +5,7 @@ use super::super::binrw_util::prelude::*;
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMBNegotiateRequest {
+pub struct NegotiateRequest {
     #[bw(calc = 0x24)]
     #[br(assert(structure_size == 0x24))]
     structure_size: u16,
@@ -25,45 +25,45 @@ pub struct SMBNegotiateRequest {
     #[br(assert(reserved2 == 0))]
     reserved2: u16,
     #[br(count = dialect_count)]
-    pub dialects: Vec<SMBDialect>,
+    pub dialects: Vec<Dialect>,
     // Only on SMB 3.1.1 we have negotiate contexts.
     // Align to 8 bytes.
-    #[brw(if(dialects.contains(&SMBDialect::Smb0311)), align_before = 8)]
+    #[brw(if(dialects.contains(&Dialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
-    pub negotiate_context_list: Option<Vec<SMBNegotiateContext>>,
+    pub negotiate_context_list: Option<Vec<NegotiateContext>>,
 }
 
-impl SMBNegotiateRequest {
+impl NegotiateRequest {
     pub fn new(
         client_netname: String,
         client_guid: u128,
         signing_algorithms: Vec<SigningAlgorithmId>,
-    ) -> SMBNegotiateRequest {
-        SMBNegotiateRequest {
+    ) -> NegotiateRequest {
+        NegotiateRequest {
             security_mode: 0x1,
             capabilities: 0x7f,
             client_guid: client_guid,
             dialects: vec![
-                SMBDialect::Smb0202,
-                SMBDialect::Smb021,
-                SMBDialect::Smb030,
-                SMBDialect::Smb0302,
-                SMBDialect::Smb0311,
+                Dialect::Smb0202,
+                Dialect::Smb021,
+                Dialect::Smb030,
+                Dialect::Smb0302,
+                Dialect::Smb0311,
             ],
             negotiate_context_list: Some(vec![
-                SMBNegotiateContext {
-                    context_type: SMBNegotiateContextType::PreauthIntegrityCapabilities,
-                    data: SMBNegotiateContextValue::PreauthIntegrityCapabilities(
+                NegotiateContext {
+                    context_type: NegotiateContextType::PreauthIntegrityCapabilities,
+                    data: NegotiateContextValue::PreauthIntegrityCapabilities(
                         PreauthIntegrityCapabilities {
                             hash_algorithms: vec![HashAlgorithm::Sha512],
                             salt: (0..32).map(|_| rand::random::<u8>()).collect(),
                         },
                     ),
                 },
-                SMBNegotiateContext {
-                    context_type: SMBNegotiateContextType::EncryptionCapabilities,
-                    data: SMBNegotiateContextValue::EncryptionCapabilities(
+                NegotiateContext {
+                    context_type: NegotiateContextType::EncryptionCapabilities,
+                    data: NegotiateContextValue::EncryptionCapabilities(
                         EncryptionCapabilities {
                             cipher_count: 4,
                             ciphers: vec![
@@ -75,9 +75,9 @@ impl SMBNegotiateRequest {
                         },
                     ),
                 },
-                SMBNegotiateContext {
-                    context_type: SMBNegotiateContextType::CompressionCapabilities,
-                    data: SMBNegotiateContextValue::CompressionCapabilities(
+                NegotiateContext {
+                    context_type: NegotiateContextType::CompressionCapabilities,
+                    data: NegotiateContextValue::CompressionCapabilities(
                         CompressionCapabilities {
                             compression_algorithm_count: 1,
                             padding: 0,
@@ -86,15 +86,15 @@ impl SMBNegotiateRequest {
                         },
                     ),
                 },
-                SMBNegotiateContext {
-                    context_type: SMBNegotiateContextType::SigningCapabilities,
-                    data: SMBNegotiateContextValue::SigningCapabilities(SigningCapabilities {
+                NegotiateContext {
+                    context_type: NegotiateContextType::SigningCapabilities,
+                    data: NegotiateContextValue::SigningCapabilities(SigningCapabilities {
                         signing_algorithms,
                     }),
                 },
-                SMBNegotiateContext {
-                    context_type: SMBNegotiateContextType::NetnameNegotiateContextId,
-                    data: SMBNegotiateContextValue::NetnameNegotiateContextId(
+                NegotiateContext {
+                    context_type: NegotiateContextType::NetnameNegotiateContextId,
+                    data: NegotiateContextValue::NetnameNegotiateContextId(
                         NetnameNegotiateContextId {
                             netname: client_netname.into(),
                         },
@@ -108,14 +108,14 @@ impl SMBNegotiateRequest {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMBNegotiateResponse {
+pub struct NegotiateResponse {
     #[br(assert(structure_size == 0x41))]
     #[bw(calc = 0x41)]
     structure_size: u16,
     pub security_mode: u16,
-    pub dialect_revision: SMBNegotiateResponseDialect,
+    pub dialect_revision: NegotiateDialect,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
-    #[br(assert(if dialect_revision == SMBNegotiateResponseDialect::Smb0311 { negotiate_context_count > 0 } else { negotiate_context_count == 0 }))]
+    #[br(assert(if dialect_revision == NegotiateDialect::Smb0311 { negotiate_context_count > 0 } else { negotiate_context_count == 0 }))]
     negotiate_context_count: u16,
     pub server_guid: u128,
     pub capabilities: u32,
@@ -132,20 +132,20 @@ pub struct SMBNegotiateResponse {
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&security_buffer_offset))]
     pub buffer: Vec<u8>,
 
-    #[brw(if(matches!(dialect_revision, SMBNegotiateResponseDialect::Smb0311)), align_before = 8)]
+    #[brw(if(matches!(dialect_revision, NegotiateDialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
     #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
-    pub negotiate_context_list: Option<Vec<SMBNegotiateContext>>,
+    pub negotiate_context_list: Option<Vec<NegotiateContext>>,
 }
 
-impl SMBNegotiateResponse {
+impl NegotiateResponse {
     pub fn get_signing_algo(&self) -> Option<SigningAlgorithmId> {
         self.negotiate_context_list.as_ref().and_then(|contexts| {
             contexts
                 .iter()
                 .find_map(|context| match &context.context_type {
-                    SMBNegotiateContextType::SigningCapabilities => match &context.data {
-                        SMBNegotiateContextValue::SigningCapabilities(caps) => {
+                    NegotiateContextType::SigningCapabilities => match &context.data {
+                        NegotiateContextValue::SigningCapabilities(caps) => {
                             caps.signing_algorithms.first().copied()
                         }
                         _ => None,
@@ -160,8 +160,8 @@ impl SMBNegotiateResponse {
             contexts
                 .iter()
                 .find_map(|context| match &context.context_type {
-                    SMBNegotiateContextType::PreauthIntegrityCapabilities => match &context.data {
-                        SMBNegotiateContextValue::PreauthIntegrityCapabilities(caps) => {
+                    NegotiateContextType::PreauthIntegrityCapabilities => match &context.data {
+                        NegotiateContextValue::PreauthIntegrityCapabilities(caps) => {
                             Some(caps.hash_algorithms.as_ref())
                         }
                         _ => None,
@@ -174,7 +174,7 @@ impl SMBNegotiateResponse {
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
-pub enum SMBDialect {
+pub enum Dialect {
     Smb0202 = 0x0202,
     Smb021 = 0x0210,
     Smb030 = 0x0300,
@@ -182,27 +182,29 @@ pub enum SMBDialect {
     Smb0311 = 0x0311,
 }
 
+/// Dialects that may be used in the SMB Negotiate Request.
+/// The same as [Dialect] but with a wildcard for SMB 2.0.
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
-pub enum SMBNegotiateResponseDialect {
-    Smb0202 = SMBDialect::Smb0202 as isize,
-    Smb021 = SMBDialect::Smb021 as isize,
-    Smb030 = SMBDialect::Smb030 as isize,
-    Smb0302 = SMBDialect::Smb0302 as isize,
-    Smb0311 = SMBDialect::Smb0311 as isize,
+pub enum NegotiateDialect {
+    Smb0202 = Dialect::Smb0202 as isize,
+    Smb021 = Dialect::Smb021 as isize,
+    Smb030 = Dialect::Smb030 as isize,
+    Smb0302 = Dialect::Smb0302 as isize,
+    Smb0311 = Dialect::Smb0311 as isize,
     Smb02Wildcard = 0x02FF,
 }
 
-impl TryFrom<SMBNegotiateResponseDialect> for SMBDialect {
+impl TryFrom<NegotiateDialect> for Dialect {
     type Error = &'static str;
 
-    fn try_from(value: SMBNegotiateResponseDialect) -> Result<Self, Self::Error> {
+    fn try_from(value: NegotiateDialect) -> Result<Self, Self::Error> {
         match value {
-            SMBNegotiateResponseDialect::Smb0202 => Ok(SMBDialect::Smb0202),
-            SMBNegotiateResponseDialect::Smb021 => Ok(SMBDialect::Smb021),
-            SMBNegotiateResponseDialect::Smb030 => Ok(SMBDialect::Smb030),
-            SMBNegotiateResponseDialect::Smb0302 => Ok(SMBDialect::Smb0302),
-            SMBNegotiateResponseDialect::Smb0311 => Ok(SMBDialect::Smb0311),
+            NegotiateDialect::Smb0202 => Ok(Dialect::Smb0202),
+            NegotiateDialect::Smb021 => Ok(Dialect::Smb021),
+            NegotiateDialect::Smb030 => Ok(Dialect::Smb030),
+            NegotiateDialect::Smb0302 => Ok(Dialect::Smb0302),
+            NegotiateDialect::Smb0311 => Ok(Dialect::Smb0311),
             _ => {
                 Err("Negotiation Response dialect does not match a single, specific, SMB2 dialect!")
             }
@@ -212,10 +214,10 @@ impl TryFrom<SMBNegotiateResponseDialect> for SMBDialect {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMBNegotiateContext {
+pub struct NegotiateContext {
     // The entire context is 8-byte aligned.
     #[brw(align_before = 8)]
-    pub context_type: SMBNegotiateContextType,
+    pub context_type: NegotiateContextType,
     #[bw(calc = PosMarker::default())]
     data_length: PosMarker<u16>,
     #[bw(calc = 0)]
@@ -224,12 +226,12 @@ pub struct SMBNegotiateContext {
     #[br(args(&context_type))]
     #[br(map_stream = |s| s.take_seek(data_length.value as u64))]
     #[bw(write_with = PosMarker::write_and_fill_size, args(&data_length))]
-    pub data: SMBNegotiateContextValue,
+    pub data: NegotiateContextValue,
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
-pub enum SMBNegotiateContextType {
+pub enum NegotiateContextType {
     PreauthIntegrityCapabilities = 0x0001,
     EncryptionCapabilities = 0x0002,
     CompressionCapabilities = 0x0003,
@@ -241,21 +243,21 @@ pub enum SMBNegotiateContextType {
 }
 
 #[derive(BinRead, BinWrite, Debug)]
-#[br(import(context_type: &SMBNegotiateContextType))]
-pub enum SMBNegotiateContextValue {
-    #[br(pre_assert(context_type == &SMBNegotiateContextType::PreauthIntegrityCapabilities))]
+#[br(import(context_type: &NegotiateContextType))]
+pub enum NegotiateContextValue {
+    #[br(pre_assert(context_type == &NegotiateContextType::PreauthIntegrityCapabilities))]
     PreauthIntegrityCapabilities(PreauthIntegrityCapabilities),
-    #[br(pre_assert(context_type == &SMBNegotiateContextType::EncryptionCapabilities))]
+    #[br(pre_assert(context_type == &NegotiateContextType::EncryptionCapabilities))]
     EncryptionCapabilities(EncryptionCapabilities),
-    #[br(pre_assert(context_type == &SMBNegotiateContextType::CompressionCapabilities))]
+    #[br(pre_assert(context_type == &NegotiateContextType::CompressionCapabilities))]
     CompressionCapabilities(CompressionCapabilities),
-    #[br(pre_assert(context_type == &SMBNegotiateContextType::NetnameNegotiateContextId))]
+    #[br(pre_assert(context_type == &NegotiateContextType::NetnameNegotiateContextId))]
     NetnameNegotiateContextId(NetnameNegotiateContextId),
-    #[br(pre_assert(context_type == &SMBNegotiateContextType::TransportCapabilities))]
+    #[br(pre_assert(context_type == &NegotiateContextType::TransportCapabilities))]
     TransportCapabilities(TransportCapabilities),
-    #[br(pre_assert(context_type == &SMBNegotiateContextType::RdmaTransformCapabilities))]
+    #[br(pre_assert(context_type == &NegotiateContextType::RdmaTransformCapabilities))]
     RdmaTransformCapabilities(RdmaTransformCapabilities),
-    #[br(pre_assert(context_type == &SMBNegotiateContextType::SigningCapabilities))]
+    #[br(pre_assert(context_type == &NegotiateContextType::SigningCapabilities))]
     SigningCapabilities(SigningCapabilities),
 }
 

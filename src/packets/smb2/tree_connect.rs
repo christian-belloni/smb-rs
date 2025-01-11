@@ -6,7 +6,7 @@ use super::super::binrw_util::prelude::*;
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct SMB2TreeConnectRquestFlags {
+pub struct TreeConnectRquestFlags {
     pub cluster_reconnect: bool,
     pub redirect_to_owner: bool,
     pub extension_present: bool,
@@ -16,11 +16,11 @@ pub struct SMB2TreeConnectRquestFlags {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2TreeConnectRequest {
+pub struct TreeConnectRequest {
     #[bw(calc = 9)]
     #[br(assert(structure_size == 9))]
     structure_size: u16,
-    pub flags: SMB2TreeConnectRquestFlags,
+    pub flags: TreeConnectRquestFlags,
     #[bw(calc = PosMarker::default())]
     _path_offset: PosMarker<u16>,
     #[bw(try_calc = buffer.size().try_into())]
@@ -32,10 +32,10 @@ pub struct SMB2TreeConnectRequest {
     pub buffer: SizedWideString,
 }
 
-impl SMB2TreeConnectRequest {
-    pub fn new(name: &String) -> SMB2TreeConnectRequest {
-        SMB2TreeConnectRequest {
-            flags: SMB2TreeConnectRquestFlags::new(),
+impl TreeConnectRequest {
+    pub fn new(name: &String) -> TreeConnectRequest {
+        TreeConnectRequest {
+            flags: TreeConnectRquestFlags::new(),
             buffer: name.clone().into(),
         }
     }
@@ -43,22 +43,22 @@ impl SMB2TreeConnectRequest {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2TreeConnectResponse {
+pub struct TreeConnectResponse {
     #[bw(calc = 16)]
     #[br(assert(structure_size == 16))]
     structure_size: u16,
-    pub share_type: SMB2TreeConnectShareType,
+    pub share_type: TreeConnectShareType,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u8,
-    pub share_flags: SMB2TreeShareFlags,
-    pub capabilities: SMB2TreeCapabilities,
+    pub share_flags: TreeShareFlags,
+    pub capabilities: TreeCapabilities,
     pub maximal_access: u32,
 }
 
 #[derive(BitfieldSpecifier, Debug, Clone, Copy)]
 #[bits = 4]
-pub enum SMB2TreeConnectShareFlagsCacheMode {
+pub enum TreeConnectShareFlagsCacheMode {
     Manual,
     Auto,
     Vdo,
@@ -68,12 +68,12 @@ pub enum SMB2TreeConnectShareFlagsCacheMode {
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct SMB2TreeShareFlags {
+pub struct TreeShareFlags {
     pub dfs: bool,
     pub dfs_root: bool,
     #[skip]
     __: B2,
-    pub caching_mode: SMB2TreeConnectShareFlagsCacheMode,
+    pub caching_mode: TreeConnectShareFlagsCacheMode,
 
     pub restrict_exclusive_opens: bool,
     pub smb2_shareflag_force_shared_delete: bool,
@@ -98,7 +98,7 @@ pub struct SMB2TreeShareFlags {
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct SMB2TreeCapabilities {
+pub struct TreeCapabilities {
     #[skip]
     __: B3,
     pub dfs: bool,
@@ -115,7 +115,7 @@ pub struct SMB2TreeCapabilities {
 #[binrw::binrw]
 #[derive(Debug)]
 #[brw(repr(u8))]
-pub enum SMB2TreeConnectShareType {
+pub enum TreeConnectShareType {
     Disk,
     Pipe,
     Print,
@@ -123,7 +123,7 @@ pub enum SMB2TreeConnectShareType {
 
 #[binrw::binrw]
 #[derive(Debug, Default)]
-pub struct SMB2TreeDisconnectRequest {
+pub struct TreeDisconnectRequest {
     #[bw(calc = 4)]
     #[br(assert(structure_size == 4))]
     structure_size: u16,
@@ -134,7 +134,7 @@ pub struct SMB2TreeDisconnectRequest {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2TreeDisconnectResponse {
+pub struct TreeDisconnectResponse {
     #[bw(calc = 4)]
     #[br(assert(structure_size == 4))]
     structure_size: u16,

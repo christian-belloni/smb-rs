@@ -6,7 +6,7 @@ use std::{cell::OnceCell, error::Error, fmt::Display};
 
 use crate::{
     msg_handler::{
-        IncomingSMBMessage, OutgoingSMBMessage, SMBHandlerReference, SMBMessageHandler,
+        IncomingMessage, OutgoingMessage, HandlerReference, MessageHandler,
         SendMessageResult,
     },
     netbios_client::NetBiosClient,
@@ -14,16 +14,16 @@ use crate::{
         netbios::{NetBiosMessageContent, NetBiosTcpMessage},
         smb1::SMB1NegotiateMessage,
         smb2::{
-            header::SMB2Command,
-            message::{self, SMBMessageContent},
+            header::Command,
+            message::{self, Content},
             negotiate::{
-                HashAlgorithm, SMBDialect, SMBNegotiateContextType, SMBNegotiateContextValue,
-                SMBNegotiateRequest, SMBNegotiateResponseDialect, SigningAlgorithmId,
+                HashAlgorithm, Dialect, NegotiateContextType, NegotiateContextValue,
+                NegotiateRequest, NegotiateDialect, SigningAlgorithmId,
             },
         },
     },
-    smb_crypto::SMBCrypto,
-    smb_session::SMBSession,
+    smb_crypto::Crypto,
+    smb_session::Session,
 };
 
 pub type PreauthHashValue = [u8; 64];
@@ -78,7 +78,7 @@ pub struct SmbNegotiateState {
 
     pub gss_negotiate_token: Vec<u8>,
 
-    pub selected_dialect: SMBDialect,
+    pub selected_dialect: Dialect,
     pub signing_algo: SigningAlgorithmId,
 }
 
@@ -92,8 +92,8 @@ impl SmbNegotiateState {
     }
 }
 
-pub struct SMBClient {
-    handler: SMBHandlerReference<SMBClientMessageHandler>,
+pub struct Client {
+    handler: HandlerReference<ClientMessageHandler>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,10 +107,10 @@ impl Display for SmbClientNotConnectedError {
 
 impl Error for SmbClientNotConnectedError {}
 
-impl SMBClient {
-    pub fn new() -> SMBClient {
-        SMBClient {
-            handler: SMBHandlerReference::new(SMBClientMessageHandler::new()),
+impl Client {
+    pub fn new() -> Client {
+        Client {
+            handler: HandlerReference::new(ClientMessageHandler::new()),
         }
     }
 
@@ -131,15 +131,15 @@ impl SMBClient {
             ))?;
 
         // 2. Expect SMB2 negotiate response
-        let smb2_response = self.handler.recv(SMB2Command::Negotiate)?;
+        let smb2_response = self.handler.recv(Command::Negotiate)?;
         let smb2_negotiate_response = match smb2_response.message.content {
-            SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
+            Content::NegotiateResponse(response) => Some(response),
             _ => None,
         }
         .unwrap();
 
         // 3. Make sure dialect is smb2*
-        if smb2_negotiate_response.dialect_revision != SMBNegotiateResponseDialect::Smb02Wildcard {
+        if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb02Wildcard {
             return Err("Unexpected SMB2 dialect revision".into());
         }
         Ok(())
@@ -154,22 +154,22 @@ impl SMBClient {
         let client_guid = self.handler.borrow().client_guid;
         let response = self
             .handler
-            .send_recv(SMBMessageContent::SMBNegotiateRequest(
-                SMBNegotiateRequest::new(
+            .send_recv(Content::NegotiateRequest(
+                NegotiateRequest::new(
                     "AVIV-MBP".to_string(),
                     client_guid,
-                    SMBCrypto::SIGNING_ALGOS.into(),
+                    Crypto::SIGNING_ALGOS.into(),
                 ),
             ))?;
 
         let smb2_negotiate_response = match response.message.content {
-            SMBMessageContent::SMBNegotiateResponse(response) => Some(response),
+            Content::NegotiateResponse(response) => Some(response),
             _ => None,
         }
         .unwrap();
 
         // well, only 3.1 is supported for starters.
-        if smb2_negotiate_response.dialect_revision != SMBNegotiateResponseDialect::Smb0311 {
+        if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb0311 {
             return Err("Unexpected SMB2 dialect revision".into());
         }
 
@@ -180,7 +180,7 @@ impl SMBClient {
         // TODO: Support non-SMB 3.1.1 dialects. (no contexts)
         let selected_signing_algo: SigningAlgorithmId =
             smb2_negotiate_response.get_signing_algo().unwrap();
-        if !SMBCrypto::SIGNING_ALGOS.contains(&selected_signing_algo) {
+        if !Crypto::SIGNING_ALGOS.contains(&selected_signing_algo) {
             return Err(
                 format!("Unsupported signing algorithm {:?}", selected_signing_algo).into(),
             );
@@ -225,11 +225,11 @@ impl SMBClient {
     }
 
     pub fn authenticate(
-        self: &mut SMBClient,
+        self: &mut Client,
         user_name: String,
         password: String,
-    ) -> Result<SMBSession, Box<dyn Error>> {
-        let mut session = SMBSession::new(self.handler.clone());
+    ) -> Result<Session, Box<dyn Error>> {
+        let mut session = Session::new(self.handler.clone());
 
         session.setup(user_name, password)?;
 
@@ -238,7 +238,7 @@ impl SMBClient {
 }
 
 /// This struct is the internal message handler for the SMB client.
-pub struct SMBClientMessageHandler {
+pub struct ClientMessageHandler {
     client_guid: u128,
     netbios_client: NetBiosClient,
     current_message_id: u64,
@@ -249,9 +249,9 @@ pub struct SMBClientMessageHandler {
     negotiate_state: OnceCell<SmbNegotiateState>,
 }
 
-impl SMBClientMessageHandler {
-    fn new() -> SMBClientMessageHandler {
-        SMBClientMessageHandler {
+impl ClientMessageHandler {
+    fn new() -> ClientMessageHandler {
+        ClientMessageHandler {
             client_guid: rand::rngs::OsRng.gen(),
             netbios_client: NetBiosClient::new(),
             negotiate_state: OnceCell::new(),
@@ -285,16 +285,16 @@ impl SMBClientMessageHandler {
     }
 }
 
-impl SMBMessageHandler for SMBClientMessageHandler {
+impl MessageHandler for ClientMessageHandler {
     fn hsendo(
         &mut self,
-        mut msg: OutgoingSMBMessage,
+        mut msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
         self.current_message_id += 1;
         // TODO: Add assertion in the struct regarding the selected dialect!
         let priority_value = match self.negotiate_state.get() {
             Some(negotiate_state) => match negotiate_state.selected_dialect {
-                SMBDialect::Smb0311 => 1,
+                Dialect::Smb0311 => 1,
                 _ => 0,
             },
             None => 0,
@@ -328,7 +328,7 @@ impl SMBMessageHandler for SMBClientMessageHandler {
     fn hrecvo(
         &mut self,
         options: crate::msg_handler::ReceiveOptions,
-    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         let raw = self.netbios_client.recieve_bytes()?;
 
         self.step_preauth_hash(&raw);
@@ -353,13 +353,13 @@ impl SMBMessageHandler for SMBClientMessageHandler {
 
         // Expected status matching.
         if smb2_message.header.status != options.status {
-            if let SMBMessageContent::ErrorResponse(msg) = &smb2_message.content {
+            if let Content::ErrorResponse(msg) = &smb2_message.content {
                 return Err(format!("SMB2 error response {:?}: {:?}", smb2_message.header.status, msg).into());
             }
             return Err(format!("Unexpected SMB2 status: {:?}", smb2_message.header.status).into());
         }
 
-        Ok(IncomingSMBMessage {
+        Ok(IncomingMessage {
             message: smb2_message,
             raw,
         })

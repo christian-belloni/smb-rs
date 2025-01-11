@@ -10,7 +10,7 @@ use super::fscc::*;
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2QueryDirectoryRequest {
+pub struct QueryDirectoryRequest {
     #[bw(calc = 33)]
     #[br(assert(_structure_size == 33))]
     _structure_size: u16,
@@ -47,7 +47,7 @@ pub struct QueryDirectoryFlags {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2QueryDirectoryResponse {
+pub struct QueryDirectoryResponse {
     #[bw(calc = 9)]
     #[br(assert(_structure_size == 9))]
     _structure_size: u16,

@@ -4,97 +4,97 @@ use super::header::*;
 use super::*;
 
 #[derive(BinRead, BinWrite, Debug)]
-#[brw(import(smb_command: &SMB2Command, flags_server_to_redir: bool))]
-pub enum SMBMessageContent {
+#[brw(import(command: &Command, from_srv: bool))]
+pub enum Content {
     // negotiate
-    #[br(pre_assert(smb_command == &SMB2Command::Negotiate && !flags_server_to_redir))]
-    SMBNegotiateRequest(negotiate::SMBNegotiateRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::Negotiate && flags_server_to_redir))]
-    SMBNegotiateResponse(negotiate::SMBNegotiateResponse),
+    #[br(pre_assert(command == &Command::Negotiate && !from_srv))]
+    NegotiateRequest(negotiate::NegotiateRequest),
+    #[br(pre_assert(command == &Command::Negotiate && from_srv))]
+    NegotiateResponse(negotiate::NegotiateResponse),
 
     // session setup
-    #[br(pre_assert(smb_command == &SMB2Command::SessionSetup && !flags_server_to_redir))]
-    SMBSessionSetupRequest(session_setup::SMB2SessionSetupRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::SessionSetup && flags_server_to_redir))]
-    SMBSessionSetupResponse(session_setup::SMB2SessionSetupResponse),
+    #[br(pre_assert(command == &Command::SessionSetup && !from_srv))]
+    SessionSetupRequest(session_setup::SessionSetupRequest),
+    #[br(pre_assert(command == &Command::SessionSetup && from_srv))]
+    SessionSetupResponse(session_setup::SessionSetupResponse),
 
     // logoff
-    #[br(pre_assert(smb_command == &SMB2Command::Logoff && !flags_server_to_redir))]
-    SMBLogoffRequest(session_setup::SMB2LogoffRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::Logoff && flags_server_to_redir))]
-    SMBLogoffResponse(session_setup::SMB2LogoffResponse),
+    #[br(pre_assert(command == &Command::Logoff && !from_srv))]
+    LogoffRequest(session_setup::LogoffRequest),
+    #[br(pre_assert(command == &Command::Logoff && from_srv))]
+    LogoffResponse(session_setup::LogoffResponse),
 
     // tree connect
-    #[br(pre_assert(smb_command == &SMB2Command::TreeConnect && !flags_server_to_redir))]
-    SMBTreeConnectRequest(tree_connect::SMB2TreeConnectRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::TreeConnect && flags_server_to_redir))]
-    SMBTreeConnectResponse(tree_connect::SMB2TreeConnectResponse),
+    #[br(pre_assert(command == &Command::TreeConnect && !from_srv))]
+    TreeConnectRequest(tree_connect::TreeConnectRequest),
+    #[br(pre_assert(command == &Command::TreeConnect && from_srv))]
+    TreeConnectResponse(tree_connect::TreeConnectResponse),
 
     // tree disconnect
-    #[br(pre_assert(smb_command == &SMB2Command::TreeDisconnect && !flags_server_to_redir))]
-    SMBTreeDisconnectRequest(tree_connect::SMB2TreeDisconnectRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::TreeDisconnect && flags_server_to_redir))]
-    SMBTreeDisconnectResponse(tree_connect::SMB2TreeDisconnectResponse),
+    #[br(pre_assert(command == &Command::TreeDisconnect && !from_srv))]
+    TreeDisconnectRequest(tree_connect::TreeDisconnectRequest),
+    #[br(pre_assert(command == &Command::TreeDisconnect && from_srv))]
+    TreeDisconnectResponse(tree_connect::TreeDisconnectResponse),
 
     // create
-    #[br(pre_assert(smb_command == &SMB2Command::Create && !flags_server_to_redir))]
-    SMBCreateRequest(create::SMB2CreateRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::Create && flags_server_to_redir))]
-    SMBCreateResponse(create::SMB2CreateResponse),
+    #[br(pre_assert(command == &Command::Create && !from_srv))]
+    CreateRequest(create::CreateRequest),
+    #[br(pre_assert(command == &Command::Create && from_srv))]
+    CreateResponse(create::CreateResponse),
 
     // close
-    #[br(pre_assert(smb_command == &SMB2Command::Close && !flags_server_to_redir))]
-    SMBCloseRequest(create::SMB2CloseRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::Close && flags_server_to_redir))]
-    SMBCloseResponse(create::SMB2CloseResponse),
+    #[br(pre_assert(command == &Command::Close && !from_srv))]
+    CloseRequest(create::CloseRequest),
+    #[br(pre_assert(command == &Command::Close && from_srv))]
+    CloseResponse(create::CloseResponse),
 
     // flush
-    #[br(pre_assert(smb_command == &SMB2Command::Flush && !flags_server_to_redir))]
-    SMBFlushRequest(file::SMB2FlushRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::Flush && flags_server_to_redir))]
-    SMBFlushResponse(file::SMB2FlushResponse),
+    #[br(pre_assert(command == &Command::Flush && !from_srv))]
+    FlushRequest(file::FlushRequest),
+    #[br(pre_assert(command == &Command::Flush && from_srv))]
+    FlushResponse(file::FlushResponse),
 
     // read
-    #[br(pre_assert(smb_command == &SMB2Command::Read && !flags_server_to_redir))]
-    SMBReadRequest(file::SMB2ReadRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::Read && flags_server_to_redir))]
-    SMBReadResponse(file::SMB2ReadResponse),
+    #[br(pre_assert(command == &Command::Read && !from_srv))]
+    ReadRequest(file::ReadRequest),
+    #[br(pre_assert(command == &Command::Read && from_srv))]
+    ReadResponse(file::ReadResponse),
 
     // write
-    #[br(pre_assert(smb_command == &SMB2Command::Write && !flags_server_to_redir))]
-    SMBWriteRequest(file::SMB2WriteRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::Write && flags_server_to_redir))]
-    SMBWriteResponse(file::SMB2WriteResponse),
+    #[br(pre_assert(command == &Command::Write && !from_srv))]
+    WriteRequest(file::WriteRequest),
+    #[br(pre_assert(command == &Command::Write && from_srv))]
+    WriteResponse(file::WriteResponse),
 
     // query directory
-    #[br(pre_assert(smb_command == &SMB2Command::QueryDirectory && !flags_server_to_redir))]
-    SMBQueryDirectoryRequest(dir::SMB2QueryDirectoryRequest),
-    #[br(pre_assert(smb_command == &SMB2Command::QueryDirectory && flags_server_to_redir))]
-    SMBQueryDirectoryResponse(dir::SMB2QueryDirectoryResponse),
+    #[br(pre_assert(command == &Command::QueryDirectory && !from_srv))]
+    QueryDirectoryRequest(dir::QueryDirectoryRequest),
+    #[br(pre_assert(command == &Command::QueryDirectory && from_srv))]
+    QueryDirectoryResponse(dir::QueryDirectoryResponse),
 
     // error response
-    #[br(pre_assert(flags_server_to_redir))]
+    #[br(pre_assert(from_srv))]
     ErrorResponse(error::ErrorResponse),
 }
 
-impl SMBMessageContent {
-    pub fn associated_cmd(&self) -> SMB2Command {
-        use SMBMessageContent::*;
+impl Content {
+    pub fn associated_cmd(&self) -> Command {
+        use Content::*;
         match self {
-            SMBNegotiateRequest(_) | SMBNegotiateResponse(_) => SMB2Command::Negotiate,
-            SMBSessionSetupRequest(_) | SMBSessionSetupResponse(_) => SMB2Command::SessionSetup,
-            SMBLogoffRequest(_) | SMBLogoffResponse(_) => SMB2Command::Logoff,
-            SMBTreeConnectRequest(_) | SMBTreeConnectResponse(_) => SMB2Command::TreeConnect,
-            SMBTreeDisconnectRequest(_) | SMBTreeDisconnectResponse(_) => {
-                SMB2Command::TreeDisconnect
+            NegotiateRequest(_) | NegotiateResponse(_) => Command::Negotiate,
+            SessionSetupRequest(_) | SessionSetupResponse(_) => Command::SessionSetup,
+            LogoffRequest(_) | LogoffResponse(_) => Command::Logoff,
+            TreeConnectRequest(_) | TreeConnectResponse(_) => Command::TreeConnect,
+            TreeDisconnectRequest(_) | TreeDisconnectResponse(_) => {
+                Command::TreeDisconnect
             }
-            SMBCreateRequest(_) | SMBCreateResponse(_) => SMB2Command::Create,
-            SMBCloseRequest(_) | SMBCloseResponse(_) => SMB2Command::Close,
-            SMBFlushRequest(_) | SMBFlushResponse(_) => SMB2Command::Flush,
-            SMBReadRequest(_) | SMBReadResponse(_) => SMB2Command::Read,
-            SMBWriteRequest(_) | SMBWriteResponse(_) => SMB2Command::Write,
-            SMBQueryDirectoryRequest(_) | SMBQueryDirectoryResponse(_) => {
-                SMB2Command::QueryDirectory
+            CreateRequest(_) | CreateResponse(_) => Command::Create,
+            CloseRequest(_) | CloseResponse(_) => Command::Close,
+            FlushRequest(_) | FlushResponse(_) => Command::Flush,
+            ReadRequest(_) | ReadResponse(_) => Command::Read,
+            WriteRequest(_) | WriteResponse(_) => Command::Write,
+            QueryDirectoryRequest(_) | QueryDirectoryResponse(_) => {
+                Command::QueryDirectory
             },
             ErrorResponse(_) => panic!("Error has no matching command!"),
         }
@@ -104,21 +104,21 @@ impl SMBMessageContent {
 #[binrw::binrw]
 #[derive(Debug)]
 #[brw(little)]
-pub struct SMB2Message {
-    pub header: SMB2MessageHeader,
+pub struct Message {
+    pub header: Header,
     #[brw(args(&header.command, header.flags.server_to_redir()))]
-    pub content: SMBMessageContent,
+    pub content: Content,
 }
 
-impl SMB2Message {
-    pub fn new(content: SMBMessageContent) -> SMB2Message {
-        SMB2Message {
-            header: SMB2MessageHeader {
+impl Message {
+    pub fn new(content: Content) -> Message {
+        Message {
+            header: Header {
                 credit_charge: 0,
-                status: SMB2Status::Success,
+                status: Status::Success,
                 command: content.associated_cmd(),
                 credit_request: 0,
-                flags: SMB2HeaderFlags::new(),
+                flags: HeaderFlags::new(),
                 next_command: 0,
                 message_id: u64::MAX,
                 reserved: 0x0000feff,

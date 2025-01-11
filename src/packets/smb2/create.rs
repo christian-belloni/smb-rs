@@ -8,7 +8,7 @@ use modular_bitfield::prelude::*;
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2CreateRequest {
+pub struct CreateRequest {
     #[bw(calc = 57)]
     #[br(assert(structure_size == 57))]
     structure_size: u16,
@@ -23,7 +23,7 @@ pub struct SMB2CreateRequest {
     _reserved: u64,
     pub desired_access: FileAccessMask,
     pub file_attributes: FileAttributes,
-    pub share_access: SMB2ShareAccessFlags,
+    pub share_access: ShareAccessFlags,
     pub create_disposition: CreateDisposition,
     pub create_options: u32,
     #[bw(calc = PosMarker::default())]
@@ -42,8 +42,8 @@ pub struct SMB2CreateRequest {
 
     #[brw(align_before = 8)]
     #[br(map_stream = |s| s.take_seek(_create_contexts_length.value.into()), parse_with = binrw::helpers::until_eof)]
-    #[bw(write_with = SMB2CreateContext::write_list, args(&_create_contexts_offset, &_create_contexts_length))]
-    pub contexts: Vec<SMB2CreateContext<true>>,
+    #[bw(write_with = CreateContext::write_list, args(&_create_contexts_offset, &_create_contexts_length))]
+    pub contexts: Vec<CreateContext<true>>,
 }
 
 #[binrw::binrw]
@@ -72,7 +72,7 @@ pub enum CreateDisposition {
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct SMB2ShareAccessFlags {
+pub struct ShareAccessFlags {
     pub read: bool,
     pub write: bool,
     pub delete: bool,
@@ -82,7 +82,7 @@ pub struct SMB2ShareAccessFlags {
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct SMB2CreateResponse {
+pub struct CreateResponse {
     #[bw(calc = 89)]
     #[br(assert(structure_size == 89))]
     structure_size: u16,
@@ -111,11 +111,11 @@ pub struct SMB2CreateResponse {
     create_contexts_length: PosMarker<u32>, // bytes
     #[br(seek_before = SeekFrom::Start(create_contexts_offset.value as u64))]
     #[br(map_stream = |s| s.take_seek(create_contexts_length.value.into()), parse_with = binrw::helpers::until_eof)]
-    #[bw(write_with = SMB2CreateContext::write_list, args(&create_contexts_offset, &create_contexts_length))]
-    pub create_contexts: Vec<SMB2CreateContext<false>>,
+    #[bw(write_with = CreateContext::write_list, args(&create_contexts_offset, &create_contexts_length))]
+    pub create_contexts: Vec<CreateContext<false>>,
 }
 
-impl SMB2CreateResponse {
+impl CreateResponse {
     pub fn maximal_access_context(&self) -> Option<&MxAcResp> {
         self.create_contexts.iter().find_map(|c| match &c.data {
             CreateContextData::MxAcResp(r) => Some(r),
@@ -149,7 +149,7 @@ pub enum CreateAction {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[bw(import(has_next: bool))]
-pub struct SMB2CreateContext<const IS_REQUEST: bool> {
+pub struct CreateContext<const IS_REQUEST: bool> {
     #[bw(calc = PosMarker::default())]
     _next: PosMarker<u32>, // from current location
     #[bw(calc = PosMarker::default())]
@@ -245,9 +245,9 @@ pub struct DH2QResp {
     pub flags: u32,
 }
 
-impl<const T: bool> SMB2CreateContext<T> {
-    pub fn new(data: CreateContextData<T>) -> SMB2CreateContext<T> {
-        SMB2CreateContext {
+impl<const T: bool> CreateContext<T> {
+    pub fn new(data: CreateContextData<T>) -> CreateContext<T> {
+        CreateContext {
             name: data.name().to_vec(),
             data,
             fill_next: (),
@@ -264,7 +264,7 @@ impl<const T: bool> SMB2CreateContext<T> {
     /// Modify with caution.
     #[binrw::writer(writer, endian)]
     fn write_list(
-        contexts: &Vec<SMB2CreateContext<T>>,
+        contexts: &Vec<CreateContext<T>>,
         offset_dest: &PosMarker<u32>,
         size_bytes_dest: &PosMarker<u32>,
     ) -> BinResult<()> {
@@ -309,11 +309,11 @@ impl<const T: bool> CreateContextData<T> {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2CloseRequest {
+pub struct CloseRequest {
     #[bw(calc = 24)]
     #[br(assert(_structure_size == 24))]
     _structure_size: u16,
-    #[bw(calc = CloseFlags::new().with_postquery_attrib(true))] // SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB
+    #[bw(calc = CloseFlags::new().with_postquery_attrib(true))]
     #[br(assert(_flags == CloseFlags::new().with_postquery_attrib(true)))]
     _flags: CloseFlags,
     #[bw(calc = 0)]
@@ -324,7 +324,7 @@ pub struct SMB2CloseRequest {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2CloseResponse {
+pub struct CloseResponse {
     #[bw(calc = 60)]
     #[br(assert(_structure_size == 60))]
     _structure_size: u16,
@@ -355,8 +355,8 @@ mod tests {
     use std::io::Cursor;
 
     use crate::packets::smb2::{
-        header::SMB2MessageHeader,
-        message::{SMB2Message, SMBMessageContent},
+        header::Header,
+        message::{Message, Content},
     };
 
     use super::*;
@@ -364,13 +364,13 @@ mod tests {
     #[test]
     pub fn test_create_request_written_correctly() {
         let file_name = "hello";
-        let request = SMB2CreateRequest {
+        let request = CreateRequest {
             requested_oplock_level: OplockLevel::None,
             impersonation_level: ImpersonationLevel::Impersonation,
             smb_create_flags: 0,
             desired_access: FileAccessMask::from_bytes(0x00100081u32.to_le_bytes()),
             file_attributes: FileAttributes::new(),
-            share_access: SMB2ShareAccessFlags::new()
+            share_access: ShareAccessFlags::new()
                 .with_read(true)
                 .with_write(true)
                 .with_delete(true),
@@ -378,21 +378,21 @@ mod tests {
             create_options: 0x00020020,
             name: file_name.into(),
             contexts: vec![
-                SMB2CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
+                CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
                     timeout: 0,
                     flags: 0,
                     create_guid: 0x821680290c007b8b11efc0a0c679a320,
                 })),
-                SMB2CreateContext::new(CreateContextData::MxAcReq(())),
-                SMB2CreateContext::new(CreateContextData::QFidReq(())),
+                CreateContext::new(CreateContextData::MxAcReq(())),
+                CreateContext::new(CreateContextData::QFidReq(())),
             ],
         };
 
         let mut data = Vec::new();
-        SMB2Message::new(SMBMessageContent::SMBCreateRequest(request))
+        Message::new(Content::CreateRequest(request))
             .write(&mut Cursor::new(&mut data))
             .unwrap();
-        let data_without_header = &data[SMB2MessageHeader::STRUCT_SIZE..];
+        let data_without_header = &data[Header::STRUCT_SIZE..];
         assert!(
             data_without_header
                 == vec![
@@ -435,13 +435,13 @@ mod tests {
             0x00, 0x00,
         ];
 
-        let m = match SMB2Message::read(&mut Cursor::new(&data)).unwrap().content {
-            SMBMessageContent::SMBCreateResponse(m) => m,
+        let m = match Message::read(&mut Cursor::new(&data)).unwrap().content {
+            Content::CreateResponse(m) => m,
             _ => panic!("Expected SMBCreateResponse"),
         };
 
         assert!(
-            m == SMB2CreateResponse {
+            m == CreateResponse {
                 oplock_level: OplockLevel::None,
                 flags: 0,
                 create_action: CreateAction::Opened,
@@ -454,11 +454,11 @@ mod tests {
                 file_attributes: FileAttributes::new().with_directory(true),
                 file_id: 950737950337192747837452976457,
                 create_contexts: vec![
-                    SMB2CreateContext::new(CreateContextData::MxAcResp(MxAcResp {
+                    CreateContext::new(CreateContextData::MxAcResp(MxAcResp {
                         query_status: 0,
                         maximal_access: FileAccessMask::from_bytes(0x001f01ffu32.to_le_bytes()),
                     })),
-                    SMB2CreateContext::new(CreateContextData::QFidResp(QFidResp {
+                    CreateContext::new(CreateContextData::QFidResp(QFidResp {
                         file_id: 0x400000001e72a,
                         volume_id: 0xb017cfd9,
                     })),

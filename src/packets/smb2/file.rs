@@ -5,11 +5,11 @@ use modular_bitfield::prelude::*;
 
 use super::super::binrw_util::prelude::*;
 
-use super::header::SMB2MessageHeader;
+use super::header::Header;
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2FlushRequest {
+pub struct FlushRequest {
     #[bw(calc = 24)]
     #[br(assert(_structure_size == 24))]
     _structure_size: u16,
@@ -24,7 +24,7 @@ pub struct SMB2FlushRequest {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2FlushResponse {
+pub struct FlushResponse {
     #[bw(calc = 4)]
     #[br(assert(_structure_size == 4))]
     _structure_size: u16,
@@ -35,7 +35,7 @@ pub struct SMB2FlushResponse {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2ReadRequest {
+pub struct ReadRequest {
     #[bw(calc = 49)]
     #[br(assert(_structure_size == 49))]
     _structure_size: u16,
@@ -68,14 +68,14 @@ pub struct SMB2ReadRequest {
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct SMB2ReadResponse {
+pub struct ReadResponse {
     #[bw(calc = Self::STRUCT_SIZE as u16)]
     #[br(assert(_structure_size == Self::STRUCT_SIZE as u16))]
     _structure_size: u16,
     // Sanity check: The offset is from the SMB header beginning.
     // it should be greater than the sum of the header and the response.
     // the STRUCT_SIZE includes the first byte of the buffer, so the offset is validated against a byte before that.
-    #[br(assert(_data_offset.value as usize >= SMB2MessageHeader::STRUCT_SIZE + Self::STRUCT_SIZE - 1))]
+    #[br(assert(_data_offset.value as usize >= Header::STRUCT_SIZE + Self::STRUCT_SIZE - 1))]
     #[bw(calc = PosMarker::default())]
     _data_offset: PosMarker<u8>,
     #[bw(calc = 0)]
@@ -100,7 +100,7 @@ pub struct SMB2ReadResponse {
     pub buffer: Vec<u8>,
 }
 
-impl SMB2ReadResponse {
+impl ReadResponse {
     const STRUCT_SIZE: usize = 17;
 }
 
@@ -125,7 +125,7 @@ pub enum CommunicationChannel {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2WriteRequest {
+pub struct WriteRequest {
     #[bw(calc = 49)]
     #[br(assert(_structure_size == 49))]
     _structure_size: u16,
@@ -158,7 +158,7 @@ pub struct SMB2WriteRequest {
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct SMB2WriteResponse {
+pub struct WriteResponse {
     #[bw(calc = 17)]
     #[br(assert(_structure_size == 17))]
     _structure_size: u16,
@@ -191,14 +191,14 @@ pub struct WriteFlags {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::message::{SMB2Message, SMBMessageContent};
+    use crate::packets::smb2::message::{Message, Content};
 
     use super::*;
 
     #[test]
     pub fn test_flush_req_write() {
         let mut cursor = Cursor::new(Vec::new());
-        SMB2FlushRequest {
+        FlushRequest {
             file_id: u128::from_le_bytes([
                 0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,
                 0x00, 0x00,
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     pub fn test_read_req_write() {
-        let req = SMB2ReadRequest {
+        let req = ReadRequest {
             padding: 0,
             flags: ReadFlags::new(),
             length: 0x10203040,
@@ -252,14 +252,14 @@ mod tests {
             0x50, 0x0, 0x6, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x62, 0x62,
             0x62, 0x62, 0x62, 0x62,
         ];
-        let parsed = SMB2Message::read(&mut Cursor::new(data)).unwrap();
+        let parsed = Message::read(&mut Cursor::new(data)).unwrap();
         // extract read response:
         let resp = match parsed.content {
-            SMBMessageContent::SMBReadResponse(resp) => resp,
+            Content::ReadResponse(resp) => resp,
             _ => panic!("Unexpected message type"),
         };
         assert!(
-            resp == SMB2ReadResponse {
+            resp == ReadResponse {
                 buffer: b"bbbbbb".to_vec(),
             }
         );
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     pub fn test_write_req_write() {
-        let msg = SMB2Message::new(SMBMessageContent::SMBWriteRequest(SMB2WriteRequest {
+        let msg = Message::new(Content::WriteRequest(WriteRequest {
             offset: 0x1234abcd,
             file_id: u128::from_le_bytes([
                 0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,
@@ -281,7 +281,7 @@ mod tests {
         msg.write(&mut cursor).unwrap();
         let data = cursor.into_inner();
         // Skip header for tests matter.
-        let data = &data[SMB2MessageHeader::STRUCT_SIZE..];
+        let data = &data[Header::STRUCT_SIZE..];
         assert!(
             dbg!(data)
                 == [
@@ -300,7 +300,7 @@ mod tests {
             0x11u8, 0x0, 0x0, 0x0, 0xaf, 0xba, 0xef, 0xbe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
         ];
         let mut cursor = Cursor::new(data);
-        let resp = SMB2WriteResponse::read_le(&mut cursor).unwrap();
-        assert!(resp == SMB2WriteResponse { count: 0xbeefbaaf });
+        let resp = WriteResponse::read_le(&mut cursor).unwrap();
+        assert!(resp == WriteResponse { count: 0xbeefbaaf });
     }
 }

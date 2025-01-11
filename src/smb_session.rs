@@ -5,36 +5,36 @@ use std::{cell::OnceCell, error::Error, io::Cursor};
 use crate::{
     authenticator::GssAuthenticator,
     msg_handler::{
-        IncomingSMBMessage, OutgoingSMBMessage, ReceiveOptions, SMBHandlerReference,
-        SMBMessageHandler, SendMessageResult,
+        IncomingMessage, OutgoingMessage, ReceiveOptions, HandlerReference,
+        MessageHandler, SendMessageResult,
     },
     packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
-            header::{SMB2MessageHeader, SMB2Status},
-            message::{SMB2Message, SMBMessageContent},
+            header::{Header, Status},
+            message::{Message, Content},
             negotiate::SigningAlgorithmId,
-            session_setup::SMB2SessionSetupRequest,
+            session_setup::SessionSetupRequest,
         },
     },
-    smb_client::SMBClientMessageHandler,
-    smb_crypto::{SMBCrypto, SMBSigningAlgo},
-    smb_tree::SMBTree,
+    smb_client::ClientMessageHandler,
+    smb_crypto::{Crypto, SigningAlgo},
+    smb_tree::Tree,
 };
 
-type SMBSigningKeyValue = [u8; 16];
-type UpstreamHandlerRef = SMBHandlerReference<SMBClientMessageHandler>;
+type SigningKeyValue = [u8; 16];
+type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
 
-pub struct SMBSession {
+pub struct Session {
     is_set_up: bool,
-    handler: SMBHandlerReference<SMBSessionMessageHandler>,
+    handler: HandlerReference<SessionMessageHandler>,
 }
 
-impl SMBSession {
-    pub fn new(upstream: UpstreamHandlerRef) -> SMBSession {
-        SMBSession {
+impl Session {
+    pub fn new(upstream: UpstreamHandlerRef) -> Session {
+        Session {
             is_set_up: false,
-            handler: SMBSessionMessageHandler::new(upstream),
+            handler: SessionMessageHandler::new(upstream),
         }
     }
 
@@ -52,14 +52,14 @@ impl SMBSession {
             GssAuthenticator::build(negotate_state.get_gss_token(), identity)?
         };
 
-        let request = OutgoingSMBMessage::new(SMB2Message::new(
-            SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(next_buf)),
+        let request = OutgoingMessage::new(Message::new(
+            Content::SessionSetupRequest(SessionSetupRequest::new(next_buf)),
         ));
 
         // response hash is processed later, in the loop.
         let response = self.handler.sendo_recvo(
             request,
-            ReceiveOptions::new().status(SMB2Status::MoreProcessingRequired),
+            ReceiveOptions::new().status(Status::MoreProcessingRequired),
         )?;
 
         // Set session id.
@@ -75,7 +75,7 @@ impl SMBSession {
             let last_setup_response = match response.as_ref() {
                 Some(response) => Some(
                     match &response.message.content {
-                        SMBMessageContent::SMBSessionSetupResponse(response) => Some(response),
+                        Content::SessionSetupResponse(response) => Some(response),
                         _ => None,
                     }
                     .unwrap(),
@@ -92,8 +92,8 @@ impl SMBSession {
                 Some(next_buf) => {
                     // We'd like to update preauth hash with the last request before accept.
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
-                    let mut request = OutgoingSMBMessage::new(SMB2Message::new(
-                        SMBMessageContent::SMBSessionSetupRequest(SMB2SessionSetupRequest::new(
+                    let mut request = OutgoingMessage::new(Message::new(
+                        Content::SessionSetupRequest(SessionSetupRequest::new(
                             next_buf,
                         )),
                     ));
@@ -110,9 +110,9 @@ impl SMBSession {
                     }
 
                     let expected_status = if is_about_to_finish {
-                        SMB2Status::Success
+                        Status::Success
                     } else {
-                        SMB2Status::MoreProcessingRequired
+                        Status::MoreProcessingRequired
                     };
                     let response = self
                         .handler
@@ -149,7 +149,7 @@ impl SMBSession {
 
         let mut session_key = [0; 16];
         session_key.copy_from_slice(&exchanged_session_key[0..16]);
-        Ok(SMBCrypto::kbkdf_hmacsha256(
+        Ok(Crypto::kbkdf_hmacsha256(
             &session_key,
             b"SMBSigningKey\x00",
             &preauth_integrity_hash,
@@ -162,8 +162,8 @@ impl SMBSession {
         true
     }
 
-    pub fn tree_connect(&mut self, name: String) -> Result<SMBTree, Box<dyn Error>> {
-        let mut tree = SMBTree::new(name, self.handler.clone());
+    pub fn tree_connect(&mut self, name: String) -> Result<Tree, Box<dyn Error>> {
+        let mut tree = Tree::new(name, self.handler.clone());
         tree.connect()?;
         Ok(tree)
     }
@@ -173,7 +173,7 @@ impl SMBSession {
 
         let _response = self
             .handler
-            .send_recv(SMBMessageContent::SMBLogoffRequest(Default::default()))?;
+            .send_recv(Content::LogoffRequest(Default::default()))?;
 
         // Reset session ID and keys.
         self.handler.borrow_mut().session_id.take();
@@ -186,7 +186,7 @@ impl SMBSession {
     }
 }
 
-impl Drop for SMBSession {
+impl Drop for Session {
     fn drop(&mut self) {
         self.logoff().unwrap_or_else(|e| {
             log::error!("Failed to logoff: {}", e);
@@ -195,18 +195,18 @@ impl Drop for SMBSession {
 }
 
 #[derive(Debug)]
-pub struct SMBSigner {
-    signing_algo: Box<dyn SMBSigningAlgo>,
+pub struct MessageSigner {
+    signing_algo: Box<dyn SigningAlgo>,
 }
 
-impl SMBSigner {
-    pub fn new(signing_algo: Box<dyn SMBSigningAlgo>) -> SMBSigner {
-        SMBSigner { signing_algo }
+impl MessageSigner {
+    pub fn new(signing_algo: Box<dyn SigningAlgo>) -> MessageSigner {
+        MessageSigner { signing_algo }
     }
 
     pub fn verify_signature(
         &mut self,
-        header: &mut SMB2MessageHeader,
+        header: &mut Header,
         raw_data: &NetBiosTcpMessage,
     ) -> Result<(), Box<dyn Error>> {
         let calculated_signature = self.calculate_signature(header, raw_data)?;
@@ -222,13 +222,13 @@ impl SMBSigner {
 
     pub fn sign_message(
         &mut self,
-        header: &mut SMB2MessageHeader,
+        header: &mut Header,
         raw_data: &mut NetBiosTcpMessage,
     ) -> Result<(), Box<dyn Error>> {
         header.signature = self.calculate_signature(header, raw_data)?;
         // Update raw data to include the signature.
         let mut header_writer =
-            Cursor::new(&mut raw_data.content[0..SMB2MessageHeader::STRUCT_SIZE]);
+            Cursor::new(&mut raw_data.content[0..Header::STRUCT_SIZE]);
         header.write(&mut header_writer)?;
         log::debug!(
             "Message #{} signed (signature={}).",
@@ -240,42 +240,42 @@ impl SMBSigner {
 
     fn calculate_signature(
         &mut self,
-        header: &mut SMB2MessageHeader,
+        header: &mut Header,
         raw_message: &NetBiosTcpMessage,
     ) -> Result<u128, Box<dyn Error>> {
         // Write header.
         let signture_backup = header.signature;
         header.signature = 0;
-        let mut header_bytes = Cursor::new([0; SMB2MessageHeader::STRUCT_SIZE]);
+        let mut header_bytes = Cursor::new([0; Header::STRUCT_SIZE]);
         header.write(&mut header_bytes)?;
         header.signature = signture_backup;
         self.signing_algo.start(&header);
         self.signing_algo.update(&header_bytes.into_inner());
 
         // And write rest of the raw message.
-        let message_body = &raw_message.content[SMB2MessageHeader::STRUCT_SIZE..];
+        let message_body = &raw_message.content[Header::STRUCT_SIZE..];
         self.signing_algo.update(message_body);
 
         Ok(self.signing_algo.finalize())
     }
 }
 
-pub struct SMBSessionMessageHandler {
+pub struct SessionMessageHandler {
     session_id: OnceCell<u64>,
-    signing_key: Option<SMBSigningKeyValue>,
+    signing_key: Option<SigningKeyValue>,
     signing_algo: SigningAlgorithmId,
     upstream: UpstreamHandlerRef,
 }
 
-impl SMBSessionMessageHandler {
-    pub fn new(upstream: UpstreamHandlerRef) -> SMBHandlerReference<SMBSessionMessageHandler> {
+impl SessionMessageHandler {
+    pub fn new(upstream: UpstreamHandlerRef) -> HandlerReference<SessionMessageHandler> {
         let signing_algo = upstream
             .handler
             .borrow()
             .negotiate_state()
             .unwrap()
             .get_signing_algo();
-        SMBHandlerReference::new(SMBSessionMessageHandler {
+        HandlerReference::new(SessionMessageHandler {
             session_id: OnceCell::new(),
             signing_key: None,
             signing_algo,
@@ -287,24 +287,24 @@ impl SMBSessionMessageHandler {
         self.signing_key.is_some()
     }
 
-    fn make_signer(&self) -> Result<SMBSigner, Box<dyn Error>> {
+    fn make_signer(&self) -> Result<MessageSigner, Box<dyn Error>> {
         if !self.should_sign() {
             return Err("Signing key is not set -- you must succeed a setup() to continue.".into());
         }
 
         debug_assert!(self.signing_key.is_some());
 
-        Ok(SMBSigner::new(
-            SMBCrypto::make_signing_algo(self.signing_algo, self.signing_key.as_ref().unwrap())
+        Ok(MessageSigner::new(
+            Crypto::make_signing_algo(self.signing_algo, self.signing_key.as_ref().unwrap())
                 .unwrap(),
         ))
     }
 }
 
-impl SMBMessageHandler for SMBSessionMessageHandler {
+impl MessageHandler for SessionMessageHandler {
     fn hsendo(
         &mut self,
-        mut msg: OutgoingSMBMessage,
+        mut msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
         // Set signing configuration. Upstream handler shall take care of the rest.
         if self.should_sign() {
@@ -318,13 +318,13 @@ impl SMBMessageHandler for SMBSessionMessageHandler {
     fn hrecvo(
         &mut self,
         options: crate::msg_handler::ReceiveOptions,
-    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         let mut incoming = self.upstream.borrow_mut().hrecvo(options)?;
         // TODO: check whether this is the correct case to do such a thing.
         if self.should_sign() {
             // Skip authentication is message ID is -1 or status is pending.
             if incoming.message.header.message_id != u64::MAX
-                && incoming.message.header.status != SMB2Status::Pending
+                && incoming.message.header.status != Status::Pending
             {
                 self.make_signer()?
                     .verify_signature(&mut incoming.message.header, &incoming.raw)?;

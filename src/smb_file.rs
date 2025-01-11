@@ -1,15 +1,15 @@
 use std::io::prelude::*;
 
 use crate::packets::smb2::{
-    file::{ReadFlags, SMB2FlushRequest, SMB2ReadRequest, SMB2WriteRequest, WriteFlags},
+    file::{ReadFlags, FlushRequest, ReadRequest, WriteRequest, WriteFlags},
     fscc::FileAccessMask,
-    message::SMBMessageContent,
+    message::Content,
 };
 
-use super::smb_resource::SMBHandle;
+use super::smb_resource::ResourceHandle;
 
-pub struct SMBFile {
-    handle: SMBHandle,
+pub struct File {
+    handle: ResourceHandle,
 
     pos: u64,
     dirty: bool,
@@ -18,9 +18,9 @@ pub struct SMBFile {
     end_of_file: u64,
 }
 
-impl SMBFile {
-    pub fn new(handle: SMBHandle, access: FileAccessMask, end_of_file: u64) -> Self {
-        SMBFile {
+impl File {
+    pub fn new(handle: ResourceHandle, access: FileAccessMask, end_of_file: u64) -> Self {
+        File {
             handle,
             pos: 0,
             dirty: false,
@@ -30,7 +30,7 @@ impl SMBFile {
     }
 }
 
-impl Seek for SMBFile {
+impl Seek for File {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         match pos {
             std::io::SeekFrom::Start(pos) => {
@@ -47,7 +47,7 @@ impl Seek for SMBFile {
     }
 }
 
-impl Read for SMBFile {
+impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if buf.is_empty() {
             return Ok(0);
@@ -68,7 +68,7 @@ impl Read for SMBFile {
         );
         let response = self
             .handle
-            .send_receive(SMBMessageContent::SMBReadRequest(SMB2ReadRequest {
+            .send_receive(Content::ReadRequest(ReadRequest {
                 padding: 0,
                 flags: ReadFlags::new(),
                 length: buf.len() as u32,
@@ -78,7 +78,7 @@ impl Read for SMBFile {
             }))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         let content = match response.message.content {
-            SMBMessageContent::SMBReadResponse(response) => response,
+            Content::ReadResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
         let actual_read_length = content.buffer.len();
@@ -95,7 +95,7 @@ impl Read for SMBFile {
     }
 }
 
-impl Write for SMBFile {
+impl Write for File {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if buf.is_empty() {
             return Ok(0);
@@ -117,7 +117,7 @@ impl Write for SMBFile {
 
         let response = self
             .handle
-            .send_receive(SMBMessageContent::SMBWriteRequest(SMB2WriteRequest {
+            .send_receive(Content::WriteRequest(WriteRequest {
                 offset: self.pos,
                 file_id: self.handle.file_id(),
                 flags: WriteFlags::new(),
@@ -126,7 +126,7 @@ impl Write for SMBFile {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
         let content = match response.message.content {
-            SMBMessageContent::SMBWriteResponse(response) => response,
+            Content::WriteResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
         let actual_written_length = content.count as usize;
@@ -148,7 +148,7 @@ impl Write for SMBFile {
 
         let _response = self
             .handle
-            .send_receive(SMBMessageContent::SMBFlushRequest(SMB2FlushRequest {
+            .send_receive(Content::FlushRequest(FlushRequest {
                 file_id: self.handle.file_id(),
             }))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;

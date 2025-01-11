@@ -4,28 +4,28 @@ use crate::{
     packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
-            header::{SMB2Command, SMB2Status},
-            message::{SMB2Message, SMBMessageContent},
+            header::{Command, Status},
+            message::{Message, Content},
         },
     },
     smb_client::PreauthHashValue,
-    smb_session::SMBSigner,
+    smb_session::MessageSigner,
 };
 
 #[derive(Debug)]
-pub struct OutgoingSMBMessage {
-    pub message: SMB2Message,
+pub struct OutgoingMessage {
+    pub message: Message,
 
     // signing and encryption information
-    pub signer: Option<SMBSigner>,
+    pub signer: Option<MessageSigner>,
     /// Whether to finalize the preauth hash after sending this message.
     /// If this is set to true twice per connection, an error will be thrown.
     pub finalize_preauth_hash: bool,
 }
 
-impl OutgoingSMBMessage {
-    pub fn new(message: SMB2Message) -> OutgoingSMBMessage {
-        OutgoingSMBMessage {
+impl OutgoingMessage {
+    pub fn new(message: Message) -> OutgoingMessage {
+        OutgoingMessage {
             message,
             signer: None,
             finalize_preauth_hash: false,
@@ -46,8 +46,8 @@ impl SendMessageResult {
 }
 
 #[derive(Debug)]
-pub struct IncomingSMBMessage {
-    pub message: SMB2Message,
+pub struct IncomingMessage {
+    pub message: Message,
     pub raw: NetBiosTcpMessage,
 }
 
@@ -56,17 +56,17 @@ pub struct IncomingSMBMessage {
 /// Use a builder pattern to set the options:
 /// ```
 /// let options = ReceiveOptions::new()
-///    .status(SMB2Status::Success)
-///    .cmd(Some(SMB2Command::Negotiate));
+///    .status(Status::Success)
+///    .cmd(Some(Command::Negotiate));
 /// ```
 #[derive(Debug)]
 pub struct ReceiveOptions {
     /// The expected status of the received message.
     /// If the received message has a different status, an error will be returned.
-    pub status: SMB2Status,
+    pub status: Status,
 
     /// If set, this command will be checked against the received command.
-    pub cmd: Option<SMB2Command>,
+    pub cmd: Option<Command>,
 }
 
 impl ReceiveOptions {
@@ -74,12 +74,12 @@ impl ReceiveOptions {
         Self::default()
     }
 
-    pub fn status(mut self, status: SMB2Status) -> Self {
+    pub fn status(mut self, status: Status) -> Self {
         self.status = status;
         self
     }
 
-    pub fn cmd(mut self, cmd: Option<SMB2Command>) -> Self {
+    pub fn cmd(mut self, cmd: Option<Command>) -> Self {
         self.cmd = cmd;
         self
     }
@@ -88,7 +88,7 @@ impl ReceiveOptions {
 impl Default for ReceiveOptions {
     fn default() -> Self {
         ReceiveOptions {
-            status: SMB2Status::Success,
+            status: Status::Success,
             cmd: None,
         }
     }
@@ -96,13 +96,13 @@ impl Default for ReceiveOptions {
 
 /// Chain-of-responsibility pattern trait for handling SMB messages
 /// outgoing from the client or incoming from the server.
-pub trait SMBMessageHandler {
+pub trait MessageHandler {
     /// Send a message to the server, returning the result.
     /// This must be implemented. Each handler in the chain must call the next handler,
     /// after possibly modifying the message.
     fn hsendo(
         &mut self,
-        msg: OutgoingSMBMessage,
+        msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>>;
 
     /// Receive a message from the server, returning the result.
@@ -111,7 +111,7 @@ pub trait SMBMessageHandler {
     fn hrecvo(
         &mut self,
         options: ReceiveOptions,
-    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>>;
+    ) -> Result<IncomingMessage, Box<dyn std::error::Error>>;
 }
 
 /// A templated shared reference to an SMB message handler.
@@ -124,67 +124,67 @@ pub trait SMBMessageHandler {
 /// - `*o`: Send a message and receive a response with custom options:
 ///     - `sendo`: Send a message with custom, low-level handler options.
 ///     - `recvo`: Receive a message with custom, low-level handler options.
-pub struct SMBHandlerReference<T: SMBMessageHandler + ?Sized> {
+pub struct HandlerReference<T: MessageHandler + ?Sized> {
     pub handler: Rc<RefCell<T>>,
 }
 
-impl<T: SMBMessageHandler> SMBHandlerReference<T> {
-    pub fn new(handler: T) -> SMBHandlerReference<T> {
-        SMBHandlerReference {
+impl<T: MessageHandler> HandlerReference<T> {
+    pub fn new(handler: T) -> HandlerReference<T> {
+        HandlerReference {
             handler: Rc::new(RefCell::new(handler)),
         }
     }
 
     pub fn sendo(
         &mut self,
-        msg: OutgoingSMBMessage,
+        msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
         self.handler.borrow_mut().hsendo(msg)
     }
 
     pub fn send(
         &mut self,
-        msg: SMBMessageContent,
+        msg: Content,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
-        self.sendo(OutgoingSMBMessage::new(SMB2Message::new(msg)))
+        self.sendo(OutgoingMessage::new(Message::new(msg)))
     }
 
     pub fn recvo(
         &mut self,
         options: ReceiveOptions,
-    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         self.handler.borrow_mut().hrecvo(options)
     }
 
     pub fn recv(
         &mut self,
-        cmd: SMB2Command,
-    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+        cmd: Command,
+    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         self.recvo(ReceiveOptions::new().cmd(Some(cmd)))
     }
 
     pub fn sendo_recvo(
         &mut self,
-        msg: OutgoingSMBMessage,
+        msg: OutgoingMessage,
         options: ReceiveOptions,
-    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         self.sendo(msg)?;
         self.recvo(options)
     }
 
     pub fn send_recvo(
         &mut self,
-        msg: SMBMessageContent,
+        msg: Content,
         options: ReceiveOptions,
-    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         self.send(msg)?;
         self.recvo(options)
     }
 
     pub fn send_recv(
         &mut self,
-        msg: SMBMessageContent,
-    ) -> Result<IncomingSMBMessage, Box<dyn std::error::Error>> {
+        msg: Content,
+    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         let cmd = msg.associated_cmd();
         self.send(msg)?;
         self.recvo(ReceiveOptions::new().cmd(Some(cmd)))
@@ -192,7 +192,7 @@ impl<T: SMBMessageHandler> SMBHandlerReference<T> {
 }
 
 // Implement deref that returns the content of Rc<..> above (RefCell<T>)
-impl<T: SMBMessageHandler> std::ops::Deref for SMBHandlerReference<T> {
+impl<T: MessageHandler> std::ops::Deref for HandlerReference<T> {
     type Target = RefCell<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -201,9 +201,9 @@ impl<T: SMBMessageHandler> std::ops::Deref for SMBHandlerReference<T> {
 }
 
 // Clone:
-impl<T: SMBMessageHandler> Clone for SMBHandlerReference<T> {
+impl<T: MessageHandler> Clone for HandlerReference<T> {
     fn clone(&self) -> Self {
-        SMBHandlerReference {
+        HandlerReference {
             handler: self.handler.clone(),
         }
     }

@@ -57,7 +57,7 @@ impl NetBiosTcpMessage {
 #[derive(BinRead, BinWrite, Debug)]
 #[brw(big)]
 pub enum NetBiosMessageContent {
-    SMB2Message(smb2::message::SMB2Message),
+    SMB2Message(smb2::message::Message),
     SMB1Message(smb1::SMB1NegotiateMessage),
 }
 

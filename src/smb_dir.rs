@@ -1,15 +1,15 @@
 use crate::packets::smb2::{dir::*, fscc::*, message::*};
 
-use super::smb_resource::SMBHandle;
+use super::smb_resource::ResourceHandle;
 
-pub struct SMBDirectory {
-    handle: SMBHandle,
+pub struct Directory {
+    handle: ResourceHandle,
     access: DirAccessMask,
 }
 
-impl SMBDirectory {
-    pub fn new(handle: SMBHandle, access: DirAccessMask) -> Self {
-        SMBDirectory { handle, access }
+impl Directory {
+    pub fn new(handle: ResourceHandle, access: DirAccessMask) -> Self {
+        Directory { handle, access }
     }
 
     // Query the directory for it's contents.
@@ -25,8 +25,8 @@ impl SMBDirectory {
 
         let response = self
             .handle
-            .send_receive(SMBMessageContent::SMBQueryDirectoryRequest(
-                SMB2QueryDirectoryRequest {
+            .send_receive(Content::QueryDirectoryRequest(
+                QueryDirectoryRequest {
                     file_information_class: FileInformationClass::IdBothDirectoryInformation,
                     flags: QueryDirectoryFlags::new().with_restart_scans(true),
                     file_index: 0,
@@ -37,7 +37,7 @@ impl SMBDirectory {
             ))?;
 
         let content = match response.message.content {
-            SMBMessageContent::SMBQueryDirectoryResponse(response) => response,
+            Content::QueryDirectoryResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
         let result = match DirectoryInfoVector::parse(

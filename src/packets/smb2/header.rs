@@ -3,7 +3,7 @@ use modular_bitfield::prelude::*;
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u16))]
-pub enum SMB2Command {
+pub enum Command {
     Negotiate = 00,
     SessionSetup = 01,
     Logoff = 02,
@@ -28,7 +28,7 @@ pub enum SMB2Command {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u32))]
-pub enum SMB2Status {
+pub enum Status {
     Success = 0x00000000,
     Pending = 0x00000103,
     InvalidSmb = 0x00010002,
@@ -62,15 +62,15 @@ pub enum SMB2Status {
 #[binrw::binrw]
 #[derive(Debug, Clone)]
 #[brw(magic(b"\xfeSMB"), little)]
-pub struct SMB2MessageHeader {
+pub struct Header {
     #[bw(calc = Self::STRUCT_SIZE as u16)]
     #[br(assert(_structure_size == Self::STRUCT_SIZE as u16))]
     _structure_size: u16,
     pub credit_charge: u16,
-    pub status: SMB2Status,
-    pub command: SMB2Command,
+    pub status: Status,
+    pub command: Command,
     pub credit_request: u16,
-    pub flags: SMB2HeaderFlags,
+    pub flags: HeaderFlags,
     pub next_command: u32,
     pub message_id: u64,
     pub reserved: u32,
@@ -79,14 +79,14 @@ pub struct SMB2MessageHeader {
     pub signature: u128,
 }
 
-impl SMB2MessageHeader {
+impl Header {
     pub const STRUCT_SIZE: usize = 64;
 }
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct SMB2HeaderFlags {
+pub struct HeaderFlags {
     pub server_to_redir: bool,
     pub async_command: bool,
     pub related_operations: bool,

@@ -4,7 +4,7 @@ use super::super::binrw_util::prelude::*;
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2SessionSetupRequest {
+pub struct SessionSetupRequest {
     #[bw(calc = 25)]
     #[br(assert(structure_size == 25))]
     structure_size: u16,
@@ -22,9 +22,9 @@ pub struct SMB2SessionSetupRequest {
     pub buffer: Vec<u8>,
 }
 
-impl SMB2SessionSetupRequest {
-    pub fn new(buffer: Vec<u8>) -> SMB2SessionSetupRequest {
-        SMB2SessionSetupRequest {
+impl SessionSetupRequest {
+    pub fn new(buffer: Vec<u8>) -> SessionSetupRequest {
+        SessionSetupRequest {
             flags: 0,
             security_mode: 1,
             capabilities: 1,
@@ -37,7 +37,7 @@ impl SMB2SessionSetupRequest {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2SessionSetupResponse {
+pub struct SessionSetupResponse {
     #[bw(calc = 9)]
     #[br(assert(structure_size == 9))]
     structure_size: u16,
@@ -52,7 +52,7 @@ pub struct SMB2SessionSetupResponse {
 
 #[binrw::binrw]
 #[derive(Debug, Default)]
-pub struct SMB2LogoffRequest {
+pub struct LogoffRequest {
     #[bw(calc = 4)]
     #[br(assert(structure_size == 4))]
     structure_size: u16,
@@ -63,7 +63,7 @@ pub struct SMB2LogoffRequest {
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct SMB2LogoffResponse {
+pub struct LogoffResponse {
     #[bw(calc = 4)]
     #[br(assert(structure_size == 4))]
     structure_size: u16,

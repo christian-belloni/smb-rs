@@ -10,14 +10,14 @@ use rust_kbkdf::{
 use sha2::Sha256;
 
 use crate::packets::smb2::{
-    header::SMB2MessageHeader, message::SMB2Message, negotiate::SigningAlgorithmId,
+    header::Header, message::Message, negotiate::SigningAlgorithmId,
 };
 
 type HmacSha256 = Hmac<Sha256>;
 
-pub struct SMBCrypto;
+pub struct Crypto;
 
-impl SMBCrypto {
+impl Crypto {
     pub fn kbkdf_hmacsha256(
         key: &[u8; 16],
         label: &[u8],
@@ -40,13 +40,13 @@ impl SMBCrypto {
     pub fn make_signing_algo(
         signing_algorithm: SigningAlgorithmId,
         signing_key: &[u8; 16],
-    ) -> Result<Box<dyn SMBSigningAlgo>, Box<dyn Error>> {
+    ) -> Result<Box<dyn SigningAlgo>, Box<dyn Error>> {
         if !Self::SIGNING_ALGOS.contains(&signing_algorithm) {
             return Err(format!("Unsupported signing algorithm {:?}", signing_algorithm).into());
         }
         match signing_algorithm {
-            SigningAlgorithmId::AesCmac => Ok(SMBCmac128Signer::build(signing_key)?),
-            SigningAlgorithmId::AesGmac => Ok(gmac::SMBGmac128Signer::new(signing_key)),
+            SigningAlgorithmId::AesCmac => Ok(Cmac128Signer::build(signing_key)?),
+            SigningAlgorithmId::AesGmac => Ok(gmac::Gmac128Signer::new(signing_key)),
             _ => Err("Unsupported signing algorithm".into()),
         }
     }
@@ -101,14 +101,14 @@ impl PseudoRandomFunction<'_> for HmacSha256Prf {
 }
 
 /// A trait for SMB signing algorithms.
-pub trait SMBSigningAlgo: Debug {
+pub trait SigningAlgo: Debug {
     /// Start a new signing session. This is called before any data is passed to the signer,
-    /// and [SMBSigningAlgo::update] must feed the header data to the signer, in addition to this call.
+    /// and [SigningAlgo::update] must feed the header data to the signer, in addition to this call.
     ///
     /// An algorithm may implement this function to perform any necessary initialization,
     /// that requires the header data.
     /// This function must be called once per signing session.
-    fn start(&mut self, _header: &SMB2MessageHeader) {
+    fn start(&mut self, _header: &Header) {
         // Default implementation does nothing.
     }
 
@@ -122,19 +122,19 @@ pub trait SMBSigningAlgo: Debug {
 }
 
 #[derive(Debug)]
-struct SMBCmac128Signer {
+struct Cmac128Signer {
     cmac: Option<Cmac<Aes128>>,
 }
 
-impl SMBCmac128Signer {
-    fn build(signing_key: &[u8; 16]) -> Result<Box<dyn SMBSigningAlgo>, Box<dyn Error>> {
-        Ok(Box::new(SMBCmac128Signer {
+impl Cmac128Signer {
+    fn build(signing_key: &[u8; 16]) -> Result<Box<dyn SigningAlgo>, Box<dyn Error>> {
+        Ok(Box::new(Cmac128Signer {
             cmac: Some(Cmac::new_from_slice(signing_key)?),
         }))
     }
 }
 
-impl SMBSigningAlgo for SMBCmac128Signer {
+impl SigningAlgo for Cmac128Signer {
     fn update(&mut self, data: &[u8]) {
         self.cmac.as_mut().unwrap().update(data);
     }
@@ -156,11 +156,11 @@ mod gmac {
     use binrw::prelude::*;
     use modular_bitfield::prelude::*;
 
-    use crate::packets::smb2::header::SMB2Command;
+    use crate::packets::smb2::header::Command;
 
     use super::*;
 
-    pub struct SMBGmac128Signer {
+    pub struct Gmac128Signer {
         gmac: Aes128Gcm,
         nonce: OnceCell<[u8; 12]>,
         // no online mode implemented un RustCrypto,
@@ -180,30 +180,30 @@ mod gmac {
         __: B30,
     }
 
-    impl SMBGmac128Signer {
-        pub fn new(key: &[u8; 16]) -> Box<dyn SMBSigningAlgo> {
+    impl Gmac128Signer {
+        pub fn new(key: &[u8; 16]) -> Box<dyn SigningAlgo> {
             let key = Key::<Aes128>::from_slice(key);
-            Box::new(SMBGmac128Signer {
+            Box::new(Gmac128Signer {
                 gmac: Aes128Gcm::new(&key),
                 nonce: OnceCell::new(),
                 buffer: vec![],
             })
         }
 
-        fn make_nonce(header: &SMB2MessageHeader) -> [u8; 12] {
+        fn make_nonce(header: &Header) -> [u8; 12] {
             debug_assert!(header.message_id > 0 && header.message_id != u64::MAX);
 
             return NonceSuffixFlags::new()
                 .with_msg_id(header.message_id)
-                .with_is_cancel(header.command == SMB2Command::Cancel)
+                .with_is_cancel(header.command == Command::Cancel)
                 .with_is_server(header.flags.server_to_redir())
                 .into_bytes()
                 .into();
         }
     }
 
-    impl super::SMBSigningAlgo for SMBGmac128Signer {
-        fn start(&mut self, header: &SMB2MessageHeader) {
+    impl super::SigningAlgo for Gmac128Signer {
+        fn start(&mut self, header: &Header) {
             // The nonce is derived from the message ID.
             self.nonce.set(Self::make_nonce(header)).unwrap();
         }
@@ -231,9 +231,9 @@ mod gmac {
         }
     }
 
-    impl Debug for SMBGmac128Signer {
+    impl Debug for Gmac128Signer {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("SMBGmac128Signer").finish()
+            f.debug_struct("Gmac128Signer").finish()
         }
     }
 }

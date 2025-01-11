@@ -1,33 +1,33 @@
 use std::{cell::OnceCell, error::Error};
 
 use crate::{
-    msg_handler::{SMBHandlerReference, SMBMessageHandler},
+    msg_handler::{HandlerReference, MessageHandler},
     packets::smb2::{
         create::CreateDisposition,
         fscc::FileAccessMask,
-        message::SMBMessageContent,
-        tree_connect::{SMB2TreeConnectRequest, SMB2TreeDisconnectRequest},
+        message::Content,
+        tree_connect::{TreeConnectRequest, TreeDisconnectRequest},
     },
-    smb_resource::SMBResource,
-    smb_session::SMBSessionMessageHandler,
+    smb_resource::Resource,
+    smb_session::SessionMessageHandler,
 };
 
-type Upstream = SMBHandlerReference<SMBSessionMessageHandler>;
+type Upstream = HandlerReference<SessionMessageHandler>;
 
 #[derive(Debug)]
 struct TreeConnectInfo {
     tree_id: u32,
 }
 
-pub struct SMBTree {
-    handler: SMBHandlerReference<SMBTreeMessageHandler>,
+pub struct Tree {
+    handler: HandlerReference<TreeMessageHandler>,
     name: String,
 }
 
-impl SMBTree {
-    pub fn new(name: String, upstream: Upstream) -> SMBTree {
-        SMBTree {
-            handler: SMBTreeMessageHandler::new(upstream),
+impl Tree {
+    pub fn new(name: String, upstream: Upstream) -> Tree {
+        Tree {
+            handler: TreeMessageHandler::new(upstream),
             name,
         }
     }
@@ -39,12 +39,12 @@ impl SMBTree {
         // send and receive tree request & response.
         let response = self
             .handler
-            .send_recv(SMBMessageContent::SMBTreeConnectRequest(
-                SMB2TreeConnectRequest::new(&self.name),
+            .send_recv(Content::TreeConnectRequest(
+                TreeConnectRequest::new(&self.name),
             ))?;
 
         let _response_content = match response.message.content {
-            SMBMessageContent::SMBTreeConnectResponse(response) => Some(response),
+            Content::TreeConnectResponse(response) => Some(response),
             _ => None,
         }
         .unwrap();
@@ -69,8 +69,8 @@ impl SMBTree {
         file_name: String,
         disposition: CreateDisposition,
         desired_access: FileAccessMask,
-    ) -> Result<SMBResource, Box<dyn Error>> {
-        Ok(SMBResource::create(
+    ) -> Result<Resource, Box<dyn Error>> {
+        Ok(Resource::create(
             file_name,
             self.handler.clone(),
             disposition,
@@ -87,8 +87,8 @@ impl SMBTree {
         // send and receive tree disconnect request & response.
         let _response = self
             .handler
-            .send_recv(SMBMessageContent::SMBTreeDisconnectRequest(
-                SMB2TreeDisconnectRequest::default(),
+            .send_recv(Content::TreeDisconnectRequest(
+                TreeDisconnectRequest::default(),
             ))?;
 
         log::info!("Disconnected from tree {}", self.name);
@@ -97,7 +97,7 @@ impl SMBTree {
     }
 }
 
-impl Drop for SMBTree {
+impl Drop for Tree {
     fn drop(&mut self) {
         self.disconnect()
             .or_else(|e| {
@@ -108,14 +108,14 @@ impl Drop for SMBTree {
     }
 }
 
-pub struct SMBTreeMessageHandler {
+pub struct TreeMessageHandler {
     upstream: Upstream,
     connect_info: OnceCell<TreeConnectInfo>,
 }
 
-impl SMBTreeMessageHandler {
-    pub fn new(upstream: Upstream) -> SMBHandlerReference<SMBTreeMessageHandler> {
-        SMBHandlerReference::new(SMBTreeMessageHandler {
+impl TreeMessageHandler {
+    pub fn new(upstream: Upstream) -> HandlerReference<TreeMessageHandler> {
+        HandlerReference::new(TreeMessageHandler {
             upstream,
             connect_info: OnceCell::new(),
         })
@@ -126,10 +126,10 @@ impl SMBTreeMessageHandler {
     }
 }
 
-impl SMBMessageHandler for SMBTreeMessageHandler {
+impl MessageHandler for TreeMessageHandler {
     fn hsendo(
         &mut self,
-        mut msg: crate::msg_handler::OutgoingSMBMessage,
+        mut msg: crate::msg_handler::OutgoingMessage,
     ) -> Result<crate::msg_handler::SendMessageResult, Box<dyn std::error::Error>> {
         msg.message.header.tree_id = match self.connect_info.get() {
             Some(info) => info.tree_id,
@@ -141,7 +141,7 @@ impl SMBMessageHandler for SMBTreeMessageHandler {
     fn hrecvo(
         &mut self,
         options: crate::msg_handler::ReceiveOptions,
-    ) -> Result<crate::msg_handler::IncomingSMBMessage, Box<dyn std::error::Error>> {
+    ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
         self.upstream.borrow_mut().hrecvo(options)
     }
 }
