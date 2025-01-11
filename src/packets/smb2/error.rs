@@ -17,7 +17,7 @@ pub struct ErrorResponse {
     _byte_count: u32,
 
     #[br(count = _error_context_count)]
-    error_data: Vec<ErrorResponseContext>
+    error_data: Vec<ErrorResponseContext>,
 }
 
 #[binrw::binrw]

@@ -1,7 +1,7 @@
 use std::io::prelude::*;
 
 use crate::packets::smb2::{
-    file::{ReadFlags, FlushRequest, ReadRequest, WriteRequest, WriteFlags},
+    file::{FlushRequest, ReadFlags, ReadRequest, WriteFlags, WriteRequest},
     fscc::FileAccessMask,
     message::Content,
 };

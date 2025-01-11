@@ -9,9 +9,7 @@ use rust_kbkdf::{
 };
 use sha2::Sha256;
 
-use crate::packets::smb2::{
-    header::Header, message::Message, negotiate::SigningAlgorithmId,
-};
+use crate::packets::smb2::{header::Header, negotiate::SigningAlgorithmId};
 
 type HmacSha256 = Hmac<Sha256>;
 

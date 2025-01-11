@@ -191,7 +191,7 @@ pub struct WriteFlags {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::message::{Message, Content};
+    use crate::packets::smb2::message::{Content, Message};
 
     use super::*;
 

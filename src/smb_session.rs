@@ -5,14 +5,14 @@ use std::{cell::OnceCell, error::Error, io::Cursor};
 use crate::{
     authenticator::GssAuthenticator,
     msg_handler::{
-        IncomingMessage, OutgoingMessage, ReceiveOptions, HandlerReference,
-        MessageHandler, SendMessageResult,
+        HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, ReceiveOptions,
+        SendMessageResult,
     },
     packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
             header::{Header, Status},
-            message::{Message, Content},
+            message::{Content, Message},
             negotiate::SigningAlgorithmId,
             session_setup::SessionSetupRequest,
         },
@@ -52,9 +52,9 @@ impl Session {
             GssAuthenticator::build(negotate_state.get_gss_token(), identity)?
         };
 
-        let request = OutgoingMessage::new(Message::new(
-            Content::SessionSetupRequest(SessionSetupRequest::new(next_buf)),
-        ));
+        let request = OutgoingMessage::new(Message::new(Content::SessionSetupRequest(
+            SessionSetupRequest::new(next_buf),
+        )));
 
         // response hash is processed later, in the loop.
         let response = self.handler.sendo_recvo(
@@ -93,9 +93,7 @@ impl Session {
                     // We'd like to update preauth hash with the last request before accept.
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
                     let mut request = OutgoingMessage::new(Message::new(
-                        Content::SessionSetupRequest(SessionSetupRequest::new(
-                            next_buf,
-                        )),
+                        Content::SessionSetupRequest(SessionSetupRequest::new(next_buf)),
                     ));
                     let is_about_to_finish = authenticator.keys_exchanged() && !self.is_set_up;
                     request.finalize_preauth_hash = is_about_to_finish;
@@ -149,13 +147,11 @@ impl Session {
 
         let mut session_key = [0; 16];
         session_key.copy_from_slice(&exchanged_session_key[0..16]);
-        Ok(Crypto::kbkdf_hmacsha256(
-            &session_key,
-            b"SMBSigningKey\x00",
-            &preauth_integrity_hash,
-        )?
-        .try_into()
-        .unwrap())
+        Ok(
+            Crypto::kbkdf_hmacsha256(&session_key, b"SMBSigningKey\x00", &preauth_integrity_hash)?
+                .try_into()
+                .unwrap(),
+        )
     }
 
     pub fn signing_enabled(&self) -> bool {
@@ -227,8 +223,7 @@ impl MessageSigner {
     ) -> Result<(), Box<dyn Error>> {
         header.signature = self.calculate_signature(header, raw_data)?;
         // Update raw data to include the signature.
-        let mut header_writer =
-            Cursor::new(&mut raw_data.content[0..Header::STRUCT_SIZE]);
+        let mut header_writer = Cursor::new(&mut raw_data.content[0..Header::STRUCT_SIZE]);
         header.write(&mut header_writer)?;
         log::debug!(
             "Message #{} signed (signature={}).",

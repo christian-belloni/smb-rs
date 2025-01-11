@@ -1,7 +1,7 @@
 use std::io::SeekFrom;
 
-use super::fscc::*;
 use super::super::binrw_util::prelude::*;
+use super::fscc::*;
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
@@ -356,7 +356,7 @@ mod tests {
 
     use crate::packets::smb2::{
         header::Header,
-        message::{Message, Content},
+        message::{Content, Message},
     };
 
     use super::*;

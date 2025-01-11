@@ -5,7 +5,7 @@ use crate::{
         netbios::NetBiosTcpMessage,
         smb2::{
             header::{Command, Status},
-            message::{Message, Content},
+            message::{Content, Message},
         },
     },
     smb_client::PreauthHashValue,
@@ -142,10 +142,7 @@ impl<T: MessageHandler> HandlerReference<T> {
         self.handler.borrow_mut().hsendo(msg)
     }
 
-    pub fn send(
-        &mut self,
-        msg: Content,
-    ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
+    pub fn send(&mut self, msg: Content) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
         self.sendo(OutgoingMessage::new(Message::new(msg)))
     }
 
@@ -156,10 +153,7 @@ impl<T: MessageHandler> HandlerReference<T> {
         self.handler.borrow_mut().hrecvo(options)
     }
 
-    pub fn recv(
-        &mut self,
-        cmd: Command,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+    pub fn recv(&mut self, cmd: Command) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         self.recvo(ReceiveOptions::new().cmd(Some(cmd)))
     }
 

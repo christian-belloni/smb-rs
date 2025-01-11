@@ -85,17 +85,13 @@ impl Content {
             SessionSetupRequest(_) | SessionSetupResponse(_) => Command::SessionSetup,
             LogoffRequest(_) | LogoffResponse(_) => Command::Logoff,
             TreeConnectRequest(_) | TreeConnectResponse(_) => Command::TreeConnect,
-            TreeDisconnectRequest(_) | TreeDisconnectResponse(_) => {
-                Command::TreeDisconnect
-            }
+            TreeDisconnectRequest(_) | TreeDisconnectResponse(_) => Command::TreeDisconnect,
             CreateRequest(_) | CreateResponse(_) => Command::Create,
             CloseRequest(_) | CloseResponse(_) => Command::Close,
             FlushRequest(_) | FlushResponse(_) => Command::Flush,
             ReadRequest(_) | ReadResponse(_) => Command::Read,
             WriteRequest(_) | WriteResponse(_) => Command::Write,
-            QueryDirectoryRequest(_) | QueryDirectoryResponse(_) => {
-                Command::QueryDirectory
-            },
+            QueryDirectoryRequest(_) | QueryDirectoryResponse(_) => Command::QueryDirectory,
             ErrorResponse(_) => panic!("Error has no matching command!"),
         }
     }

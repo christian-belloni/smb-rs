@@ -63,28 +63,24 @@ impl NegotiateRequest {
                 },
                 NegotiateContext {
                     context_type: NegotiateContextType::EncryptionCapabilities,
-                    data: NegotiateContextValue::EncryptionCapabilities(
-                        EncryptionCapabilities {
-                            cipher_count: 4,
-                            ciphers: vec![
-                                EncryptionCapabilitiesCipher::Aes128Ccm,
-                                EncryptionCapabilitiesCipher::Aes128Gcm,
-                                EncryptionCapabilitiesCipher::Aes256Ccm,
-                                EncryptionCapabilitiesCipher::Aes256Gcm,
-                            ],
-                        },
-                    ),
+                    data: NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
+                        cipher_count: 4,
+                        ciphers: vec![
+                            EncryptionCapabilitiesCipher::Aes128Ccm,
+                            EncryptionCapabilitiesCipher::Aes128Gcm,
+                            EncryptionCapabilitiesCipher::Aes256Ccm,
+                            EncryptionCapabilitiesCipher::Aes256Gcm,
+                        ],
+                    }),
                 },
                 NegotiateContext {
                     context_type: NegotiateContextType::CompressionCapabilities,
-                    data: NegotiateContextValue::CompressionCapabilities(
-                        CompressionCapabilities {
-                            compression_algorithm_count: 1,
-                            padding: 0,
-                            flags: 0,
-                            compression_algorithms: vec![0],
-                        },
-                    ),
+                    data: NegotiateContextValue::CompressionCapabilities(CompressionCapabilities {
+                        compression_algorithm_count: 1,
+                        padding: 0,
+                        flags: 0,
+                        compression_algorithms: vec![0],
+                    }),
                 },
                 NegotiateContext {
                     context_type: NegotiateContextType::SigningCapabilities,

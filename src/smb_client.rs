@@ -6,8 +6,7 @@ use std::{cell::OnceCell, error::Error, fmt::Display};
 
 use crate::{
     msg_handler::{
-        IncomingMessage, OutgoingMessage, HandlerReference, MessageHandler,
-        SendMessageResult,
+        HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, SendMessageResult,
     },
     netbios_client::NetBiosClient,
     packets::{
@@ -15,10 +14,10 @@ use crate::{
         smb1::SMB1NegotiateMessage,
         smb2::{
             header::Command,
-            message::{self, Content},
+            message::Content,
             negotiate::{
-                HashAlgorithm, Dialect, NegotiateContextType, NegotiateContextValue,
-                NegotiateRequest, NegotiateDialect, SigningAlgorithmId,
+                Dialect, HashAlgorithm,
+                NegotiateDialect, NegotiateRequest, SigningAlgorithmId,
             },
         },
     },
@@ -154,13 +153,11 @@ impl Client {
         let client_guid = self.handler.borrow().client_guid;
         let response = self
             .handler
-            .send_recv(Content::NegotiateRequest(
-                NegotiateRequest::new(
-                    "AVIV-MBP".to_string(),
-                    client_guid,
-                    Crypto::SIGNING_ALGOS.into(),
-                ),
-            ))?;
+            .send_recv(Content::NegotiateRequest(NegotiateRequest::new(
+                "AVIV-MBP".to_string(),
+                client_guid,
+                Crypto::SIGNING_ALGOS.into(),
+            )))?;
 
         let smb2_negotiate_response = match response.message.content {
             Content::NegotiateResponse(response) => Some(response),
@@ -354,7 +351,11 @@ impl MessageHandler for ClientMessageHandler {
         // Expected status matching.
         if smb2_message.header.status != options.status {
             if let Content::ErrorResponse(msg) = &smb2_message.content {
-                return Err(format!("SMB2 error response {:?}: {:?}", smb2_message.header.status, msg).into());
+                return Err(format!(
+                    "SMB2 error response {:?}: {:?}",
+                    smb2_message.header.status, msg
+                )
+                .into());
             }
             return Err(format!("Unexpected SMB2 status: {:?}", smb2_message.header.status).into());
         }

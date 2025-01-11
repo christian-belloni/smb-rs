@@ -37,11 +37,11 @@ impl Tree {
             return Err("Tree connection already established!".into());
         }
         // send and receive tree request & response.
-        let response = self
-            .handler
-            .send_recv(Content::TreeConnectRequest(
-                TreeConnectRequest::new(&self.name),
-            ))?;
+        let response =
+            self.handler
+                .send_recv(Content::TreeConnectRequest(TreeConnectRequest::new(
+                    &self.name,
+                )))?;
 
         let _response_content = match response.message.content {
             Content::TreeConnectResponse(response) => Some(response),
@@ -85,11 +85,9 @@ impl Tree {
         };
 
         // send and receive tree disconnect request & response.
-        let _response = self
-            .handler
-            .send_recv(Content::TreeDisconnectRequest(
-                TreeDisconnectRequest::default(),
-            ))?;
+        let _response = self.handler.send_recv(Content::TreeDisconnectRequest(
+            TreeDisconnectRequest::default(),
+        ))?;
 
         log::info!("Disconnected from tree {}", self.name);
         self.handler.borrow_mut().connect_info.take();

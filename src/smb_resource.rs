@@ -27,30 +27,29 @@ impl Resource {
         create_disposition: CreateDisposition,
         desired_access: FileAccessMask,
     ) -> Result<Resource, Box<dyn Error>> {
-        let response =
-            upstream.send_recv(Content::CreateRequest(CreateRequest {
-                requested_oplock_level: OplockLevel::None,
-                impersonation_level: ImpersonationLevel::Impersonation,
-                smb_create_flags: 0,
-                desired_access,
-                file_attributes: FileAttributes::new(),
-                share_access: ShareAccessFlags::new()
-                    .with_read(true)
-                    .with_write(true)
-                    .with_delete(true),
-                create_disposition,
-                create_options: 0,
-                name: name.clone().into(),
-                contexts: vec![
-                    CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
-                        timeout: 0,
-                        flags: 0,
-                        create_guid: 273489604278964,
-                    })),
-                    CreateContext::new(CreateContextData::MxAcReq(())),
-                    CreateContext::new(CreateContextData::QFidReq(())),
-                ],
-            }))?;
+        let response = upstream.send_recv(Content::CreateRequest(CreateRequest {
+            requested_oplock_level: OplockLevel::None,
+            impersonation_level: ImpersonationLevel::Impersonation,
+            smb_create_flags: 0,
+            desired_access,
+            file_attributes: FileAttributes::new(),
+            share_access: ShareAccessFlags::new()
+                .with_read(true)
+                .with_write(true)
+                .with_delete(true),
+            create_disposition,
+            create_options: 0,
+            name: name.clone().into(),
+            contexts: vec![
+                CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
+                    timeout: 0,
+                    flags: 0,
+                    create_guid: 273489604278964,
+                })),
+                CreateContext::new(CreateContextData::MxAcReq(())),
+                CreateContext::new(CreateContextData::QFidReq(())),
+            ],
+        }))?;
 
         let content = match response.message.content {
             Content::CreateResponse(response) => response,
@@ -75,10 +74,7 @@ impl Resource {
 
         // Construct specific resource and return it.
         if is_dir {
-            Ok(Resource::Directory(Directory::new(
-                handle,
-                access.into(),
-            )))
+            Ok(Resource::Directory(Directory::new(handle, access.into())))
         } else {
             Ok(Resource::File(File::new(
                 handle,
@@ -149,11 +145,9 @@ impl ResourceHandle {
         }
 
         log::debug!("Closing handle for {} (@{})", self.name, self.file_id);
-        let _response =
-            self.handler
-                .send_recv(Content::CloseRequest(CloseRequest {
-                    file_id: self.file_id,
-                }))?;
+        let _response = self.handler.send_recv(Content::CloseRequest(CloseRequest {
+            file_id: self.file_id,
+        }))?;
 
         self.file_id = u128::MAX;
         log::info!("Closed file {}.", self.name);

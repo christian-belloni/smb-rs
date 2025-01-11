@@ -1,9 +1,9 @@
 use std::io::Cursor;
 
-use binrw::io::TakeSeekExt;
-use binrw::prelude::*;
 use super::binrw_util::prelude::*;
 use super::{smb1, smb2};
+use binrw::io::TakeSeekExt;
+use binrw::prelude::*;
 
 #[binrw::binrw]
 #[derive(Debug)]
