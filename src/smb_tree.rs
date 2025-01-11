@@ -80,7 +80,8 @@ impl SMBTree {
 
     fn disconnect(&mut self) -> Result<(), Box<dyn Error>> {
         if self.handler.borrow_mut().connect_info.get().is_none() {
-            return Err("Tree connection not established!".into());
+            // No tree connection to disconnect from.
+            return Ok(());
         };
 
         // send and receive tree disconnect request & response.

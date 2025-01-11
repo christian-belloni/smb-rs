@@ -15,7 +15,7 @@ use crate::{
         smb1::SMB1NegotiateMessage,
         smb2::{
             header::SMB2Command,
-            message::SMBMessageContent,
+            message::{self, SMBMessageContent},
             negotiate::{
                 HashAlgorithm, SMBDialect, SMBNegotiateContextType, SMBNegotiateContextValue,
                 SMBNegotiateRequest, SMBNegotiateResponseDialect, SigningAlgorithmId,
@@ -352,7 +352,10 @@ impl SMBMessageHandler for SMBClientMessageHandler {
         }
 
         // Expected status matching.
-        if smb2_message.header.status != options.status as u32 {
+        if smb2_message.header.status != options.status {
+            if let SMBMessageContent::ErrorResponse(msg) = &smb2_message.content {
+                return Err(format!("SMB2 error response {:?}: {:?}", smb2_message.header.status, msg).into());
+            }
             return Err(format!("Unexpected SMB2 status: {:?}", smb2_message.header.status).into());
         }
 

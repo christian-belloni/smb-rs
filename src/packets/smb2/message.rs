@@ -71,6 +71,10 @@ pub enum SMBMessageContent {
     SMBQueryDirectoryRequest(dir::SMB2QueryDirectoryRequest),
     #[br(pre_assert(smb_command == &SMB2Command::QueryDirectory && flags_server_to_redir))]
     SMBQueryDirectoryResponse(dir::SMB2QueryDirectoryResponse),
+
+    // error response
+    #[br(pre_assert(flags_server_to_redir))]
+    ErrorResponse(error::ErrorResponse),
 }
 
 impl SMBMessageContent {
@@ -91,7 +95,8 @@ impl SMBMessageContent {
             SMBWriteRequest(_) | SMBWriteResponse(_) => SMB2Command::Write,
             SMBQueryDirectoryRequest(_) | SMBQueryDirectoryResponse(_) => {
                 SMB2Command::QueryDirectory
-            }
+            },
+            ErrorResponse(_) => panic!("Error has no matching command!"),
         }
     }
 }
@@ -110,7 +115,7 @@ impl SMB2Message {
         SMB2Message {
             header: SMB2MessageHeader {
                 credit_charge: 0,
-                status: 0,
+                status: SMB2Status::Success,
                 command: content.associated_cmd(),
                 credit_request: 0,
                 flags: SMB2HeaderFlags::new(),

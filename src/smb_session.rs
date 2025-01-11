@@ -324,7 +324,7 @@ impl SMBMessageHandler for SMBSessionMessageHandler {
         if self.should_sign() {
             // Skip authentication is message ID is -1 or status is pending.
             if incoming.message.header.message_id != u64::MAX
-                && incoming.message.header.status != SMB2Status::StatusPending as u32
+                && incoming.message.header.status != SMB2Status::Pending
             {
                 self.make_signer()?
                     .verify_signature(&mut incoming.message.header, &incoming.raw)?;
