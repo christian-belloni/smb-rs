@@ -1,8 +1,7 @@
 use binrw::io::{SeekFrom, TakeSeekExt};
 use binrw::prelude::*;
 
-use crate::binrw_util::SizedWideString;
-use crate::pos_marker::PosMarker;
+use super::super::binrw_util::prelude::*;
 
 #[binrw::binrw]
 #[derive(Debug)]

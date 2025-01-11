@@ -4,7 +4,7 @@ use std::io::SeekFrom;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use crate::{binrw_util::SizedWideString, pos_marker::PosMarker};
+use super::super::binrw_util::prelude::*;
 
 use super::fscc::*;
 

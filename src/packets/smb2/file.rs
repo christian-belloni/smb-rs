@@ -3,7 +3,7 @@ use std::io::SeekFrom;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use crate::pos_marker::PosMarker;
+use super::super::binrw_util::prelude::*;
 
 use super::header::SMB2MessageHeader;
 

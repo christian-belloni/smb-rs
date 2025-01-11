@@ -1,7 +1,7 @@
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use crate::{binrw_util::SizedWideString, pos_marker::PosMarker};
+use super::super::binrw_util::prelude::*;
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]

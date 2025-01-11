@@ -1,6 +1,6 @@
 use binrw::prelude::*;
 
-use crate::pos_marker::PosMarker;
+use super::super::binrw_util::prelude::*;
 
 #[binrw::binrw]
 #[derive(Debug)]

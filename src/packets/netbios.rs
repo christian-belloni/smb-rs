@@ -1,9 +1,8 @@
 use std::io::Cursor;
 
-use crate::pos_marker_3byte::PosMarker3Byte;
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
-
+use super::binrw_util::prelude::*;
 use super::{smb1, smb2};
 
 #[binrw::binrw]
