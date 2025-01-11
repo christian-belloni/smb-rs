@@ -139,6 +139,42 @@ pub struct SMBNegotiateResponse {
     pub negotiate_context_list: Option<Vec<SMBNegotiateContext>>,
 }
 
+impl SMBNegotiateResponse {
+    pub fn get_signing_algo(&self) -> Option<SigningAlgorithmId> {
+        self.negotiate_context_list.as_ref().and_then(|contexts| {
+            contexts
+                .iter()
+                .find_map(|context| match &context.context_type {
+                    SMBNegotiateContextType::SigningCapabilities => {
+                        match &context.data {
+                            SMBNegotiateContextValue::SigningCapabilities(caps) => {
+                                caps.signing_algorithms.first().copied()
+                            }
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                })
+        })
+    }
+
+    pub fn get_preauth_integrity_algos(&self) -> Option<&Vec<HashAlgorithm>> {
+        self.negotiate_context_list.as_ref().and_then(|contexts| {
+            contexts
+                .iter()
+                .find_map(|context| match &context.context_type {
+                    SMBNegotiateContextType::PreauthIntegrityCapabilities => {
+                        match &context.data {
+                            SMBNegotiateContextValue::PreauthIntegrityCapabilities(caps) => Some(caps.hash_algorithms.as_ref()),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                })
+        })
+    }
+}
+
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
 pub enum SMBDialect {
@@ -300,7 +336,7 @@ pub struct SigningCapabilities {
     pub signing_algorithms: Vec<SigningAlgorithmId>,
 }
 
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u16))]
 pub enum SigningAlgorithmId {
     HmacSha256 = 0x0000,

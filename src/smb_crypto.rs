@@ -50,7 +50,8 @@ impl SMBCrypto {
         }
     }
 
-    pub const SIGNING_ALGOS: [SigningAlgorithmId; 1] = [SigningAlgorithmId::AesCmac]; //, SigningAlgorithmId::AesGmac];
+    pub const SIGNING_ALGOS: [SigningAlgorithmId; 2] =
+        [SigningAlgorithmId::AesCmac, SigningAlgorithmId::AesGmac];
 }
 
 struct HmacSha256KeyHandle {
@@ -150,6 +151,7 @@ mod gmac {
 
     #[bitfield]
     struct NonceSuffixFlags {
+        pub msg_id: B64,
         #[allow(unused)]
         pub is_server: bool,
         #[allow(unused)]
@@ -163,25 +165,20 @@ mod gmac {
             let key = Key::<Aes128>::from_slice(key);
             Box::new(SMBGmac128Signer {
                 gmac: Aes128Gcm::new(&key),
-                nonce: Self::make_nonce(&message),
+                nonce: dbg!(Self::make_nonce(&message)),
                 buffer: vec![],
             })
         }
 
         fn make_nonce(message: &SMB2Message) -> [u8; 12] {
-            let mut result: [u8; 12] = [0; 12];
-            // First 8 bytes are message ID.
             debug_assert!(message.header.message_id > 0);
-            result[0..8].copy_from_slice(&message.header.message_id.to_le_bytes());
-            // Following 4 bytes -- flags as followed:
-            let b = NonceSuffixFlags::new()
-                .with_is_cancel(message.content.associated_cmd() == SMB2Command::Cancel)
-                .with_is_server(false)
-                .into_bytes();
-            debug_assert!(b.len() == 4);
-            result[8..].copy_from_slice(&b);
 
-            return result;
+            return NonceSuffixFlags::new()
+                .with_msg_id(dbg!(message.header.message_id))
+                .with_is_cancel(message.content.associated_cmd() == SMB2Command::Cancel)
+                .with_is_server(message.header.flags.server_to_redir())
+                .into_bytes()
+                .into();
         }
     }
 
@@ -192,11 +189,12 @@ mod gmac {
         }
 
         fn finalize(&mut self) -> u128 {
+            let mut empty_data: Vec<u8> = vec![];
             let result = self
                 .gmac
-                .encrypt_in_place_detached(self.nonce.as_ref().into(), b"", &mut self.buffer)
+                .encrypt_in_place_detached(self.nonce.as_ref().into(), &self.buffer, &mut empty_data)
                 .unwrap();
-            u128::from_le_bytes(result.into())
+            u128::from_le_bytes(dbg!(result.into()))
         }
     }
 

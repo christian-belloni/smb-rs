@@ -262,14 +262,19 @@ impl SMBSigner {
 pub struct SMBSessionMessageHandler {
     session_id: OnceCell<u64>,
     signing_key: Option<SMBSigningKeyValue>,
+    signing_algo: SigningAlgorithmId,
     upstream: UpstreamHandlerRef,
 }
 
 impl SMBSessionMessageHandler {
-    pub fn new(upstream: UpstreamHandlerRef) -> SMBHandlerReference<SMBSessionMessageHandler> {
+    pub fn new(
+        upstream: UpstreamHandlerRef
+    ) -> SMBHandlerReference<SMBSessionMessageHandler> {
+        let signing_algo = upstream.handler.borrow().negotiate_state().unwrap().get_signing_algo();
         SMBHandlerReference::new(SMBSessionMessageHandler {
             session_id: OnceCell::new(),
             signing_key: None,
+            signing_algo,
             upstream,
         })
     }
@@ -287,7 +292,7 @@ impl SMBSessionMessageHandler {
 
         Ok(SMBSigner::new(
             SMBCrypto::make_signing_algo(
-                SigningAlgorithmId::AesCmac,
+                self.signing_algo,
                 self.signing_key.as_ref().unwrap(),
                 message,
             )

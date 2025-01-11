@@ -18,7 +18,7 @@ use crate::{
             message::SMBMessageContent,
             negotiate::{
                 HashAlgorithm, SMBDialect, SMBNegotiateContextType, SMBNegotiateContextValue,
-                SMBNegotiateRequest, SMBNegotiateResponseDialect,
+                SMBNegotiateRequest, SMBNegotiateResponseDialect, SigningAlgorithmId,
             },
         },
     },
@@ -79,11 +79,16 @@ pub struct SmbNegotiateState {
     pub gss_negotiate_token: Vec<u8>,
 
     pub selected_dialect: SMBDialect,
+    pub signing_algo: SigningAlgorithmId,
 }
 
 impl SmbNegotiateState {
     pub fn get_gss_token(&self) -> &[u8] {
         &self.gss_negotiate_token
+    }
+
+    pub fn get_signing_algo(&self) -> SigningAlgorithmId {
+        self.signing_algo
     }
 }
 
@@ -172,33 +177,20 @@ impl SMBClient {
             return Err("Negotiate context list is missing".into());
         }
 
-        let context_list = &smb2_negotiate_response.negotiate_context_list.unwrap();
-
-        // If signing algorithm is not AES-GMAC, we're not supporting it just yet.
-        if !context_list.iter().any(|context| match &context.data {
-            SMBNegotiateContextValue::SigningCapabilities(sc) => sc
-                .signing_algorithms
-                .iter()
-                .any(|a| SMBCrypto::SIGNING_ALGOS.contains(a)),
-            _ => false,
-        }) {
-            return Err("AES-CMAC signing algorithm is not supported".into());
+        // TODO: Support non-SMB 3.1.1 dialects. (no contexts)
+        let selected_signing_algo: SigningAlgorithmId =
+            smb2_negotiate_response.get_signing_algo().unwrap();
+        if !SMBCrypto::SIGNING_ALGOS.contains(&selected_signing_algo) {
+            return Err(
+                format!("Unsupported signing algorithm {:?}", selected_signing_algo).into(),
+            );
         }
 
-        // Make sure preauth integrity capability is SHA-512.
-        if !context_list
-            .iter()
-            .filter(|context| {
-                context.context_type == SMBNegotiateContextType::PreauthIntegrityCapabilities
-            })
-            .all(|context| match &context.data {
-                SMBNegotiateContextValue::PreauthIntegrityCapabilities(pic) => {
-                    pic.hash_algorithms.contains(&HashAlgorithm::Sha512)
-                }
-                _ => false,
-            })
-        {
-            return Err("a non-SHA-512 preauth integrity hash algorithm is supplied".into());
+        // Make sure preauth integrity capability is SHA-512, if it exists in response:
+        if let Some(algos) = smb2_negotiate_response.get_preauth_integrity_algos() {
+            if !algos.contains(&HashAlgorithm::Sha512) {
+                return Err("SHA-512 preauth integrity not supported".into());
+            }
         }
 
         let negotiate_state = SmbNegotiateState {
@@ -208,6 +200,7 @@ impl SMBClient {
             max_write_size: smb2_negotiate_response.max_write_size,
             gss_negotiate_token: smb2_negotiate_response.buffer,
             selected_dialect: smb2_negotiate_response.dialect_revision.try_into()?,
+            signing_algo: selected_signing_algo,
         };
         log::trace!(
             "Negotiated SMB results: dialect={:?}, state={:?}",
