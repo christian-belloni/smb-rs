@@ -9,7 +9,7 @@ use crate::packets::smb2::{
 use super::smb_resource::ResourceHandle;
 
 pub struct File {
-    handle: ResourceHandle,
+    pub handle: ResourceHandle,
 
     pos: u64,
     dirty: bool,

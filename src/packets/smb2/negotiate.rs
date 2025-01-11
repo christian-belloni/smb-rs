@@ -41,7 +41,8 @@ pub struct NegotiateRequest {
 pub struct SecurityMode {
     pub signing_enabled: bool,
     pub signing_required: bool,
-    #[skip] __: B14
+    #[skip]
+    __: B14,
 }
 
 #[bitfield]
@@ -58,7 +59,8 @@ pub struct GlobalCapabilities {
     pub encryption: bool,
     pub notifications: bool,
 
-    #[skip] __: B24
+    #[skip]
+    __: B24,
 }
 
 impl NegotiateRequest {

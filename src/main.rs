@@ -20,6 +20,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
     match file {
         smb::smb_resource::Resource::File(mut smbfile) => {
+            log::info!(
+                "File created {:?}, modified {:?}",
+                smbfile.handle.created(),
+                smbfile.handle.modified()
+            );
+
             // Let's read some data from the file.
             let mut buf = [0; 1024];
             let n = smbfile.read(&mut buf)?;

@@ -1,5 +1,7 @@
 use std::error::Error;
 
+use time::PrimitiveDateTime;
+
 use crate::{
     msg_handler::{HandlerReference, MessageHandler},
     packets::smb2::{
@@ -70,6 +72,8 @@ impl Resource {
             name,
             handler: MessageHandleHandler::new(upstream),
             file_id: content.file_id,
+            created: content.creation_time.date_time(),
+            modified: content.last_write_time.date_time(),
         };
 
         // Construct specific resource and return it.
@@ -127,6 +131,8 @@ pub struct ResourceHandle {
     handler: HandlerReference<MessageHandleHandler>,
 
     file_id: u128,
+    created: PrimitiveDateTime,
+    modified: PrimitiveDateTime,
 }
 
 impl ResourceHandle {
@@ -136,6 +142,14 @@ impl ResourceHandle {
 
     pub fn file_id(&self) -> u128 {
         self.file_id
+    }
+
+    pub fn created(&self) -> PrimitiveDateTime {
+        self.created
+    }
+
+    pub fn modified(&self) -> PrimitiveDateTime {
+        self.modified
     }
 
     /// Close the handle.

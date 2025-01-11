@@ -1,6 +1,6 @@
+use crate::packets::binrw_util::guid::Guid;
 use binrw::prelude::*;
 use core::panic;
-use crate::packets::binrw_util::guid::Guid;
 use sha2::{Digest, Sha512};
 use std::{cell::OnceCell, error::Error, fmt::Display};
 
@@ -16,8 +16,7 @@ use crate::{
             header::Command,
             message::Content,
             negotiate::{
-                Dialect, HashAlgorithm,
-                NegotiateDialect, NegotiateRequest, SigningAlgorithmId,
+                Dialect, HashAlgorithm, NegotiateDialect, NegotiateRequest, SigningAlgorithmId,
             },
         },
     },
