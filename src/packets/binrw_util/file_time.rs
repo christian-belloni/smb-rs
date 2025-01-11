@@ -4,7 +4,7 @@ use binrw::prelude::*;
 use time::macros::datetime;
 use time::PrimitiveDateTime;
 
-#[derive(Debug, BinRead, BinWrite, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FileTime {
     /// 100-nanosecond intervals since January 1, 1601 (UTC),
     /// according to the FILETIME structure [MS-DTYP] 2.3.3.
@@ -22,5 +22,11 @@ impl FileTime {
 impl Display for FileTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.date_time().fmt(f)
+    }
+}
+
+impl From<u64> for FileTime {
+    fn from(value: u64) -> Self {
+        Self { value }
     }
 }

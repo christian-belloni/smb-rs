@@ -1,6 +1,8 @@
 use binrw::io::{SeekFrom, TakeSeekExt};
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
+use rand::rngs::OsRng;
+use rand::Rng;
 
 use super::super::binrw_util::prelude::*;
 
@@ -93,14 +95,13 @@ impl NegotiateRequest {
                     data: NegotiateContextValue::PreauthIntegrityCapabilities(
                         PreauthIntegrityCapabilities {
                             hash_algorithms: vec![HashAlgorithm::Sha512],
-                            salt: (0..32).map(|_| rand::random::<u8>()).collect(),
+                            salt: (0..32).map(|_| OsRng.gen()).collect(),
                         },
                     ),
                 },
                 NegotiateContext {
                     context_type: NegotiateContextType::EncryptionCapabilities,
                     data: NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
-                        cipher_count: 4,
                         ciphers: vec![
                             EncryptionCapabilitiesCipher::Aes128Ccm,
                             EncryptionCapabilitiesCipher::Aes128Gcm,
@@ -112,9 +113,7 @@ impl NegotiateRequest {
                 NegotiateContext {
                     context_type: NegotiateContextType::CompressionCapabilities,
                     data: NegotiateContextValue::CompressionCapabilities(CompressionCapabilities {
-                        compression_algorithm_count: 1,
-                        padding: 0,
-                        flags: 0,
+                        flags: CompressionCapabilitiesFlags::new().with_chained(false),
                         compression_algorithms: vec![0],
                     }),
                 },
@@ -253,8 +252,8 @@ pub struct NegotiateContext {
     #[bw(calc = PosMarker::default())]
     data_length: PosMarker<u16>,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u32,
+    #[br(assert(_reserved == 0))]
+    _reserved: u32,
     #[br(args(&context_type))]
     #[br(map_stream = |s| s.take_seek(data_length.value as u64))]
     #[bw(write_with = PosMarker::write_and_fill_size, args(&data_length))]
@@ -313,8 +312,10 @@ pub struct PreauthIntegrityCapabilities {
     pub salt: Vec<u8>,
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[binrw::binrw]
+#[derive(Debug)]
 pub struct EncryptionCapabilities {
+    #[bw(try_calc(u16::try_from(ciphers.len())))]
     cipher_count: u16,
     #[br(count = cipher_count)]
     ciphers: Vec<EncryptionCapabilitiesCipher>,
@@ -329,13 +330,24 @@ pub enum EncryptionCapabilitiesCipher {
     Aes256Gcm = 0x0004,
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[binrw::binrw]
+#[derive(Debug)]
 pub struct CompressionCapabilities {
+    #[bw(try_calc(u16::try_from(compression_algorithms.len())))]
     compression_algorithm_count: u16,
-    padding: u16,
-    flags: u32,
+    #[bw(calc = 0)]
+    _padding: u16,
+    flags: CompressionCapabilitiesFlags,
     #[br(count = compression_algorithm_count)]
     compression_algorithms: Vec<u16>,
+}
+
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct CompressionCapabilitiesFlags {
+    pub chained: bool,
+    #[skip] __: B31,
 }
 
 #[derive(BinRead, BinWrite, Debug)]
@@ -344,18 +356,30 @@ pub struct NetnameNegotiateContextId {
     netname: SizedWideString,
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[bw(map = |&x| Self::into_bytes(x))]
 pub struct TransportCapabilities {
-    flags: u32,
+    pub accept_transport_layer_security: bool,
+    #[skip] __: B31
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+
+#[binrw::binrw]
+#[derive(Debug)]
 pub struct RdmaTransformCapabilities {
+    #[bw(try_calc(u16::try_from(transforms.len())))]
     transform_count: u16,
+
+    #[bw(calc = 0)]
+    #[br(assert(reserved1 == 0))]
     reserved1: u16,
+    #[bw(calc = 0)]
+    #[br(assert(reserved2 == 0))]
     reserved2: u32,
+
     #[br(count = transform_count)]
-    transforms: Vec<u16>,
+    pub transforms: Vec<u16>,
 }
 
 #[binrw::binrw]

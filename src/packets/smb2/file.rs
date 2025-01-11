@@ -19,7 +19,7 @@ pub struct FlushRequest {
     #[bw(calc = 0)]
     #[br(assert(_reserved2 == 0))]
     _reserved2: u32,
-    pub file_id: u128,
+    pub file_id: Guid,
 }
 
 #[binrw::binrw]
@@ -43,7 +43,7 @@ pub struct ReadRequest {
     pub flags: ReadFlags,
     pub length: u32,
     pub offset: u64,
-    pub file_id: u128,
+    pub file_id: Guid,
     pub minimum_count: u32,
     // Currently, we do not have support for RDMA.
     // Therefore, all the related fields are set to zero.
@@ -135,7 +135,7 @@ pub struct WriteRequest {
     #[bw(try_calc = buffer.len().try_into())]
     _length: u32,
     pub offset: u64,
-    pub file_id: u128,
+    pub file_id: Guid,
     // Again, RDMA off, all 0.
     #[bw(calc = CommunicationChannel::None)]
     #[br(assert(channel == CommunicationChannel::None))]
@@ -199,10 +199,10 @@ mod tests {
     pub fn test_flush_req_write() {
         let mut cursor = Cursor::new(Vec::new());
         FlushRequest {
-            file_id: u128::from_le_bytes([
+            file_id: [
                 0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,
                 0x00, 0x00,
-            ]),
+            ].into(),
         }
         .write_le(&mut cursor)
         .unwrap();
@@ -222,10 +222,10 @@ mod tests {
             flags: ReadFlags::new(),
             length: 0x10203040,
             offset: 0x5060708090a0b0c,
-            file_id: u128::from_le_bytes([
+            file_id: [
                 0x03, 0x03, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0xc5, 0x00, 0x00, 0x00, 0x0c, 0x00,
                 0x00, 0x00,
-            ]),
+            ].into(),
             minimum_count: 1,
         };
         let mut cursor = Cursor::new(Vec::new());
@@ -269,10 +269,10 @@ mod tests {
     pub fn test_write_req_write() {
         let msg = Message::new(Content::WriteRequest(WriteRequest {
             offset: 0x1234abcd,
-            file_id: u128::from_le_bytes([
+            file_id: [
                 0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,
                 0x00, 0x00,
-            ]),
+            ].into(),
             flags: WriteFlags::new(),
             buffer: "MeFriend!THIS IS FINE!".as_bytes().to_vec(),
         }));

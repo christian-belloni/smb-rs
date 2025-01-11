@@ -102,7 +102,7 @@ pub struct CreateResponse {
     #[bw(calc = 0)]
     #[br(assert(_reserved2 == 0))]
     _reserved2: u32,
-    pub file_id: u128,
+    pub file_id: Guid,
     // assert it's 8-aligned
     #[br(assert(create_contexts_offset.value & 0x7 == 0))]
     #[bw(calc = PosMarker::default())]
@@ -319,7 +319,7 @@ pub struct CloseRequest {
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u32,
-    pub file_id: u128,
+    pub file_id: Guid,
 }
 
 #[binrw::binrw]
@@ -445,14 +445,14 @@ mod tests {
                 oplock_level: OplockLevel::None,
                 flags: 0,
                 create_action: CreateAction::Opened,
-                creation_time: 133783827154208828,
-                last_access_time: 133797832406291912,
-                last_write_time: 133783939554544738,
-                change_time: 133783939554544738,
+                creation_time: 133783827154208828.into(),
+                last_access_time: 133797832406291912.into(),
+                last_write_time: 133783939554544738.into(),
+                change_time: 133783939554544738.into(),
                 allocation_size: 0,
                 endof_file: 0,
                 file_attributes: FileAttributes::new().with_directory(true),
-                file_id: 950737950337192747837452976457,
+                file_id: 950737950337192747837452976457.into(),
                 create_contexts: vec![
                     CreateContext::new(CreateContextData::MxAcResp(MxAcResp {
                         query_status: 0,

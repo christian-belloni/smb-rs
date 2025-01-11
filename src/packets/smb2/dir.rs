@@ -20,7 +20,7 @@ pub struct QueryDirectoryRequest {
     // Otherwise, it MUST be set to zero and the server MUST ignore it.
     #[bw(assert(flags.index_specified() || *file_index == 0))]
     pub file_index: u32,
-    pub file_id: u128,
+    pub file_id: Guid,
     #[bw(calc = PosMarker::default())]
     pub file_name_offset: PosMarker<u16>,
     #[bw(try_calc = file_name.size().try_into())]

@@ -3,7 +3,7 @@ use crate::packets::smb2::{dir::*, fscc::*, message::*};
 use super::smb_resource::ResourceHandle;
 
 pub struct Directory {
-    handle: ResourceHandle,
+    pub handle: ResourceHandle,
     access: DirAccessMask,
 }
 

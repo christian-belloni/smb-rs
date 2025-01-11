@@ -4,11 +4,11 @@ use time::PrimitiveDateTime;
 
 use crate::{
     msg_handler::{HandlerReference, MessageHandler},
-    packets::smb2::{
+    packets::{binrw_util::guid::Guid, smb2::{
         create::*,
         fscc::{FileAccessMask, FileAttributes},
         message::Content,
-    },
+    }},
     smb_dir::Directory,
     smb_file::File,
     smb_tree::TreeMessageHandler,
@@ -57,7 +57,7 @@ impl Resource {
             Content::CreateResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
-        log::info!("Created file {}, (@{})", name, content.file_id);
+        log::info!("Created file '{}', (@{})", name, content.file_id);
 
         let is_dir = content.file_attributes.directory();
 
@@ -130,7 +130,7 @@ pub struct ResourceHandle {
     name: String,
     handler: HandlerReference<MessageHandleHandler>,
 
-    file_id: u128,
+    file_id: Guid,
     created: PrimitiveDateTime,
     modified: PrimitiveDateTime,
 }
@@ -140,7 +140,7 @@ impl ResourceHandle {
         &self.name
     }
 
-    pub fn file_id(&self) -> u128 {
+    pub fn file_id(&self) -> Guid {
         self.file_id
     }
 
@@ -163,7 +163,7 @@ impl ResourceHandle {
             file_id: self.file_id,
         }))?;
 
-        self.file_id = u128::MAX;
+        self.file_id = Guid::MAX;
         log::info!("Closed file {}.", self.name);
 
         Ok(())
@@ -171,7 +171,7 @@ impl ResourceHandle {
 
     #[inline]
     pub fn is_valid(&self) -> bool {
-        self.file_id != u128::MAX
+        self.file_id != Guid::MAX
     }
 
     /// Send and receive a message, returning the result.

@@ -7,12 +7,12 @@ use std::{error::Error, io::prelude::*};
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let mut smb = Client::new();
-    smb.connect("172.16.204.132:445")?;
+    smb.connect("172.16.197.128:445")?;
     smb.negotiate()?;
     let mut session = smb.authenticate("LocalAdmin".to_string(), "123456".to_string())?;
     let mut tree = session.tree_connect(r"\\AVIVVM\MyShare".to_string())?;
     let file = tree.create(
-        "day.txt".to_string(),
+        "".to_string(),
         CreateDisposition::Open,
         FileAccessMask::new()
             .with_generic_read(true)
@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     match file {
         smb::smb_resource::Resource::File(mut smbfile) => {
             log::info!(
-                "File created {:?}, modified {:?}",
+                "File created {}, modified {}",
                 smbfile.handle.created(),
                 smbfile.handle.modified()
             );
@@ -35,8 +35,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             smbfile.write_all(b"Hello, world!")?;
         }
         smb::smb_resource::Resource::Directory(mut smbdirectory) => {
-            for item in smbdirectory.query("*")? {
-                println!("{:?}", item);
+            log::info!(
+                "Directory created {}, modified {}",
+                smbdirectory.handle.created(),
+                smbdirectory.handle.modified()
+            );
+
+            for (i, item) in smbdirectory.query("*")?.iter().enumerate() {
+                log::info!("{i}| {}", item.file_name);
             }
         }
     }
