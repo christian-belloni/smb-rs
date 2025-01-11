@@ -2,7 +2,6 @@ use der::AnyRef;
 use der::{asn1::OctetStringRef, oid::ObjectIdentifier, Decode, Encode};
 use gss_api::negotiation::*;
 use gss_api::InitialContextToken;
-use sspi::SignatureFlags;
 use sspi::{
     ntlm::NtlmConfig, AcquireCredentialsHandleResult, AuthIdentity, AuthIdentityBuffers,
     ClientRequestFlags, CredentialUse, DataRepresentation, InitializeSecurityContextResult, Ntlm,
@@ -271,7 +270,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
                 .with_data(&mut token_dest)?;
         let mut ntlm_copy = self.ntlm.clone();
         ntlm_copy.make_signature(
-            SignatureFlags::empty(),
+            0,
             &mut [data_buffer, token_dest_buffer],
             self.seq_num,
         )?;
@@ -290,7 +289,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
             SecurityBuffer::with_security_buffer_type(SecurityBufferType::Token)?
                 .with_data(signature)?;
         let mut buffers = [data_buffer, signature_buffer];
-        ntlm_copy.verify_signature(SignatureFlags::empty(), &mut buffers, self.seq_num)?;
+        ntlm_copy.verify_signature( &mut buffers, self.seq_num)?;
         Ok(())
     }
 
