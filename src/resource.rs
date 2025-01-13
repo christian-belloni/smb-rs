@@ -9,9 +9,9 @@ use crate::{
         fscc::{FileAccessMask, FileAttributes},
         message::Content,
     }},
-    smb_dir::Directory,
-    smb_file::File,
-    smb_tree::TreeMessageHandler,
+    directory::Directory,
+    file::File,
+    tree::TreeMessageHandler,
 };
 
 type Upstream = HandlerReference<TreeMessageHandler>;

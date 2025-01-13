@@ -70,6 +70,7 @@ impl NegotiateRequest {
         client_netname: String,
         client_guid: Guid,
         signing_algorithms: Vec<SigningAlgorithmId>,
+        encrypting_algorithms: Vec<EncryptionCipher>,
     ) -> NegotiateRequest {
         NegotiateRequest {
             security_mode: SecurityMode::new().with_signing_enabled(true),
@@ -102,12 +103,7 @@ impl NegotiateRequest {
                 NegotiateContext {
                     context_type: NegotiateContextType::EncryptionCapabilities,
                     data: NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
-                        ciphers: vec![
-                            EncryptionCapabilitiesCipher::Aes128Ccm,
-                            EncryptionCapabilitiesCipher::Aes128Gcm,
-                            EncryptionCapabilitiesCipher::Aes256Ccm,
-                            EncryptionCapabilitiesCipher::Aes256Gcm,
-                        ],
+                        ciphers: encrypting_algorithms,
                     }),
                 },
                 NegotiateContext {
@@ -318,12 +314,12 @@ pub struct EncryptionCapabilities {
     #[bw(try_calc(u16::try_from(ciphers.len())))]
     cipher_count: u16,
     #[br(count = cipher_count)]
-    ciphers: Vec<EncryptionCapabilitiesCipher>,
+    ciphers: Vec<EncryptionCipher>,
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
-pub enum EncryptionCapabilitiesCipher {
+pub enum EncryptionCipher {
     Aes128Ccm = 0x0001,
     Aes128Gcm = 0x0002,
     Aes256Ccm = 0x0003,

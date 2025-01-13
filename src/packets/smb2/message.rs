@@ -78,6 +78,10 @@ pub enum Content {
 }
 
 impl Content {
+    /// Get the command associated with this content.
+    /// 
+    /// # Panics
+    /// If the content is an error response, as it has no associated command.
     pub fn associated_cmd(&self) -> Command {
         use Content::*;
         match self {
@@ -97,6 +101,7 @@ impl Content {
     }
 }
 
+/// A plain, single, SMB2 message.
 #[binrw::binrw]
 #[derive(Debug)]
 #[brw(little)]

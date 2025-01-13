@@ -20,8 +20,8 @@ use crate::{
             },
         },
     },
-    smb_crypto::Crypto,
-    smb_session::Session,
+    crypto,
+    session::Session,
 };
 
 pub type PreauthHashValue = [u8; 64];
@@ -155,7 +155,8 @@ impl Client {
             .send_recv(Content::NegotiateRequest(NegotiateRequest::new(
                 "AVIV-MBP".to_string(),
                 client_guid,
-                Crypto::SIGNING_ALGOS.into(),
+                crypto::SIGNING_ALGOS.into(),
+                crypto::ENCRYPTING_ALGOS.into(),
             )))?;
 
         let smb2_negotiate_response = match response.message.content {
@@ -176,7 +177,7 @@ impl Client {
         // TODO: Support non-SMB 3.1.1 dialects. (no contexts)
         let selected_signing_algo: SigningAlgorithmId =
             smb2_negotiate_response.get_signing_algo().unwrap();
-        if !Crypto::SIGNING_ALGOS.contains(&selected_signing_algo) {
+        if !crypto::SIGNING_ALGOS.contains(&selected_signing_algo) {
             return Err(
                 format!("Unsupported signing algorithm {:?}", selected_signing_algo).into(),
             );

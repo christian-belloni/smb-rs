@@ -8,4 +8,4 @@ pub mod message;
 pub mod negotiate;
 pub mod session_setup;
 pub mod tree_connect;
-pub mod encrypted;
+pub mod encrypt;

@@ -1,10 +1,13 @@
+use std::io::Cursor;
+
 use binrw::prelude::*;
+const SIGNATURE_SIZE: usize = 16;
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[brw(little, magic(b"\xfdSMB"))]
 pub struct EncryptedHeader {
-    pub signature: [u8; 16],
+    pub signature: [u8; SIGNATURE_SIZE],
     pub nonce: [u8; 16],
     pub original_message_size: u32,
     #[bw(calc = 0)]
@@ -13,7 +16,29 @@ pub struct EncryptedHeader {
     #[bw(calc = 1)] // MUST be set to 1.
     #[br(assert(_flags == 1))]
     _flags: u16,
-    session_id: u64,
+    pub session_id: u64,
+}
+
+impl EncryptedHeader {
+    const MAGIC_SIZE: usize = 4;
+
+    /// The bytes to use as the additional data for the AEAD out of this header.
+    /// Make sure to call it after all fields (except signature) are finalized.
+    /// 
+    /// Returns (according to MS-SMB2) the bytes of the header, excluding the magic and the signature.
+    pub fn aead_bytes(&self) -> Vec<u8> {
+        let mut cursor = Cursor::new(vec![]);
+        self.write(&mut cursor).unwrap();
+        cursor.into_inner()[Self::MAGIC_SIZE + SIGNATURE_SIZE..].to_vec()
+    }
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct EncryptedMessage {
+    pub header: EncryptedHeader,
+    #[br(parse_with = binrw::helpers::until_eof)]
+    pub encrypted_message: Vec<u8>,
 }
 
 #[cfg(test)]

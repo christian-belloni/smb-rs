@@ -1,9 +1,13 @@
 use binrw::prelude::*;
+use ccm::aead::OsRng;
+use rand::RngCore;
 use sspi::{AuthIdentity, Secret, Username};
 use std::{cell::OnceCell, error::Error, io::Cursor};
 
 use crate::{
     authenticator::GssAuthenticator,
+    client::ClientMessageHandler,
+    crypto,
     msg_handler::{
         HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, ReceiveOptions,
         SendMessageResult,
@@ -11,15 +15,14 @@ use crate::{
     packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
+            encrypt::*,
             header::{Header, Status},
             message::{Content, Message},
             negotiate::SigningAlgorithmId,
-            session_setup::SessionSetupRequest,
+            session_setup::{SessionFlags, SessionSetupRequest},
         },
     },
-    smb_client::ClientMessageHandler,
-    smb_crypto::{Crypto, SigningAlgo},
-    smb_tree::Tree,
+    tree::Tree,
 };
 
 type DerivedKeyValue = [u8; 16];
@@ -70,6 +73,7 @@ impl Session {
             .map_err(|_| "Session ID already set!")?;
 
         let mut response = Some(response);
+        let mut flags = None;
         while !authenticator.is_authenticated()? {
             // If there's a response to process, do so.
             let last_setup_response = match response.as_ref() {
@@ -81,6 +85,11 @@ impl Session {
                     .unwrap(),
                 ),
                 None => None,
+            };
+
+            flags = match last_setup_response {
+                Some(response) => Some(response.session_flags),
+                None => flags,
             };
 
             let next_buf = match last_setup_response.as_ref() {
@@ -115,13 +124,13 @@ impl Session {
                     let response = self
                         .handler
                         .recvo(ReceiveOptions::new().status(expected_status))?;
-
                     Some(response)
                 }
                 None => None,
             };
         }
         log::info!("Session setup complete.");
+        self.handler.borrow_mut().session_flags = flags.unwrap();
         Ok(())
     }
 
@@ -133,12 +142,12 @@ impl Session {
         self.handler.borrow_mut().signing_key = Some(Self::derive_signing_key(
             exchanged_session_key,
             preauth_integrity_hash,
-            b"SMBSigningKey\x00"
+            b"SMBSigningKey\x00",
         )?);
         self.handler.borrow_mut().encrypting_key = Some(Self::derive_signing_key(
             exchanged_session_key,
             preauth_integrity_hash,
-            b"SMBS2CCipherKey\x00"
+            b"SMBS2CCipherKey\x00",
         )?);
         self.is_set_up = true;
         log::debug!("Session signing key set.");
@@ -148,14 +157,14 @@ impl Session {
     fn derive_signing_key(
         exchanged_session_key: &Vec<u8>,
         preauth_integrity_hash: [u8; 64],
-        label: &[u8]
+        label: &[u8],
     ) -> Result<[u8; 16], Box<dyn Error>> {
         assert!(exchanged_session_key.len() == 16);
 
         let mut session_key = [0; 16];
         session_key.copy_from_slice(&exchanged_session_key[0..16]);
         Ok(
-            Crypto::kbkdf_hmacsha256(&session_key, label, &preauth_integrity_hash)?
+            crypto::kbkdf_hmacsha256(&session_key, label, &preauth_integrity_hash)?
                 .try_into()
                 .unwrap(),
         )
@@ -199,11 +208,11 @@ impl Drop for Session {
 
 #[derive(Debug)]
 pub struct MessageSigner {
-    signing_algo: Box<dyn SigningAlgo>,
+    signing_algo: Box<dyn crypto::SigningAlgo>,
 }
 
 impl MessageSigner {
-    pub fn new(signing_algo: Box<dyn SigningAlgo>) -> MessageSigner {
+    pub fn new(signing_algo: Box<dyn crypto::SigningAlgo>) -> MessageSigner {
         MessageSigner { signing_algo }
     }
 
@@ -262,11 +271,72 @@ impl MessageSigner {
     }
 }
 
+#[derive(Debug)]
+pub struct MessageEncryptor {
+    algo: Box<dyn crypto::EncryptingAlgo>,
+}
+
+impl MessageEncryptor {
+    pub fn new(algo: Box<dyn crypto::EncryptingAlgo>) -> MessageEncryptor {
+        MessageEncryptor { algo }
+    }
+
+    pub fn encrypt_message(&mut self, msg_in: Message) -> Result<EncryptedMessage, Box<dyn Error>> {
+        debug_assert!(msg_in.header.session_id != 0);
+        // Serialize message:
+        let mut cursor = Cursor::new(vec![]);
+        msg_in.write(&mut cursor)?;
+        let mut serialized_message = cursor.into_inner();
+        let mut header = EncryptedHeader {
+            signature: [0; 16],
+            nonce: self.gen_nonce(),
+            original_message_size: serialized_message.len().try_into()?,
+            session_id: msg_in.header.session_id,
+        };
+
+        let result = self.algo.encrypt(
+            &mut serialized_message,
+            &header.aead_bytes(),
+            header.nonce.as_ref(),
+        )?;
+
+        header.signature.copy_from_slice(&result.signature);
+
+        Ok(EncryptedMessage {
+            header,
+            encrypted_message: serialized_message,
+        })
+    }
+
+    pub fn decrypt_message(&mut self, msg_in: EncryptedMessage) -> Result<Message, Box<dyn Error>> {
+        let mut serialized_message = msg_in.encrypted_message;
+        self.algo.decrypt(
+            &mut serialized_message,
+            &msg_in.header.aead_bytes(),
+            msg_in.header.nonce.as_ref(),
+            &msg_in.header.signature,
+        )?;
+
+        let mut cursor = Cursor::new(serialized_message);
+        let message = Message::read(&mut cursor)?;
+        Ok(message)
+    }
+
+    fn gen_nonce(&self) -> [u8; 16] {
+        let mut nonce = [0; 16];
+        // Generate self.algo.nonce_size() random bytes:
+        OsRng.fill_bytes(&mut nonce[..self.algo.nonce_size()]);
+        nonce
+    }
+}
+
 pub struct SessionMessageHandler {
     session_id: OnceCell<u64>,
     signing_key: Option<DerivedKeyValue>,
     encrypting_key: Option<DerivedKeyValue>,
     signing_algo: SigningAlgorithmId,
+    session_flags: SessionFlags,
+
     upstream: UpstreamHandlerRef,
 }
 
@@ -282,6 +352,7 @@ impl SessionMessageHandler {
             session_id: OnceCell::new(),
             signing_key: None,
             encrypting_key: None,
+            session_flags: SessionFlags::new(),
             signing_algo,
             upstream,
         })
@@ -289,6 +360,10 @@ impl SessionMessageHandler {
 
     pub fn should_sign(&self) -> bool {
         self.signing_key.is_some()
+    }
+
+    pub fn should_encrypt(&self) -> bool {
+        self.encrypting_key.is_some() && self.session_flags.encrypt_data()
     }
 
     fn make_signer(&self) -> Result<MessageSigner, Box<dyn Error>> {
@@ -299,7 +374,7 @@ impl SessionMessageHandler {
         debug_assert!(self.signing_key.is_some());
 
         Ok(MessageSigner::new(
-            Crypto::make_signing_algo(self.signing_algo, self.signing_key.as_ref().unwrap())
+            crypto::make_signing_algo(self.signing_algo, self.signing_key.as_ref().unwrap())
                 .unwrap(),
         ))
     }
@@ -315,6 +390,10 @@ impl MessageHandler for SessionMessageHandler {
             msg.message.header.flags.set_signed(true);
             msg.signer = Some(self.make_signer()?);
         }
+        // Encryption
+        if self.should_encrypt() {
+            todo!();
+        }
         msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
         self.upstream.borrow_mut().hsendo(msg)
     }
@@ -323,6 +402,10 @@ impl MessageHandler for SessionMessageHandler {
         &mut self,
         options: crate::msg_handler::ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+        // Decryption
+        if self.should_encrypt() {
+            todo!();
+        }
         let mut incoming = self.upstream.borrow_mut().hrecvo(options)?;
         // TODO: check whether this is the correct case to do such a thing.
         if self.should_sign() {

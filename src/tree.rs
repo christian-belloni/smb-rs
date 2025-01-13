@@ -8,8 +8,8 @@ use crate::{
         message::Content,
         tree_connect::{TreeConnectRequest, TreeDisconnectRequest},
     },
-    smb_resource::Resource,
-    smb_session::SessionMessageHandler,
+    resource::Resource,
+    session::SessionMessageHandler,
 };
 
 type Upstream = HandlerReference<SessionMessageHandler>;

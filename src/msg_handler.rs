@@ -1,15 +1,13 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    packets::{
+    client::PreauthHashValue, packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
             header::{Command, Status},
             message::{Content, Message},
         },
-    },
-    smb_client::PreauthHashValue,
-    smb_session::MessageSigner,
+    }, session::{MessageEncryptor, MessageSigner}
 };
 
 #[derive(Debug)]
@@ -18,6 +16,8 @@ pub struct OutgoingMessage {
 
     // signing and encryption information
     pub signer: Option<MessageSigner>,
+    pub encryptor: Option<MessageEncryptor>,
+
     /// Whether to finalize the preauth hash after sending this message.
     /// If this is set to true twice per connection, an error will be thrown.
     pub finalize_preauth_hash: bool,
@@ -28,6 +28,7 @@ impl OutgoingMessage {
         OutgoingMessage {
             message,
             signer: None,
+            encryptor: None,
             finalize_preauth_hash: false,
         }
     }

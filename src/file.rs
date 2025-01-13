@@ -6,7 +6,7 @@ use crate::packets::smb2::{
     message::Content,
 };
 
-use super::smb_resource::ResourceHandle;
+use super::resource::ResourceHandle;
 
 pub struct File {
     pub handle: ResourceHandle,

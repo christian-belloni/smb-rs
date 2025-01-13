@@ -1,6 +1,6 @@
 use smb::{
     packets::smb2::{create::CreateDisposition, fscc::FileAccessMask},
-    smb_client::Client,
+    client::Client,
 };
 use std::{error::Error, io::prelude::*};
 
@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .with_generic_write(true),
     )?;
     match file {
-        smb::smb_resource::Resource::File(mut smbfile) => {
+        smb::resource::Resource::File(mut smbfile) => {
             log::info!(
                 "File created {}, modified {}",
                 smbfile.handle.created(),
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Let's write some data to the file.
             smbfile.write_all(b"Hello, world!")?;
         }
-        smb::smb_resource::Resource::Directory(mut smbdirectory) => {
+        smb::resource::Resource::Directory(mut smbdirectory) => {
             log::info!(
                 "Directory created {}, modified {}",
                 smbdirectory.handle.created(),
