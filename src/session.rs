@@ -169,7 +169,7 @@ impl Session {
         let mut session_key = [0; 16];
         session_key.copy_from_slice(&exchanged_session_key[0..16]);
         Ok(
-            crypto::kbkdf_hmacsha256(&session_key, label, &preauth_integrity_hash)?
+            crypto::kbkdf_hmacsha256::<16>(&session_key, label, &preauth_integrity_hash)?
                 .try_into()
                 .unwrap(),
         )

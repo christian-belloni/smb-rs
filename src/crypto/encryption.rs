@@ -1,12 +1,15 @@
-use aes::{Aes128, Aes256};
+use aes::{
+    cipher::{BlockCipher, BlockEncrypt, BlockSizeUser, generic_array::GenericArray},
+    Aes128, Aes256,
+};
 use ccm::{
-    aead::{generic_array::GenericArray, AeadMutInPlace, KeyInit},
+    aead::AeadMutInPlace,
     consts::{U11, U16},
-    Ccm,
+    Ccm, KeyInit, KeySizeUser
 };
 use std::{error::Error, fmt::Debug};
 
-use crate::packets::smb2::{negotiate::EncryptionCipher, encrypted::EncryptionNonce};
+use crate::packets::smb2::{encrypted::EncryptionNonce, negotiate::EncryptionCipher};
 
 pub struct EncryptionResult {
     pub signature: u128,
@@ -46,7 +49,7 @@ pub const ENCRYPTING_ALGOS: [EncryptionCipher; 1] = [EncryptionCipher::Aes128Ccm
 
 pub fn make_encrypting_algo(
     encrypting_algorithm: EncryptionCipher,
-    encrypting_key: &[u8; 16],
+    encrypting_key: &[u8],
 ) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
     if !ENCRYPTING_ALGOS.contains(&encrypting_algorithm) {
         return Err(format!(
@@ -56,27 +59,34 @@ pub fn make_encrypting_algo(
         .into());
     }
     match encrypting_algorithm {
-        EncryptionCipher::Aes128Ccm => Ok(Ccm128Encrypter::build(encrypting_key)?),
+        EncryptionCipher::Aes128Ccm => Ok(CcmEncryptor::<Aes128>::build(encrypting_key.into())?),
+        EncryptionCipher::Aes256Ccm => Ok(CcmEncryptor::<Aes256>::build(encrypting_key.into())?),
         _ => Err("Unsupported encrypting algorithm".into()),
     }
 }
 
-type Aes128Ccm = Ccm<Aes128, U16, U11>;
-type Aes256Ccm = Ccm<Aes256, U16, U11>;
-
-pub struct Ccm128Encrypter {
-    cipher: Aes128Ccm,
+pub struct CcmEncryptor<C>
+where
+    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt,
+{
+    cipher: Ccm<C, U16, U11>,
 }
 
-impl Ccm128Encrypter {
-    fn build(encrypting_key: &[u8; 16]) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
-        Ok(Box::new(Ccm128Encrypter {
-            cipher: Aes128Ccm::new_from_slice(encrypting_key.as_ref())?,
+impl<C> CcmEncryptor<C>
+where
+    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + KeyInit + 'static
+{
+    fn build(encrypting_key: &GenericArray<u8, <C as KeySizeUser>::KeySize>) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
+        Ok(Box::new(Self {
+            cipher: Ccm::<C, U16, U11>::new_from_slice(encrypting_key)?,
         }))
     }
 }
 
-impl EncryptingAlgo for Ccm128Encrypter {
+impl<C> EncryptingAlgo for CcmEncryptor<C>
+where
+    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt,
+{
     fn encrypt(
         &mut self,
         payload: &mut [u8],
@@ -116,7 +126,10 @@ impl EncryptingAlgo for Ccm128Encrypter {
     }
 }
 
-impl Debug for Ccm128Encrypter {
+impl<C> Debug for CcmEncryptor<C>
+where
+    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Ccm128Encrypter")
     }

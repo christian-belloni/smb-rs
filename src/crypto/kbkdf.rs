@@ -9,12 +9,18 @@ use rust_kbkdf::{
 use sha2::Sha256;
 type HmacSha256 = Hmac<Sha256>;
 
-pub fn kbkdf_hmacsha256(
+/// Key-based key derivation function using HMAC-SHA256.
+/// SP108-800-CTR-HMAC-SHA256; L*8 bits; 32-bit counter.
+/// 
+/// # Arguments
+/// * `L` - The length of the output key, IN BYTES.
+pub fn kbkdf_hmacsha256<const L: usize>(
     key: &[u8; 16],
     label: &[u8],
     context: &[u8],
-) -> Result<Vec<u8>, Box<dyn Error>> {
-    // SP108-800-CTR-HMAC-SHA256; 128 bits; 32-bit counter.
+) -> Result<[u8; L], Box<dyn Error>> {
+    assert!(L % 8 == 0);
+
     let key = HmacSha256KeyHandle { key: key.clone() };
 
     let mut prf = HmacSha256Prf::default();
@@ -22,10 +28,10 @@ pub fn kbkdf_hmacsha256(
 
     let input = InputType::SpecifiedInput(SpecifiedInput { label, context });
 
-    let mut output = vec![0; 128 / 8];
+    let mut output = [0; L];
     kbkdf(&mode, &input, &key, &mut prf, &mut output)?;
 
-    Ok(output)
+    Ok(output.into())
 }
 
 struct HmacSha256KeyHandle {
