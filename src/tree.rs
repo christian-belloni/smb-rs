@@ -49,7 +49,7 @@ impl Tree {
         }
         .unwrap();
         log::info!(
-            "Connected to tree {} (@{})",
+            "Connected to tree {} (#{})",
             self.name,
             response.message.header.tree_id
         );

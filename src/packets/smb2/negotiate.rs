@@ -354,7 +354,8 @@ pub enum CompressionAlgorithm {
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct CompressionCapabilitiesFlags {
     pub chained: bool,
-    #[skip] __: B31,
+    #[skip]
+    __: B31,
 }
 
 #[derive(BinRead, BinWrite, Debug)]
@@ -368,9 +369,9 @@ pub struct NetnameNegotiateContextId {
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct TransportCapabilities {
     pub accept_transport_layer_security: bool,
-    #[skip] __: B31
+    #[skip]
+    __: B31,
 }
-
 
 #[binrw::binrw]
 #[derive(Debug)]

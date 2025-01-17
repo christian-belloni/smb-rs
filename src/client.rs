@@ -310,13 +310,14 @@ impl ClientMessageHandler {
         &mut self,
         raw: &NetBiosTcpMessage,
         options: &mut ReceiveOptions,
-    ) -> Result<PlainMessage, Box<dyn Error>> {
+    ) -> Result<(PlainMessage, bool), Box<dyn Error>> {
         let smb2_message = match raw.parse()? {
             NetBiosMessageContent::SMB2Message(smb2_message) => Some(smb2_message),
             _ => None,
         }
         .ok_or("Expected SMB2 message")?;
 
+        let is_encrypted = matches!(smb2_message, Message::Encrypted(_));
         let plain = match smb2_message {
             Message::Plain(plain_message) => plain_message,
             Message::Encrypted(encrypted_message) => match options.decryptor.take() {
@@ -325,7 +326,7 @@ impl ClientMessageHandler {
             },
         };
 
-        Ok(plain)
+        Ok((plain, is_encrypted))
     }
 }
 
@@ -368,39 +369,38 @@ impl MessageHandler for ClientMessageHandler {
 
         self.step_preauth_hash(&raw);
 
-        let smb2_message = self.parse_raw(&raw, &mut options)?;
+        let (message, encrypted) = self.parse_raw(&raw, &mut options)?;
 
         // Command matching (if needed).
         if let Some(cmd) = options.cmd {
-            if smb2_message.header.command != cmd {
+            if message.header.command != cmd {
                 return Err("Unexpected SMB2 command".into());
             }
         }
 
         // Direction matching.
-        if !smb2_message.header.flags.server_to_redir() {
+        if !message.header.flags.server_to_redir() {
             return Err("Unexpected SMB2 message direction (Not a response)".into());
         }
 
         // Expected status matching.
-        if smb2_message.header.status != options.status {
-            if let Content::ErrorResponse(msg) = &smb2_message.content {
-                return Err(format!(
-                    "SMB2 error response {:?}: {:?}",
-                    smb2_message.header.status, msg
-                )
-                .into());
+        if message.header.status != options.status {
+            if let Content::ErrorResponse(msg) = &message.content {
+                return Err(
+                    format!("SMB2 error response {:?}: {:?}", message.header.status, msg).into(),
+                );
             }
-            return Err(format!("Unexpected SMB2 status: {:?}", smb2_message.header.status).into());
+            return Err(format!("Unexpected SMB2 status: {:?}", message.header.status).into());
         }
 
         // Credits handling. TODO: validate.
-        self.credits_balance -= smb2_message.header.credit_charge;
-        self.credits_balance += smb2_message.header.credit_request;
+        self.credits_balance -= message.header.credit_charge;
+        self.credits_balance += message.header.credit_request;
 
         Ok(IncomingMessage {
-            message: smb2_message,
+            message,
             raw,
+            encrypted,
         })
     }
 }

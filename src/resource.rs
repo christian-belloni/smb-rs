@@ -3,14 +3,17 @@ use std::error::Error;
 use time::PrimitiveDateTime;
 
 use crate::{
-    msg_handler::{HandlerReference, MessageHandler},
-    packets::{binrw_util::guid::Guid, smb2::{
-        create::*,
-        fscc::{FileAccessMask, FileAttributes},
-        plain::Content,
-    }},
     directory::Directory,
     file::File,
+    msg_handler::{HandlerReference, MessageHandler},
+    packets::{
+        binrw_util::guid::Guid,
+        smb2::{
+            create::*,
+            fscc::{FileAccessMask, FileAttributes},
+            plain::Content,
+        },
+    },
     tree::TreeMessageHandler,
 };
 
@@ -56,7 +59,7 @@ impl Resource {
             Content::CreateResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
-        log::info!("Created file '{}', (@{})", name, content.file_id);
+        log::info!("Created file '{}', ({})", name, content.file_id);
 
         let is_dir = content.file_attributes.directory();
 
@@ -157,7 +160,7 @@ impl ResourceHandle {
             return Err("File ID invalid -- Is this an already closed handle?!".into());
         }
 
-        log::debug!("Closing handle for {} (@{})", self.name, self.file_id);
+        log::debug!("Closing handle for {} ({})", self.name, self.file_id);
         let _response = self.handler.send_recv(Content::CloseRequest(CloseRequest {
             file_id: self.file_id,
         }))?;

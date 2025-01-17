@@ -79,7 +79,7 @@ pub enum Content {
 
 impl Content {
     /// Get the command associated with this content.
-    /// 
+    ///
     /// # Panics
     /// If the content is an error response, as it has no associated command.
     pub fn associated_cmd(&self) -> Command {

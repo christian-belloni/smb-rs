@@ -1,6 +1,5 @@
 use std::{error::Error, fmt::Debug};
 
-
 use crate::packets::smb2::{header::Header, negotiate::SigningAlgorithmId};
 
 pub fn make_signing_algo(
@@ -42,10 +41,10 @@ pub trait SigningAlgo: Debug {
 }
 
 mod cmac_signer {
+    use super::*;
     use aes::Aes128;
     use cmac::Cmac;
     use hmac::Mac;
-    use super::*;
 
     #[derive(Debug)]
     pub struct Cmac128Signer {

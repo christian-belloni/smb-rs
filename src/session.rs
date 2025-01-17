@@ -281,11 +281,6 @@ pub struct MessageEncryptor {
     algo: Box<dyn crypto::EncryptingAlgo>,
 }
 
-#[derive(Debug)]
-pub struct MessageDecryptor {
-    algo: Box<dyn crypto::EncryptingAlgo>,
-}
-
 impl MessageEncryptor {
     pub fn new(algo: Box<dyn crypto::EncryptingAlgo>) -> MessageEncryptor {
         MessageEncryptor { algo }
@@ -307,11 +302,9 @@ impl MessageEncryptor {
             session_id: msg_in.header.session_id,
         };
 
-        let result = self.algo.encrypt(
-            &mut serialized_message,
-            &header.aead_bytes(),
-            &header.nonce[..self.algo.nonce_size()]
-        )?;
+        let result =
+            self.algo
+                .encrypt(&mut serialized_message, &header.aead_bytes(), &header.nonce)?;
 
         header.signature.copy_from_slice(&result.signature);
 
@@ -329,6 +322,11 @@ impl MessageEncryptor {
     }
 }
 
+#[derive(Debug)]
+pub struct MessageDecryptor {
+    algo: Box<dyn crypto::EncryptingAlgo>,
+}
+
 impl MessageDecryptor {
     pub fn new(algo: Box<dyn crypto::EncryptingAlgo>) -> MessageDecryptor {
         MessageDecryptor { algo }
@@ -342,7 +340,7 @@ impl MessageDecryptor {
         self.algo.decrypt(
             &mut serialized_message,
             &msg_in.header.aead_bytes(),
-            msg_in.header.nonce.as_ref(),
+            &msg_in.header.nonce,
             &msg_in.header.signature,
         )?;
 
@@ -388,7 +386,9 @@ impl SessionMessageHandler {
 
     pub fn should_encrypt(&self) -> bool {
         debug_assert!(self.s2c_decryption_key.is_some() == self.c2s_encryption_key.is_some());
-        self.s2c_decryption_key.is_some() && self.c2s_encryption_key.is_some() && self.session_flags.encrypt_data()
+        self.s2c_decryption_key.is_some()
+            && self.c2s_encryption_key.is_some()
+            && self.session_flags.encrypt_data()
     }
 
     fn make_signer(&self) -> Result<MessageSigner, Box<dyn Error>> {
@@ -411,12 +411,12 @@ impl SessionMessageHandler {
             );
         }
 
-        debug_assert!(self.s2c_decryption_key.is_some());
+        debug_assert!(self.c2s_encryption_key.is_some());
 
         Ok(MessageEncryptor::new(
             crypto::make_encrypting_algo(
                 EncryptionCipher::Aes128Ccm,
-                self.s2c_decryption_key.as_ref().unwrap(),
+                self.c2s_encryption_key.as_ref().unwrap(),
             )
             .unwrap(),
         ))
@@ -429,12 +429,12 @@ impl SessionMessageHandler {
             );
         }
 
-        debug_assert!(self.c2s_encryption_key.is_some());
+        debug_assert!(self.s2c_decryption_key.is_some());
 
         Ok(MessageDecryptor::new(
             crypto::make_encrypting_algo(
                 EncryptionCipher::Aes128Ccm,
-                self.c2s_encryption_key.as_ref().unwrap(),
+                self.s2c_decryption_key.as_ref().unwrap(),
             )
             .unwrap(),
         ))
@@ -469,7 +469,7 @@ impl MessageHandler for SessionMessageHandler {
         }
         let mut incoming = self.upstream.borrow_mut().hrecvo(options)?;
         // TODO: check whether this is the correct case to do such a thing.
-        if self.should_sign() {
+        if self.should_sign() && !incoming.encrypted {
             // Skip authentication is message ID is -1 or status is pending.
             if incoming.message.header.message_id != u64::MAX
                 && incoming.message.header.status != Status::Pending

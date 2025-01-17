@@ -202,7 +202,8 @@ mod tests {
             file_id: [
                 0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,
                 0x00, 0x00,
-            ].into(),
+            ]
+            .into(),
         }
         .write_le(&mut cursor)
         .unwrap();
@@ -225,7 +226,8 @@ mod tests {
             file_id: [
                 0x03, 0x03, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0xc5, 0x00, 0x00, 0x00, 0x0c, 0x00,
                 0x00, 0x00,
-            ].into(),
+            ]
+            .into(),
             minimum_count: 1,
         };
         let mut cursor = Cursor::new(Vec::new());
@@ -272,7 +274,8 @@ mod tests {
             file_id: [
                 0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,
                 0x00, 0x00,
-            ].into(),
+            ]
+            .into(),
             flags: WriteFlags::new(),
             buffer: "MeFriend!THIS IS FINE!".as_bytes().to_vec(),
         }));

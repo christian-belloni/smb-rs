@@ -273,9 +273,11 @@ pub struct DH2QReq {
 #[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct DH2QFlags {
-    #[skip] __: bool,
+    #[skip]
+    __: bool,
     pub persistent: bool, // 0x2
-    #[skip] __: B30,
+    #[skip]
+    __: B30,
 }
 
 #[binrw::binrw]

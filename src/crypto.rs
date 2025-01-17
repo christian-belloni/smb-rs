@@ -1,9 +1,7 @@
-
-
+mod encryption;
 mod kbkdf;
 mod signing;
-mod encryption;
 
+pub use encryption::{make_encrypting_algo, EncryptingAlgo, ENCRYPTING_ALGOS};
 pub use kbkdf::kbkdf_hmacsha256;
-pub use signing::{SIGNING_ALGOS, make_signing_algo, SigningAlgo};
-pub use encryption::{EncryptingAlgo, make_encrypting_algo, ENCRYPTING_ALGOS};
+pub use signing::{make_signing_algo, SigningAlgo, SIGNING_ALGOS};

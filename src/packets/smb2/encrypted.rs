@@ -24,7 +24,7 @@ impl EncryptedHeader {
 
     /// The bytes to use as the additional data for the AEAD out of this header.
     /// Make sure to call it after all fields (except signature) are finalized.
-    /// 
+    ///
     /// Returns (according to MS-SMB2) the bytes of the header, excluding the magic and the signature.
     pub fn aead_bytes(&self) -> Vec<u8> {
         let mut cursor = Cursor::new(vec![]);

@@ -1,6 +1,6 @@
 use smb::{
-    packets::smb2::{create::CreateDisposition, fscc::FileAccessMask},
     client::Client,
+    packets::smb2::{create::CreateDisposition, fscc::FileAccessMask},
 };
 use std::{error::Error, io::prelude::*};
 

@@ -29,7 +29,8 @@ pub struct SessionSetupRequest {
 pub struct SecurityMode {
     pub signing_enabled: bool,
     pub signing_required: bool,
-    #[skip] __: B6,
+    #[skip]
+    __: B6,
 }
 
 #[bitfield]
@@ -37,7 +38,8 @@ pub struct SecurityMode {
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct SetupRequestFlags {
     pub binding: bool,
-    #[skip] __: B7
+    #[skip]
+    __: B7,
 }
 
 #[bitfield]
@@ -45,7 +47,8 @@ pub struct SetupRequestFlags {
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct NegotiateCapabilities {
     pub dfs: bool,
-    #[skip] __: B31,
+    #[skip]
+    __: B31,
 }
 
 impl SessionSetupRequest {
@@ -83,7 +86,8 @@ pub struct SessionFlags {
     pub is_guest: bool,
     pub is_null_session: bool,
     pub encrypt_data: bool,
-    #[skip] __: B13,
+    #[skip]
+    __: B13,
 }
 
 #[binrw::binrw]

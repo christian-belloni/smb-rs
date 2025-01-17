@@ -52,6 +52,9 @@ impl SendMessageResult {
 pub struct IncomingMessage {
     pub message: PlainMessage,
     pub raw: NetBiosTcpMessage,
+
+    // Did the incoming message required a decryption?
+    pub encrypted: bool,
 }
 
 /// Options for receiving a message.

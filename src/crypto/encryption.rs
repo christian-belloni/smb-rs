@@ -13,22 +13,29 @@ pub struct EncryptionResult {
 }
 
 pub trait EncryptingAlgo: Debug {
+    /// Algo-specific encryption function.
     fn encrypt(
         &mut self,
         payload: &mut [u8],
         header_data: &[u8],
-        nonce: &[u8],
+        nonce: &[u8; 16],
     ) -> Result<EncryptionResult, Box<dyn Error>>;
 
     fn decrypt(
         &mut self,
         payload: &mut [u8],
         header_data: &[u8],
-        nonce: &[u8],
+        nonce: &[u8; 16],
         signature: &[u8; 16],
     ) -> Result<(), Box<dyn Error>>;
 
     fn nonce_size(&self) -> usize;
+
+    fn trim_nonce<'a>(&self, nonce: &'a [u8; 16]) -> &'a [u8] {
+        // Sanity: the rest of the nonce is expected to be zero.
+        debug_assert!(nonce[self.nonce_size()..].iter().all(|&x| x == 0));
+        &nonce[..self.nonce_size()]
+    }
 }
 
 pub const ENCRYPTING_ALGOS: [EncryptionCipher; 1] = [EncryptionCipher::Aes128Ccm];
@@ -60,7 +67,7 @@ pub struct Ccm128Encrypter {
 impl Ccm128Encrypter {
     fn build(encrypting_key: &[u8; 16]) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
         Ok(Box::new(Ccm128Encrypter {
-            cipher: Aes128Ccm::new_from_slice(dbg!(encrypting_key).as_ref())?,
+            cipher: Aes128Ccm::new_from_slice(encrypting_key.as_ref())?,
         }))
     }
 }
@@ -70,9 +77,9 @@ impl EncryptingAlgo for Ccm128Encrypter {
         &mut self,
         payload: &mut [u8],
         header_data: &[u8],
-        nonce: &[u8],
+        nonce: &[u8; 16],
     ) -> Result<EncryptionResult, Box<dyn Error>> {
-        let nonce = GenericArray::from_slice(&nonce);
+        let nonce = GenericArray::from_slice(self.trim_nonce(nonce));
         let signature = self
             .cipher
             .encrypt_in_place_detached(nonce, header_data, payload)?;
@@ -86,10 +93,10 @@ impl EncryptingAlgo for Ccm128Encrypter {
         &mut self,
         payload: &mut [u8],
         header_data: &[u8],
-        nonce: &[u8],
+        nonce: &[u8; 16],
         signature: &[u8; 16],
     ) -> Result<(), Box<dyn Error>> {
-        let nonce = GenericArray::from_slice(&nonce);
+        let nonce = GenericArray::from_slice(self.trim_nonce(nonce));
         self.cipher
             .decrypt_in_place_detached(nonce, header_data, payload, signature.into())?;
 
