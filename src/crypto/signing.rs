@@ -2,9 +2,11 @@ use std::{error::Error, fmt::Debug};
 
 use crate::packets::smb2::{header::Header, negotiate::SigningAlgorithmId};
 
+type SigningKey = [u8; 16];
+
 pub fn make_signing_algo(
     signing_algorithm: SigningAlgorithmId,
-    signing_key: &[u8; 16],
+    signing_key: &SigningKey,
 ) -> Result<Box<dyn SigningAlgo>, Box<dyn Error>> {
     if !SIGNING_ALGOS.contains(&signing_algorithm) {
         return Err(format!("Unsupported signing algorithm {:?}", signing_algorithm).into());
@@ -52,7 +54,7 @@ mod cmac_signer {
     }
 
     impl Cmac128Signer {
-        pub fn build(signing_key: &[u8; 16]) -> Result<Box<dyn SigningAlgo>, Box<dyn Error>> {
+        pub fn build(signing_key: &SigningKey) -> Result<Box<dyn SigningAlgo>, Box<dyn Error>> {
             Ok(Box::new(Cmac128Signer {
                 cmac: Some(Cmac::new_from_slice(signing_key)?),
             }))
@@ -86,9 +88,11 @@ mod gmac_signer {
 
     use super::*;
 
+    type Gmac128Nonce = [u8; 12];
+
     pub struct Gmac128Signer {
         gmac: Aes128Gcm,
-        nonce: OnceCell<[u8; 12]>,
+        nonce: OnceCell<Gmac128Nonce>,
         // no online mode implemented un RustCrypto,
         // so we'll buffer the input until finalized().
         buffer: Vec<u8>,
@@ -107,7 +111,7 @@ mod gmac_signer {
     }
 
     impl Gmac128Signer {
-        pub fn new(key: &[u8; 16]) -> Box<dyn SigningAlgo> {
+        pub fn new(key: &SigningKey) -> Box<dyn SigningAlgo> {
             let key = Key::<Aes128>::from_slice(key);
             Box::new(Gmac128Signer {
                 gmac: Aes128Gcm::new(&key),
@@ -116,7 +120,7 @@ mod gmac_signer {
             })
         }
 
-        fn make_nonce(header: &Header) -> [u8; 12] {
+        fn make_nonce(header: &Header) -> Gmac128Nonce {
             debug_assert!(header.message_id > 0 && header.message_id != u64::MAX);
 
             return NonceSuffixFlags::new()

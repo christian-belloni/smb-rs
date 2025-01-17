@@ -6,10 +6,10 @@ use ccm::{
 };
 use std::{error::Error, fmt::Debug};
 
-use crate::packets::smb2::negotiate::EncryptionCipher;
+use crate::packets::smb2::{negotiate::EncryptionCipher, encrypted::EncryptionNonce};
 
 pub struct EncryptionResult {
-    pub signature: [u8; 16],
+    pub signature: u128,
 }
 
 pub trait EncryptingAlgo: Debug {
@@ -18,20 +18,24 @@ pub trait EncryptingAlgo: Debug {
         &mut self,
         payload: &mut [u8],
         header_data: &[u8],
-        nonce: &[u8; 16],
+        nonce: &EncryptionNonce,
     ) -> Result<EncryptionResult, Box<dyn Error>>;
 
+    /// Algo-specific decryption function.
     fn decrypt(
         &mut self,
         payload: &mut [u8],
         header_data: &[u8],
-        nonce: &[u8; 16],
-        signature: &[u8; 16],
+        nonce: &EncryptionNonce,
+        signature: u128,
     ) -> Result<(), Box<dyn Error>>;
 
+    /// Returns the size of the nonce required by the encryption algorithm.
     fn nonce_size(&self) -> usize;
 
-    fn trim_nonce<'a>(&self, nonce: &'a [u8; 16]) -> &'a [u8] {
+    /// Returns the nonce to be used for encryption/decryption (trimmed to the required size),
+    /// as the rest of the nonce is expected to be zero.
+    fn trim_nonce<'a>(&self, nonce: &'a EncryptionNonce) -> &'a [u8] {
         // Sanity: the rest of the nonce is expected to be zero.
         debug_assert!(nonce[self.nonce_size()..].iter().all(|&x| x == 0));
         &nonce[..self.nonce_size()]
@@ -77,7 +81,7 @@ impl EncryptingAlgo for Ccm128Encrypter {
         &mut self,
         payload: &mut [u8],
         header_data: &[u8],
-        nonce: &[u8; 16],
+        nonce: &EncryptionNonce,
     ) -> Result<EncryptionResult, Box<dyn Error>> {
         let nonce = GenericArray::from_slice(self.trim_nonce(nonce));
         let signature = self
@@ -85,7 +89,7 @@ impl EncryptingAlgo for Ccm128Encrypter {
             .encrypt_in_place_detached(nonce, header_data, payload)?;
 
         Ok(EncryptionResult {
-            signature: signature.try_into()?,
+            signature: u128::from_le_bytes(signature.into()),
         })
     }
 
@@ -93,12 +97,16 @@ impl EncryptingAlgo for Ccm128Encrypter {
         &mut self,
         payload: &mut [u8],
         header_data: &[u8],
-        nonce: &[u8; 16],
-        signature: &[u8; 16],
+        nonce: &EncryptionNonce,
+        signature: u128,
     ) -> Result<(), Box<dyn Error>> {
         let nonce = GenericArray::from_slice(self.trim_nonce(nonce));
-        self.cipher
-            .decrypt_in_place_detached(nonce, header_data, payload, signature.into())?;
+        self.cipher.decrypt_in_place_detached(
+            nonce,
+            header_data,
+            payload,
+            &signature.to_le_bytes().into(),
+        )?;
 
         Ok(())
     }

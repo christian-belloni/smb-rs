@@ -3,12 +3,17 @@ use std::io::Cursor;
 use binrw::prelude::*;
 const SIGNATURE_SIZE: usize = 16;
 
+/// The nonce used for encryption.
+/// Depending on the encryption algorithm, the nonce may be trimmed to a smaller size when used,
+/// or padded with zeroes to match the required size. When transmitted, the full 16 bytes are used.
+pub type EncryptionNonce = [u8; 16];
+
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[brw(little, magic(b"\xfdSMB"))]
 pub struct EncryptedHeader {
-    pub signature: [u8; SIGNATURE_SIZE],
-    pub nonce: [u8; 16],
+    pub signature: u128,
+    pub nonce: EncryptionNonce,
     pub original_message_size: u32,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
@@ -58,10 +63,10 @@ mod tests {
         assert_eq!(
             EncryptedHeader::read(&mut Cursor::new(header)).unwrap(),
             EncryptedHeader {
-                signature: [
+                signature: u128::from_le_bytes([
                     0x92, 0x2e, 0xe8, 0xf2, 0xa0, 0x6e, 0x7a, 0xd4, 0x70, 0x22, 0xd7, 0x1d, 0xb,
                     0x2, 0x6b, 0x11,
-                ],
+                ]),
                 nonce: [
                     0xa, 0x57, 0x67, 0x55, 0x6d, 0xa0, 0x23, 0x73, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0,
                     0x0, 0x0,
@@ -75,10 +80,10 @@ mod tests {
     #[test]
     fn test_write_encrypted_header() {
         let header = EncryptedHeader {
-            signature: [
+            signature: u128::from_le_bytes([
                 0x2a, 0x45, 0x6c, 0x5d, 0xd0, 0xc3, 0x2d, 0xd4, 0x47, 0x85, 0x21, 0xf7, 0xf6, 0xa8,
                 0x87, 0x5b,
-            ],
+            ]),
             nonce: [
                 0xbe, 0xe6, 0xbf, 0xe5, 0xa1, 0xe6, 0x7b, 0xb1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
                 0x0,

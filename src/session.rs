@@ -296,7 +296,7 @@ impl MessageEncryptor {
         msg_in.write(&mut cursor)?;
         let mut serialized_message = cursor.into_inner();
         let mut header = EncryptedHeader {
-            signature: [0; 16],
+            signature: 0,
             nonce: self.gen_nonce(),
             original_message_size: serialized_message.len().try_into()?,
             session_id: msg_in.header.session_id,
@@ -306,7 +306,9 @@ impl MessageEncryptor {
             self.algo
                 .encrypt(&mut serialized_message, &header.aead_bytes(), &header.nonce)?;
 
-        header.signature.copy_from_slice(&result.signature);
+        header.signature = result.signature;
+
+        log::debug!("Encrypted message with signature: {:?}", header.signature);
 
         Ok(EncryptedMessage {
             header,
@@ -341,11 +343,17 @@ impl MessageDecryptor {
             &mut serialized_message,
             &msg_in.header.aead_bytes(),
             &msg_in.header.nonce,
-            &msg_in.header.signature,
+            msg_in.header.signature,
         )?;
 
         let mut cursor = Cursor::new(serialized_message);
         let message = PlainMessage::read(&mut cursor)?;
+
+        log::debug!(
+            "Decrypted message {} with signature {}",
+            message.header.message_id,
+            msg_in.header.signature
+        );
         Ok(message)
     }
 }
