@@ -413,7 +413,7 @@ mod tests {
 
     use crate::packets::smb2::{
         header::Header,
-        message::{Content, Message},
+        plain::{Content, PlainMessage},
     };
 
     use super::*;
@@ -431,9 +431,9 @@ mod tests {
                 .with_write(true)
                 .with_delete(true),
             create_disposition: CreateDisposition::Open,
-            create_options: dbg!(CreateOptions::new()
+            create_options: CreateOptions::new()
                 .with_synchronous_io_nonalert(true)
-                .with_disallow_exclusive(true)),
+                .with_disallow_exclusive(true),
             name: file_name.into(),
             contexts: vec![
                 CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
@@ -447,7 +447,7 @@ mod tests {
         };
 
         let mut data = Vec::new();
-        Message::new(Content::CreateRequest(request))
+        PlainMessage::new(Content::CreateRequest(request))
             .write(&mut Cursor::new(&mut data))
             .unwrap();
         let data_without_header = &data[Header::STRUCT_SIZE..];
@@ -493,7 +493,7 @@ mod tests {
             0x00, 0x00,
         ];
 
-        let m = match Message::read(&mut Cursor::new(&data)).unwrap().content {
+        let m = match PlainMessage::read(&mut Cursor::new(&data)).unwrap().content {
             Content::CreateResponse(m) => m,
             _ => panic!("Expected SMBCreateResponse"),
         };

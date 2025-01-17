@@ -1,18 +1,20 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    client::PreauthHashValue, packets::{
+    client::PreauthHashValue,
+    packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
             header::{Command, Status},
-            message::{Content, Message},
+            plain::*,
         },
-    }, session::{MessageEncryptor, MessageSigner}
+    },
+    session::{MessageDecryptor, MessageEncryptor, MessageSigner},
 };
 
 #[derive(Debug)]
 pub struct OutgoingMessage {
-    pub message: Message,
+    pub message: PlainMessage,
 
     // signing and encryption information
     pub signer: Option<MessageSigner>,
@@ -24,7 +26,7 @@ pub struct OutgoingMessage {
 }
 
 impl OutgoingMessage {
-    pub fn new(message: Message) -> OutgoingMessage {
+    pub fn new(message: PlainMessage) -> OutgoingMessage {
         OutgoingMessage {
             message,
             signer: None,
@@ -48,7 +50,7 @@ impl SendMessageResult {
 
 #[derive(Debug)]
 pub struct IncomingMessage {
-    pub message: Message,
+    pub message: PlainMessage,
     pub raw: NetBiosTcpMessage,
 }
 
@@ -58,7 +60,7 @@ pub struct IncomingMessage {
 /// ```
 /// use smb::packets::smb2::header::{Command, Status};
 /// use smb::msg_handler::ReceiveOptions;
-/// 
+///
 /// let options = ReceiveOptions::new()
 ///    .status(Status::Success)
 ///    .cmd(Some(Command::Negotiate));
@@ -71,6 +73,9 @@ pub struct ReceiveOptions {
 
     /// If set, this command will be checked against the received command.
     pub cmd: Option<Command>,
+
+    // If decryption is required, this will be set.
+    pub decryptor: Option<MessageDecryptor>,
 }
 
 impl ReceiveOptions {
@@ -94,6 +99,7 @@ impl Default for ReceiveOptions {
         ReceiveOptions {
             status: Status::Success,
             cmd: None,
+            decryptor: None,
         }
     }
 }
@@ -147,7 +153,7 @@ impl<T: MessageHandler> HandlerReference<T> {
     }
 
     pub fn send(&mut self, msg: Content) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
-        self.sendo(OutgoingMessage::new(Message::new(msg)))
+        self.sendo(OutgoingMessage::new(PlainMessage::new(msg)))
     }
 
     pub fn recvo(

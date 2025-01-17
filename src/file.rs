@@ -3,7 +3,7 @@ use std::io::prelude::*;
 use crate::packets::smb2::{
     file::{FlushRequest, ReadFlags, ReadRequest, WriteFlags, WriteRequest},
     fscc::FileAccessMask,
-    message::Content,
+    plain::Content,
 };
 
 use super::resource::ResourceHandle;

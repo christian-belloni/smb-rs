@@ -7,7 +7,7 @@ use std::{error::Error, io::prelude::*};
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let mut smb = Client::new();
-    smb.connect("172.16.197.128:445")?;
+    smb.connect("172.16.204.132:445")?;
     smb.negotiate()?;
     let mut session = smb.authenticate("LocalAdmin".to_string(), "123456".to_string())?;
     let mut tree = session.tree_connect(r"\\AVIVVM\MyShare".to_string())?;

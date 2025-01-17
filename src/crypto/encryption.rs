@@ -60,7 +60,7 @@ pub struct Ccm128Encrypter {
 impl Ccm128Encrypter {
     fn build(encrypting_key: &[u8; 16]) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
         Ok(Box::new(Ccm128Encrypter {
-            cipher: Aes128Ccm::new_from_slice(encrypting_key.as_ref())?,
+            cipher: Aes128Ccm::new_from_slice(dbg!(encrypting_key).as_ref())?,
         }))
     }
 }

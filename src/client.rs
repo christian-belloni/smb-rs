@@ -5,22 +5,14 @@ use sha2::{Digest, Sha512};
 use std::{cell::OnceCell, error::Error, fmt::Display};
 
 use crate::{
-    msg_handler::{
-        HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, SendMessageResult,
-    },
+    crypto,
+    msg_handler::*,
     netbios_client::NetBiosClient,
     packets::{
         netbios::{NetBiosMessageContent, NetBiosTcpMessage},
         smb1::SMB1NegotiateMessage,
-        smb2::{
-            header::Command,
-            message::Content,
-            negotiate::{
-                Dialect, HashAlgorithm, NegotiateDialect, NegotiateRequest, SigningAlgorithmId,
-            },
-        },
+        smb2::{encrypted::*, header::*, message::*, negotiate::*, plain::*},
     },
-    crypto,
     session::Session,
 };
 
@@ -282,6 +274,59 @@ impl ClientMessageHandler {
     pub fn negotiate_state(&self) -> Option<&SmbNegotiateState> {
         self.negotiate_state.get()
     }
+
+    /// Gets an OutgoingMessage ready for sending, performs crypto operations, and returns the
+    /// final bytes to be sent.
+    fn finalize_outgoing_message(
+        &mut self,
+        mut msg: OutgoingMessage,
+    ) -> Result<NetBiosTcpMessage, Box<dyn Error>> {
+        let is_signed_set = msg.message.header.flags.signed();
+
+        // Encrypt if required
+        if let Some(mut encryptor) = msg.encryptor.take() {
+            let encrypted = encryptor.encrypt_message(&msg.message)?;
+            return NetBiosTcpMessage::build(&NetBiosMessageContent::SMB2Message(
+                Message::Encrypted(encrypted),
+            ));
+        }
+
+        // Sign otherwise (if required)
+        let mut header_copy = msg.message.header.clone();
+        let content = NetBiosMessageContent::SMB2Message(Message::Plain(msg.message));
+        let mut raw_message_result = NetBiosTcpMessage::build(&content)?;
+        if let Some(mut signer) = msg.signer.take() {
+            assert!(is_signed_set);
+            signer.sign_message(&mut header_copy, &mut raw_message_result)?;
+        };
+
+        self.step_preauth_hash(&raw_message_result);
+
+        Ok(raw_message_result)
+    }
+
+    /// Given a NetBiosTcpMessage, decrypts (if necessary) and returns the plain SMB2 message.
+    fn parse_raw(
+        &mut self,
+        raw: &NetBiosTcpMessage,
+        options: &mut ReceiveOptions,
+    ) -> Result<PlainMessage, Box<dyn Error>> {
+        let smb2_message = match raw.parse()? {
+            NetBiosMessageContent::SMB2Message(smb2_message) => Some(smb2_message),
+            _ => None,
+        }
+        .ok_or("Expected SMB2 message")?;
+
+        let plain = match smb2_message {
+            Message::Plain(plain_message) => plain_message,
+            Message::Encrypted(encrypted_message) => match options.decryptor.take() {
+                Some(mut decryptor) => decryptor.decrypt_message(&encrypted_message)?,
+                None => return Err("Encrypted message received without decryptor".into()),
+            },
+        };
+
+        Ok(plain)
+    }
 }
 
 impl MessageHandler for ClientMessageHandler {
@@ -303,40 +348,27 @@ impl MessageHandler for ClientMessageHandler {
         msg.message.header.credit_charge = 1;
         msg.message.header.credit_request = 1;
 
-        let is_signed_set = msg.message.header.flags.signed();
+        let finalize_hash_required = msg.finalize_preauth_hash;
+        let final_message = self.finalize_outgoing_message(msg)?;
+        self.netbios_client.send_raw(final_message)?;
 
-        let mut header_copy = msg.message.header.clone();
-        let content = NetBiosMessageContent::SMB2Message(msg.message);
-        let mut raw_message_result = NetBiosTcpMessage::build(&content)?;
-        if let Some(mut signer) = msg.signer.take() {
-            assert!(is_signed_set);
-            signer.sign_message(&mut header_copy, &mut raw_message_result)?;
-        };
-
-        self.step_preauth_hash(&raw_message_result);
-        let hash = match msg.finalize_preauth_hash {
+        let hash = match finalize_hash_required {
             true => Some(self.finalize_preauth_hash()),
             false => None,
         };
-
-        self.netbios_client.send_raw(raw_message_result)?;
 
         Ok(SendMessageResult::new(hash.clone()))
     }
 
     fn hrecvo(
         &mut self,
-        options: crate::msg_handler::ReceiveOptions,
+        mut options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         let raw = self.netbios_client.recieve_bytes()?;
 
         self.step_preauth_hash(&raw);
 
-        let smb2_message = match raw.parse()? {
-            NetBiosMessageContent::SMB2Message(smb2_message) => Some(smb2_message),
-            _ => None,
-        }
-        .ok_or("Expected SMB2 message")?;
+        let smb2_message = self.parse_raw(&raw, &mut options)?;
 
         // Command matching (if needed).
         if let Some(cmd) = options.cmd {

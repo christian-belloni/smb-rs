@@ -15,10 +15,10 @@ use crate::{
     packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
-            encrypt::*,
+            encrypted::*,
             header::{Header, Status},
-            message::{Content, Message},
-            negotiate::SigningAlgorithmId,
+            negotiate::{EncryptionCipher, SigningAlgorithmId},
+            plain::{Content, PlainMessage},
             session_setup::{SessionFlags, SessionSetupRequest},
         },
     },
@@ -55,7 +55,7 @@ impl Session {
             GssAuthenticator::build(negotate_state.get_gss_token(), identity)?
         };
 
-        let request = OutgoingMessage::new(Message::new(Content::SessionSetupRequest(
+        let request = OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
             SessionSetupRequest::new(next_buf),
         )));
 
@@ -101,7 +101,7 @@ impl Session {
                 Some(next_buf) => {
                     // We'd like to update preauth hash with the last request before accept.
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
-                    let mut request = OutgoingMessage::new(Message::new(
+                    let mut request = OutgoingMessage::new(PlainMessage::new(
                         Content::SessionSetupRequest(SessionSetupRequest::new(next_buf)),
                     ));
                     let is_about_to_finish = authenticator.keys_exchanged() && !self.is_set_up;
@@ -144,10 +144,15 @@ impl Session {
             preauth_integrity_hash,
             b"SMBSigningKey\x00",
         )?);
-        self.handler.borrow_mut().encrypting_key = Some(Self::derive_signing_key(
+        self.handler.borrow_mut().s2c_decryption_key = Some(Self::derive_signing_key(
             exchanged_session_key,
             preauth_integrity_hash,
             b"SMBS2CCipherKey\x00",
+        )?);
+        self.handler.borrow_mut().c2s_encryption_key = Some(Self::derive_signing_key(
+            exchanged_session_key,
+            preauth_integrity_hash,
+            b"SMBC2SCipherKey\x00",
         )?);
         self.is_set_up = true;
         log::debug!("Session signing key set.");
@@ -276,12 +281,20 @@ pub struct MessageEncryptor {
     algo: Box<dyn crypto::EncryptingAlgo>,
 }
 
+#[derive(Debug)]
+pub struct MessageDecryptor {
+    algo: Box<dyn crypto::EncryptingAlgo>,
+}
+
 impl MessageEncryptor {
     pub fn new(algo: Box<dyn crypto::EncryptingAlgo>) -> MessageEncryptor {
         MessageEncryptor { algo }
     }
 
-    pub fn encrypt_message(&mut self, msg_in: Message) -> Result<EncryptedMessage, Box<dyn Error>> {
+    pub fn encrypt_message(
+        &mut self,
+        msg_in: &PlainMessage,
+    ) -> Result<EncryptedMessage, Box<dyn Error>> {
         debug_assert!(msg_in.header.session_id != 0);
         // Serialize message:
         let mut cursor = Cursor::new(vec![]);
@@ -297,7 +310,7 @@ impl MessageEncryptor {
         let result = self.algo.encrypt(
             &mut serialized_message,
             &header.aead_bytes(),
-            header.nonce.as_ref(),
+            &header.nonce[..self.algo.nonce_size()]
         )?;
 
         header.signature.copy_from_slice(&result.signature);
@@ -308,20 +321,6 @@ impl MessageEncryptor {
         })
     }
 
-    pub fn decrypt_message(&mut self, msg_in: EncryptedMessage) -> Result<Message, Box<dyn Error>> {
-        let mut serialized_message = msg_in.encrypted_message;
-        self.algo.decrypt(
-            &mut serialized_message,
-            &msg_in.header.aead_bytes(),
-            msg_in.header.nonce.as_ref(),
-            &msg_in.header.signature,
-        )?;
-
-        let mut cursor = Cursor::new(serialized_message);
-        let message = Message::read(&mut cursor)?;
-        Ok(message)
-    }
-
     fn gen_nonce(&self) -> [u8; 16] {
         let mut nonce = [0; 16];
         // Generate self.algo.nonce_size() random bytes:
@@ -330,10 +329,34 @@ impl MessageEncryptor {
     }
 }
 
+impl MessageDecryptor {
+    pub fn new(algo: Box<dyn crypto::EncryptingAlgo>) -> MessageDecryptor {
+        MessageDecryptor { algo }
+    }
+
+    pub fn decrypt_message(
+        &mut self,
+        msg_in: &EncryptedMessage,
+    ) -> Result<PlainMessage, Box<dyn Error>> {
+        let mut serialized_message = msg_in.encrypted_message.clone();
+        self.algo.decrypt(
+            &mut serialized_message,
+            &msg_in.header.aead_bytes(),
+            msg_in.header.nonce.as_ref(),
+            &msg_in.header.signature,
+        )?;
+
+        let mut cursor = Cursor::new(serialized_message);
+        let message = PlainMessage::read(&mut cursor)?;
+        Ok(message)
+    }
+}
+
 pub struct SessionMessageHandler {
     session_id: OnceCell<u64>,
     signing_key: Option<DerivedKeyValue>,
-    encrypting_key: Option<DerivedKeyValue>,
+    s2c_decryption_key: Option<DerivedKeyValue>,
+    c2s_encryption_key: Option<DerivedKeyValue>,
     signing_algo: SigningAlgorithmId,
     session_flags: SessionFlags,
 
@@ -351,7 +374,8 @@ impl SessionMessageHandler {
         HandlerReference::new(SessionMessageHandler {
             session_id: OnceCell::new(),
             signing_key: None,
-            encrypting_key: None,
+            s2c_decryption_key: None,
+            c2s_encryption_key: None,
             session_flags: SessionFlags::new(),
             signing_algo,
             upstream,
@@ -363,7 +387,8 @@ impl SessionMessageHandler {
     }
 
     pub fn should_encrypt(&self) -> bool {
-        self.encrypting_key.is_some() && self.session_flags.encrypt_data()
+        debug_assert!(self.s2c_decryption_key.is_some() == self.c2s_encryption_key.is_some());
+        self.s2c_decryption_key.is_some() && self.c2s_encryption_key.is_some() && self.session_flags.encrypt_data()
     }
 
     fn make_signer(&self) -> Result<MessageSigner, Box<dyn Error>> {
@@ -376,6 +401,42 @@ impl SessionMessageHandler {
         Ok(MessageSigner::new(
             crypto::make_signing_algo(self.signing_algo, self.signing_key.as_ref().unwrap())
                 .unwrap(),
+        ))
+    }
+
+    fn make_encryptor(&self) -> Result<MessageEncryptor, Box<dyn Error>> {
+        if !self.should_encrypt() {
+            return Err(
+                "Encrypting key is not set -- you must succeed a setup() to continue.".into(),
+            );
+        }
+
+        debug_assert!(self.s2c_decryption_key.is_some());
+
+        Ok(MessageEncryptor::new(
+            crypto::make_encrypting_algo(
+                EncryptionCipher::Aes128Ccm,
+                self.s2c_decryption_key.as_ref().unwrap(),
+            )
+            .unwrap(),
+        ))
+    }
+
+    fn make_decryptor(&self) -> Result<MessageDecryptor, Box<dyn Error>> {
+        if !self.should_encrypt() {
+            return Err(
+                "Encrypting key is not set -- you must succeed a setup() to continue.".into(),
+            );
+        }
+
+        debug_assert!(self.c2s_encryption_key.is_some());
+
+        Ok(MessageDecryptor::new(
+            crypto::make_encrypting_algo(
+                EncryptionCipher::Aes128Ccm,
+                self.c2s_encryption_key.as_ref().unwrap(),
+            )
+            .unwrap(),
         ))
     }
 }
@@ -392,7 +453,7 @@ impl MessageHandler for SessionMessageHandler {
         }
         // Encryption
         if self.should_encrypt() {
-            todo!();
+            msg.encryptor = Some(self.make_encryptor()?);
         }
         msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
         self.upstream.borrow_mut().hsendo(msg)
@@ -400,11 +461,11 @@ impl MessageHandler for SessionMessageHandler {
 
     fn hrecvo(
         &mut self,
-        options: crate::msg_handler::ReceiveOptions,
+        mut options: crate::msg_handler::ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         // Decryption
         if self.should_encrypt() {
-            todo!();
+            options.decryptor = Some(self.make_decryptor()?);
         }
         let mut incoming = self.upstream.borrow_mut().hrecvo(options)?;
         // TODO: check whether this is the correct case to do such a thing.

@@ -191,7 +191,7 @@ pub struct WriteFlags {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::message::{Content, Message};
+    use crate::packets::smb2::plain::{Content, PlainMessage};
 
     use super::*;
 
@@ -252,7 +252,7 @@ mod tests {
             0x50, 0x0, 0x6, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x62, 0x62,
             0x62, 0x62, 0x62, 0x62,
         ];
-        let parsed = Message::read(&mut Cursor::new(data)).unwrap();
+        let parsed = PlainMessage::read(&mut Cursor::new(data)).unwrap();
         // extract read response:
         let resp = match parsed.content {
             Content::ReadResponse(resp) => resp,
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     pub fn test_write_req_write() {
-        let msg = Message::new(Content::WriteRequest(WriteRequest {
+        let msg = PlainMessage::new(Content::WriteRequest(WriteRequest {
             offset: 0x1234abcd,
             file_id: [
                 0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,

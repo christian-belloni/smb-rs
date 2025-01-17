@@ -5,7 +5,7 @@ use crate::{
     packets::smb2::{
         create::CreateDisposition,
         fscc::FileAccessMask,
-        message::Content,
+        plain::Content,
         tree_connect::{TreeConnectRequest, TreeDisconnectRequest},
     },
     resource::Resource,

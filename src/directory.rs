@@ -1,4 +1,4 @@
-use crate::packets::smb2::{dir::*, fscc::*, message::*};
+use crate::packets::smb2::{dir::*, fscc::*, plain::*};
 
 use super::resource::ResourceHandle;
 

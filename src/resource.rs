@@ -7,7 +7,7 @@ use crate::{
     packets::{binrw_util::guid::Guid, smb2::{
         create::*,
         fscc::{FileAccessMask, FileAttributes},
-        message::Content,
+        plain::Content,
     }},
     directory::Directory,
     file::File,
