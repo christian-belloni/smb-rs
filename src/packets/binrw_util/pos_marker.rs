@@ -70,12 +70,30 @@ where
 {
     /// Call this write to fill a PosMarker value to the position of the written value.
     #[binrw::writer(writer, endian)]
-    pub fn write_and_fill_start_offset<U>(value: &U, this: &Self) -> BinResult<()>
+    pub fn write_and_fill_offset<U>(value: &U, this: &Self) -> BinResult<()>
     where
         U: BinWrite<Args<'static> = ()>,
     {
         this.do_writeback_offset(writer, endian)?;
         value.write_options(writer, endian, ())?;
+        Ok(())
+    }
+
+    #[binrw::writer(writer, endian)]
+    pub fn write_and_fill_offset_and_size<U, S>(
+        value: &U,
+        this_offset: &Self,
+        this_size: &PosMarker<S>,
+    ) -> BinResult<()>
+    where
+        U: BinWrite<Args<'static> = ()>,
+        S: BinWrite<Args<'static> = ()> + TryFrom<u64>,
+        S::Error: binrw::error::CustomError + 'static,
+    {
+        let start_offset = this_offset.do_writeback_offset(writer, endian)?;
+        value.write_options(writer, endian, ())?;
+        let total_size = writer.stream_position()? - start_offset;
+        this_size.do_writeback(total_size, writer, endian);
         Ok(())
     }
 
@@ -99,7 +117,7 @@ where
     }
 
     // Write the current position, relative to the stream start, to the PosMarker.
-    // Returns the written position.
+    // Returns the written position (the current offset)
     pub fn do_writeback_offset<W>(&self, writer: &mut W, endian: Endian) -> BinResult<u64>
     where
         W: binrw::io::Write + binrw::io::Seek,
@@ -178,7 +196,6 @@ where
         value.write_options(writer, endian, ())?;
         let end_offset = writer.stream_position()?;
         let size_written = end_offset - begin_offset;
-        // do_writeback(...):
         this.do_writeback(size_written, writer, endian)?;
         Ok(())
     }

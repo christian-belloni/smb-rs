@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             );
 
             for (i, item) in smbdirectory.query("*")?.iter().enumerate() {
-                log::info!("{i}| {}", item.file_name);
+                log::info!("{i}| {} {}", item.file_name, item.file_attributes.directory());
             }
         }
     }

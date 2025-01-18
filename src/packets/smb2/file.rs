@@ -96,7 +96,7 @@ pub struct ReadResponse {
     #[br(seek_before = SeekFrom::Start(_data_offset.value as u64))]
     #[br(count = _data_length)]
     #[bw(assert(buffer.len() > 0))] // sanity _data_length > 0 on write.
-    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_data_offset))]
+    #[bw(write_with = PosMarker::write_and_fill_offset, args(&_data_offset))]
     pub buffer: Vec<u8>,
 }
 
@@ -152,7 +152,7 @@ pub struct WriteRequest {
     pub flags: WriteFlags,
     #[br(seek_before = SeekFrom::Start(_data_offset.value as u64))]
     #[br(count = _length)]
-    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_data_offset))]
+    #[bw(write_with = PosMarker::write_and_fill_offset, args(&_data_offset))]
     pub buffer: Vec<u8>,
 }
 

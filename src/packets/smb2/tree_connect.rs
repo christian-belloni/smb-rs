@@ -28,7 +28,7 @@ pub struct TreeConnectRequest {
     // TODO: Support extension
     #[brw(little)]
     #[br(args(path_length as u64))]
-    #[bw(write_with=PosMarker::write_and_fill_start_offset, args(&_path_offset))]
+    #[bw(write_with=PosMarker::write_and_fill_offset, args(&_path_offset))]
     pub buffer: SizedWideString,
 }
 

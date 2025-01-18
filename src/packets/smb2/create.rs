@@ -39,7 +39,7 @@ pub struct CreateRequest {
     _create_contexts_length: PosMarker<u32>,
 
     #[brw(align_before = 8)]
-    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&_name_offset))]
+    #[bw(write_with = PosMarker::write_and_fill_offset, args(&_name_offset))]
     #[br(args(name_length as u64))]
     pub name: SizedWideString,
 

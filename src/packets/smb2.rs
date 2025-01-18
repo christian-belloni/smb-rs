@@ -10,3 +10,5 @@ pub mod negotiate;
 pub mod plain;
 pub mod session_setup;
 pub mod tree_connect;
+pub mod notify;
+pub mod file_id;

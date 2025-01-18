@@ -33,7 +33,7 @@ pub struct NegotiateRequest {
     // Align to 8 bytes.
     #[brw(if(dialects.contains(&Dialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
-    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
+    #[bw(write_with = PosMarker::write_and_fill_offset, args(&negotiate_context_offset))]
     pub negotiate_context_list: Option<Vec<NegotiateContext>>,
 }
 
@@ -156,12 +156,12 @@ pub struct NegotiateResponse {
     security_buffer_length: u16,
     negotiate_context_offset: PosMarker<u32>,
     #[br(count = security_buffer_length)]
-    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&security_buffer_offset))]
+    #[bw(write_with = PosMarker::write_and_fill_offset, args(&security_buffer_offset))]
     pub buffer: Vec<u8>,
 
     #[brw(if(matches!(dialect_revision, NegotiateDialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
-    #[bw(write_with = PosMarker::write_and_fill_start_offset, args(&negotiate_context_offset))]
+    #[bw(write_with = PosMarker::write_and_fill_offset, args(&negotiate_context_offset))]
     pub negotiate_context_list: Option<Vec<NegotiateContext>>,
 }
 

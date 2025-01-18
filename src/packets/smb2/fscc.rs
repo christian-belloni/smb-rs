@@ -217,3 +217,40 @@ pub struct BothDirectoryInformationItem {
     #[bw(calc = ())]
     _seek_next_if_exists: (),
 }
+
+
+#[binrw::binrw]
+#[bw(import(has_next: bool))]
+pub struct FileNotifyInformation {
+    #[br(assert(next_entry_offset.value % 4 == 0))]
+    next_entry_offset: PosMarker<u32>,
+    action: NotifyAction,
+    #[bw(try_calc = file_name.size().try_into())]
+    file_name_length: u32,
+    #[br(args(file_name_length.into()))]
+    file_name: SizedWideString,
+
+    // Handle next entry.
+    #[br(seek_before = next_entry_offset.seek_relative(true))]
+    #[bw(if(has_next))]
+    #[bw(align_before = 4)]
+    #[bw(write_with = PosMarker::write_and_fill_relative_offset, args(next_entry_offset))]
+    _seek_next: ()
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
+#[brw(repr(u32))]
+pub enum NotifyAction {
+    Added = 0x1,
+    Removed = 0x2,
+    Modified = 0x3,
+    RenamedOldName = 0x4,
+    RenamedNewName = 0x5,
+    AddedStream = 0x6,
+    RemovedStream = 0x7,
+    ModifiedStream = 0x8,
+    RemovedByDelete = 0x9,
+    IdNotTunnelled = 0xa,
+    TunnelledIdCollision = 0xb
+}
