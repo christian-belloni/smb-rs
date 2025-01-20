@@ -14,5 +14,6 @@ pub mod message;
 pub mod negotiate;
 pub mod notify;
 pub mod plain;
+pub mod security;
 pub mod session_setup;
 pub mod tree_connect;

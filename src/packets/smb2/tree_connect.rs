@@ -42,7 +42,7 @@ impl TreeConnectRequest {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TreeConnectResponse {
     #[bw(calc = 16)]
     #[br(assert(structure_size == 16))]
@@ -66,7 +66,7 @@ pub enum TreeConnectShareFlagsCacheMode {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct TreeShareFlags {
     pub dfs: bool,
@@ -96,7 +96,7 @@ pub struct TreeShareFlags {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct TreeCapabilities {
     #[skip]
@@ -113,7 +113,7 @@ pub struct TreeCapabilities {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[brw(repr(u8))]
 pub enum TreeConnectShareType {
     Disk = 0x1,
@@ -145,6 +145,8 @@ pub struct TreeDisconnectResponse {
 
 #[cfg(test)]
 pub mod tests {
+    use std::io::Cursor;
+
     use crate::packets::smb2::plain::{tests as plain_tests, Content};
 
     use super::*;
@@ -167,17 +169,18 @@ pub mod tests {
 
     #[test]
     pub fn test_tree_connect_res_parse() {
-        let data = plain_tests::encode_content(Content::TreeConnectResponse(
+        let mut cursor = Cursor::new(&[
+            0x10, 0x0, 0x1, 0x0, 0x0, 0x8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff, 0x1, 0x1f, 0x0,
+        ]);
+        let content_parsed = TreeConnectResponse::read_le(&mut cursor).unwrap();
+        assert_eq!(
+            content_parsed,
             TreeConnectResponse {
                 share_type: TreeConnectShareType::Disk,
                 share_flags: TreeShareFlags::new().with_access_based_directory_enum(true),
                 capabilities: TreeCapabilities::new(),
                 maximal_access: 0x001f01ff,
             }
-        ));
-        assert_eq!(
-            data,
-            [0x10, 0x0, 0x1, 0x0, 0x0, 0x8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff, 0x1, 0x1f, 0x0]
         )
     }
 }

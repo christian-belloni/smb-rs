@@ -14,12 +14,12 @@ pub struct SessionSetupRequest {
     pub capabilities: NegotiateCapabilities,
     pub channel: u32,
     #[bw(calc = PosMarker::default())]
-    _security_buffer_offset: PosMarker<u16>,
+    __security_buffer_offset: PosMarker<u16>,
     #[bw(calc = u16::try_from(buffer.len()).unwrap())]
     security_buffer_length: u16,
     pub previous_session_id: u64,
     #[br(count = security_buffer_length)]
-    #[bw(write_with = PosMarker::write_aoff, args(&_security_buffer_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&__security_buffer_offset))]
     pub buffer: Vec<u8>,
 }
 
@@ -72,11 +72,11 @@ pub struct SessionSetupResponse {
     structure_size: u16,
     pub session_flags: SessionFlags,
     #[bw(calc = PosMarker::default())]
-    pub security_buffer_offset: PosMarker<u16>,
+    _security_buffer_offset: PosMarker<u16>,
     #[bw(calc = u16::try_from(buffer.len()).unwrap())]
     security_buffer_length: u16,
     #[br(count = security_buffer_length)]
-    #[bw(write_with = PosMarker::write_aoff, args(&security_buffer_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&_security_buffer_offset))]
     pub buffer: Vec<u8>,
 }
 
@@ -115,11 +115,7 @@ pub struct LogoffResponse {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::{
-        packets::smb2::plain::{tests as plain_tests, Content, PlainMessage},
-        session::Session,
-    };
-    use std::io::Cursor;
+    use crate::packets::smb2::plain::{tests as plain_tests, Content};
 
     use super::*;
 

@@ -7,75 +7,75 @@ use super::*;
 #[brw(import(command: &Command, from_srv: bool))]
 pub enum Content {
     // negotiate
-    #[br(pre_assert(command == &Command::Negotiate && !from_srv))]
+    #[br(pre_assert(matches!(command, Command::Negotiate) && !from_srv))]
     NegotiateRequest(negotiate::NegotiateRequest),
-    #[br(pre_assert(command == &Command::Negotiate && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Negotiate) && from_srv))]
     NegotiateResponse(negotiate::NegotiateResponse),
 
     // session setup
-    #[br(pre_assert(command == &Command::SessionSetup && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::SessionSetup) && !from_srv))]
     SessionSetupRequest(session_setup::SessionSetupRequest),
-    #[br(pre_assert(command == &Command::SessionSetup && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::SessionSetup) && from_srv))]
     SessionSetupResponse(session_setup::SessionSetupResponse),
 
     // logoff
-    #[br(pre_assert(command == &Command::Logoff && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Logoff) && !from_srv))]
     LogoffRequest(session_setup::LogoffRequest),
-    #[br(pre_assert(command == &Command::Logoff && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Logoff) && from_srv))]
     LogoffResponse(session_setup::LogoffResponse),
 
     // tree connect
-    #[br(pre_assert(command == &Command::TreeConnect && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::TreeConnect) && !from_srv))]
     TreeConnectRequest(tree_connect::TreeConnectRequest),
-    #[br(pre_assert(command == &Command::TreeConnect && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::TreeConnect) && from_srv))]
     TreeConnectResponse(tree_connect::TreeConnectResponse),
 
     // tree disconnect
-    #[br(pre_assert(command == &Command::TreeDisconnect && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::TreeDisconnect) && !from_srv))]
     TreeDisconnectRequest(tree_connect::TreeDisconnectRequest),
-    #[br(pre_assert(command == &Command::TreeDisconnect && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::TreeDisconnect) && from_srv))]
     TreeDisconnectResponse(tree_connect::TreeDisconnectResponse),
 
     // create
-    #[br(pre_assert(command == &Command::Create && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Create) && !from_srv))]
     CreateRequest(create::CreateRequest),
-    #[br(pre_assert(command == &Command::Create && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Create) && from_srv))]
     CreateResponse(create::CreateResponse),
 
     // close
-    #[br(pre_assert(command == &Command::Close && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Close) && !from_srv))]
     CloseRequest(create::CloseRequest),
-    #[br(pre_assert(command == &Command::Close && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Close) && from_srv))]
     CloseResponse(create::CloseResponse),
 
     // flush
-    #[br(pre_assert(command == &Command::Flush && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Flush) && !from_srv))]
     FlushRequest(file::FlushRequest),
-    #[br(pre_assert(command == &Command::Flush && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Flush) && from_srv))]
     FlushResponse(file::FlushResponse),
 
     // read
-    #[br(pre_assert(command == &Command::Read && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Read) && !from_srv))]
     ReadRequest(file::ReadRequest),
-    #[br(pre_assert(command == &Command::Read && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Read) && from_srv))]
     ReadResponse(file::ReadResponse),
 
     // write
-    #[br(pre_assert(command == &Command::Write && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Write) && !from_srv))]
     WriteRequest(file::WriteRequest),
-    #[br(pre_assert(command == &Command::Write && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::Write) && from_srv))]
     WriteResponse(file::WriteResponse),
 
     // query directory
-    #[br(pre_assert(command == &Command::QueryDirectory && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::QueryDirectory) && !from_srv))]
     QueryDirectoryRequest(dir::QueryDirectoryRequest),
-    #[br(pre_assert(command == &Command::QueryDirectory && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::QueryDirectory) && from_srv))]
     QueryDirectoryResponse(dir::QueryDirectoryResponse),
 
     // query info
-    #[br(pre_assert(command == &Command::QueryInfo && !from_srv))]
+    #[br(pre_assert(matches!(command, &Command::QueryInfo) && !from_srv))]
     QueryInfoRequest(info::QueryInfoRequest),
-    #[br(pre_assert(command == &Command::QueryInfo && from_srv))]
+    #[br(pre_assert(matches!(command, &Command::QueryInfo) && from_srv))]
     QueryInfoResponse(info::QueryInfoResponse),
 
     // error response

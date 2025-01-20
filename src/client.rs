@@ -11,7 +11,7 @@ use crate::{
     packets::{
         netbios::{NetBiosMessageContent, NetBiosTcpMessage},
         smb1::SMB1NegotiateMessage,
-        smb2::{encrypted::*, header::*, message::*, negotiate::*, plain::*},
+        smb2::{header::*, message::*, negotiate::*, plain::*},
     },
     session::Session,
 };

@@ -270,13 +270,15 @@ where
     }
 
     #[binrw::writer(writer, endian)]
-    pub fn write_aoff_size<U>(
+    pub fn write_aoff_size<U, S>(
         value: &U,
-        write_offset_to: &Self,
+        write_offset_to: &PosMarker<S>,
         write_size_to: &Self,
     ) -> BinResult<()>
     where
         U: BinWrite<Args<'static> = ()>,
+        S: BinWrite<Args<'static> = ()> + TryFrom<u64>,
+        S::Error: binrw::error::CustomError + 'static,
     {
         let no_base: Option<&PosMarker<T>> = None;
         Self::write_hero(

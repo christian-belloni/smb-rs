@@ -16,7 +16,7 @@ pub struct QueryDirectoryRequest {
     #[bw(calc = 33)]
     #[br(assert(_structure_size == 33))]
     _structure_size: u16,
-    pub file_information_class: FileInformationClass,
+    pub file_information_class: FileInfoClass,
     pub flags: QueryDirectoryFlags,
     // If SMB2_INDEX_SPECIFIED is set in Flags, this value MUST be supplied.
     // Otherwise, it MUST be set to zero and the server MUST ignore it.
@@ -31,7 +31,7 @@ pub struct QueryDirectoryRequest {
     #[br(seek_before = SeekFrom::Start(file_name_offset.value as u64))]
     // map stream take until eof:
     #[br(args(file_name_length as u64))]
-    #[bw(write_with = PosMarker::write_roff, args(&file_name_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&file_name_offset))]
     pub file_name: SizedWideString,
 }
 
@@ -59,7 +59,7 @@ pub struct QueryDirectoryResponse {
     output_buffer_length: u32,
     #[br(seek_before = SeekFrom::Start(output_buffer_offset.value as u64))]
     #[br(map_stream = |s| s.take_seek(output_buffer_length as u64), parse_with = binrw::helpers::until_eof)]
-    #[bw(write_with = PosMarker::write_roff, args(&output_buffer_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&output_buffer_offset))]
     pub output_buffer: Vec<u8>,
 }
 
@@ -117,10 +117,10 @@ mod tests {
         ];
         let result = DirectoryInfoVector::read_args(
             &mut Cursor::new(&data),
-            (FileInformationClass::IdBothDirectoryInformation,),
+            (FileInfoClass::IdBothDirectoryInformation,),
         )
         .unwrap();
-        
+
         // TODO: Test the contents of the result, not just that it parses.
 
         dbg!(&result);

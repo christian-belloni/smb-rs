@@ -1,12 +1,8 @@
 use std::io::prelude::*;
 
-use crate::packets::smb2::{
-    file::{FlushRequest, ReadFlags, ReadRequest, WriteFlags, WriteRequest},
-    fscc::FileAccessMask,
-    plain::Content,
-};
+use crate::packets::smb2::{file::*, fscc::*, info::*, plain::*};
 
-use super::resource::ResourceHandle;
+use super::resource::*;
 
 pub struct File {
     pub handle: ResourceHandle,
@@ -27,6 +23,35 @@ impl File {
             access,
             end_of_file,
         }
+    }
+
+    pub fn query_info(&mut self) -> Result<FileBasicInformation, Box<dyn std::error::Error>> {
+        let response = self
+            .handle
+            .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
+                info_type: QueryInfoType::File,
+                file_info_class: FileInfoClass::BasicInformation,
+                output_buffer_length: 1024,
+                additional_information: QueryAdditionalInfo::new(),
+                flags: QueryInfoFlags::new()
+                    .with_restart_scan(true)
+                    .with_return_single_entry(true),
+                file_id: self.handle.file_id(),
+                data: QueryInfoRequestData::None(()),
+            }))?;
+        let query_info_response = match response.message.content {
+            Content::QueryInfoResponse(response) => response,
+            _ => panic!("Unexpected response"),
+        };
+        let result = query_info_response
+            .parse(QueryInfoType::File)?
+            .unwrap_file()
+            .parse(FileInfoClass::BasicInformation)?;
+        let result = match result {
+            FileInfo::BasicInformation(val) => val,
+            _ => panic!("Unexpected response"),
+        };
+        Ok(result)
     }
 }
 

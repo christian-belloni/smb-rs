@@ -26,7 +26,7 @@ impl Directory {
         let response =
             self.handle
                 .send_receive(Content::QueryDirectoryRequest(QueryDirectoryRequest {
-                    file_information_class: FileInformationClass::IdBothDirectoryInformation,
+                    file_information_class: FileInfoClass::IdBothDirectoryInformation,
                     flags: QueryDirectoryFlags::new().with_restart_scans(true),
                     file_index: 0,
                     file_id: self.handle.file_id(),
@@ -40,7 +40,7 @@ impl Directory {
         };
         let result = match DirectoryInfoVector::parse(
             &content.output_buffer,
-            FileInformationClass::IdBothDirectoryInformation,
+            FileInfoClass::IdBothDirectoryInformation,
         )? {
             DirectoryInfoVector::IdBothDirectoryInformation(val) => val,
         };

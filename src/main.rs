@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut session = smb.authenticate("LocalAdmin".to_string(), "123456".to_string())?;
     let mut tree = session.tree_connect(r"\\AVIVVM\MyShare".to_string())?;
     let file = tree.create(
-        "".to_string(),
+        r"hello\a.txts".to_string(),
         CreateDisposition::Open,
         FileAccessMask::new()
             .with_generic_read(true)
@@ -25,6 +25,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 smbfile.handle.created(),
                 smbfile.handle.modified()
             );
+
+            // Begin by querying more information about this file.
+            let info = smbfile.query_info()?;
+            log::info!("File info: {:?}", info);
 
             // Let's read some data from the file.
             let mut buf = [0; 1024];
@@ -43,9 +47,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             for (i, item) in smbdirectory.query("*")?.iter().enumerate() {
                 log::info!(
-                    "{i}| {} {}",
+                    "{i}|{} {}",
+                    if item.file_attributes.directory() {
+                        "d"
+                    } else {
+                        "f"
+                    },
                     item.file_name,
-                    item.file_attributes.directory()
                 );
             }
         }

@@ -14,10 +14,9 @@ pub struct CancelRequest {
 
 impl Default for CancelRequest {
     fn default() -> Self {
-        CancelRequest { }
+        CancelRequest {}
     }
 }
-
 
 #[cfg(test)]
 pub mod tests {
@@ -28,11 +27,6 @@ pub mod tests {
         let mut cursor = std::io::Cursor::new(Vec::new());
         let cancel_req = CancelRequest::default();
         cancel_req.write_le(&mut cursor).unwrap();
-        assert_eq!(
-            cursor.into_inner(),
-            [
-                0x4, 0x0, 0x0, 0x0
-            ]
-        )
+        assert_eq!(cursor.into_inner(), [0x4, 0x0, 0x0, 0x0])
     }
 }

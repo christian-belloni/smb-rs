@@ -2,7 +2,7 @@
 //!
 //! The FSCC types are widely used in SMB messages.
 
-use std::io::{Cursor, SeekFrom};
+use std::io::Cursor;
 
 use binrw::{io::TakeSeekExt, prelude::*, NullString};
 use modular_bitfield::prelude::*;
@@ -133,43 +133,25 @@ impl From<FileAccessMask> for DirAccessMask {
     }
 }
 
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
-#[brw(repr = u8)]
-pub enum FileInformationClass {
-    DirectoryInformation = 0x01,
-    FullDirectoryInformation = 0x02,
-    IdFullDirectoryInformation = 0x26,
-    BothDirectoryInformation = 0x03,
-    IdBothDirectoryInformation = 0x25,
-    NamesInformation = 0x0C,
-    IdExtdDirectoryInformation = 0x3c,
-    Id64ExtdDirectoryInformation = 0x4e,
-    Id64ExtdBothDirectoryInformation = 0x4f,
-    IdAllExtdDirectoryInformation = 0x50,
-    IdAllExtdBothDirectoryInformation = 0x51,
-    // reserved.
-    InformationClassReserved = 0x64,
-}
-
 #[binrw::binrw]
 #[derive(Debug)]
-#[brw(import(c: FileInformationClass))]
+#[brw(import(c: FileInfoClass))]
 #[brw(little)]
 pub enum DirectoryInfoVector {
-    #[br(pre_assert(c == FileInformationClass::IdBothDirectoryInformation))]
+    #[br(pre_assert(c == FileInfoClass::IdBothDirectoryInformation))]
     IdBothDirectoryInformation(IdBothDirectoryInfoVector),
 }
 
 impl DirectoryInfoVector {
-    pub fn parse(payload: &[u8], class: FileInformationClass) -> Result<Self, binrw::Error> {
+    pub fn parse(payload: &[u8], class: FileInfoClass) -> Result<Self, binrw::Error> {
         let mut cursor = Cursor::new(payload);
         Self::read_args(&mut cursor, (class,))
     }
 }
 
 impl DirectoryInfoVector {
-    pub const SUPPORTED_CLASSES: [FileInformationClass; 1] =
-        [FileInformationClass::DirectoryInformation];
+    pub const SUPPORTED_DIRECTORY_CLASSES: [FileInfoClass; 1] =
+        [FileInfoClass::DirectoryInformation];
 }
 
 #[binrw::binrw]
@@ -233,7 +215,7 @@ pub struct FileNotifyInformation {
     #[br(seek_before = next_entry_offset.seek_relative(true))]
     #[bw(if(has_next))]
     #[bw(align_before = 4)]
-    #[bw(write_with = PosMarker::write_roff, args(next_entry_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(next_entry_offset))]
     _seek_next: (),
 }
 
@@ -269,7 +251,7 @@ pub struct FileGetEaInformation {
     // Seek to next item if exists.
     #[br(seek_before = next_entry_offset.seek_relative(true))]
     #[bw(if(has_next))]
-    #[bw(write_with = PosMarker::write_roff, args(&next_entry_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&next_entry_offset))]
     pub _seek_next_if_exists: (),
 }
 
@@ -298,6 +280,9 @@ impl FileGetEaInformation {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u8))]
 pub enum FileInfoClass {
+    /// this value is not specified in FSCC, but we need it for SMB.
+    None = 0,
+    // File stuff
     AccessInformation = 8,
     AlignmentInformation = 17,
     AllInformation = 18,
@@ -318,4 +303,95 @@ pub enum FileInfoClass {
     PositionInformation = 14,
     StandardInformation = 5,
     StreamInformation = 22,
+
+    // Directory stuff
+    DirectoryInformation = 0x01,
+    FullDirectoryInformation = 0x02,
+    IdFullDirectoryInformation = 0x26,
+    BothDirectoryInformation = 0x03,
+    IdBothDirectoryInformation = 0x25,
+    NamesInformation = 0x0C,
+    IdExtdDirectoryInformation = 0x3c,
+    Id64ExtdDirectoryInformation = 0x4e,
+    Id64ExtdBothDirectoryInformation = 0x4f,
+    IdAllExtdDirectoryInformation = 0x50,
+    IdAllExtdBothDirectoryInformation = 0x51,
+
+    // reserved.
+    InformationClassReserved = 0x64,
+}
+
+impl FileInfoClass {
+    pub const DIRECTORY_CLASSES: [Self; 11] = [
+        Self::DirectoryInformation,
+        Self::FullDirectoryInformation,
+        Self::IdFullDirectoryInformation,
+        Self::IdBothDirectoryInformation,
+        Self::BothDirectoryInformation,
+        Self::IdExtdDirectoryInformation,
+        Self::Id64ExtdDirectoryInformation,
+        Self::Id64ExtdBothDirectoryInformation,
+        Self::IdAllExtdDirectoryInformation,
+        Self::IdAllExtdBothDirectoryInformation,
+        Self::NamesInformation,
+    ];
+
+    pub const FILE_CLASSES: [Self; 20] = [
+        Self::AccessInformation,
+        Self::AlignmentInformation,
+        Self::AllInformation,
+        Self::AlternateNameInformation,
+        Self::AttributeTagInformation,
+        Self::BasicInformation,
+        Self::CompressionInformation,
+        Self::EaInformation,
+        Self::FullEaInformation,
+        Self::IdInformation,
+        Self::InternalInformation,
+        Self::ModeInformation,
+        Self::NetworkOpenInformation,
+        Self::NormalizedNameInformation,
+        Self::PipeInformation,
+        Self::PipeLocalInformation,
+        Self::PipeRemoteInformation,
+        Self::PositionInformation,
+        Self::StandardInformation,
+        Self::StreamInformation,
+    ];
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+#[brw(import(c: FileInfoClass), little)]
+#[brw(assert(c != FileInfoClass::None))]
+pub enum FileInfo {
+    #[br(pre_assert(c == FileInfoClass::BasicInformation))]
+    BasicInformation(FileBasicInformation),
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileBasicInformation {
+    pub creation_time: FileTime,
+    pub last_access_time: FileTime,
+    pub last_write_time: FileTime,
+    pub change_time: FileTime,
+    pub file_attributes: FileAttributes,
+    #[bw(calc = 0)]
+    #[br(assert(_reserved == 0))]
+    _reserved: u32,
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct FileQuotaInformation {
+    _next_entry_offset: u32,
+    sid_length: u32,
+    change_time: FileTime,
+    quota_used: u64,
+    quota_threshold: u64,
+    quota_limit: u64,
+    // TODO: Parse properly.
+    #[br(count = sid_length)]
+    sid: Vec<u8>,
 }

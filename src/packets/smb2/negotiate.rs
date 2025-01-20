@@ -152,13 +152,13 @@ pub struct NegotiateResponse {
     pub system_time: FileTime,
     pub server_start_time: FileTime,
     #[bw(calc = PosMarker::default())]
-    security_buffer_offset: PosMarker<u16>,
+    _security_buffer_offset: PosMarker<u16>,
     #[bw(try_calc(u16::try_from(buffer.len())))]
     security_buffer_length: u16,
     #[bw(calc = PosMarker::default())]
     negotiate_context_offset: PosMarker<u32>,
     #[br(count = security_buffer_length)]
-    #[bw(write_with = PosMarker::write_aoff, args(&security_buffer_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&_security_buffer_offset))]
     pub buffer: Vec<u8>,
 
     #[brw(if(matches!(dialect_revision, NegotiateDialect::Smb0311)), align_before = 8)]

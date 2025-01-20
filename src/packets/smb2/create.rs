@@ -413,12 +413,7 @@ pub struct CloseFlags {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
-    use crate::packets::smb2::{
-        header::Header,
-        plain::{tests as plain_tests, Content, PlainMessage},
-    };
+    use crate::packets::smb2::plain::{tests as plain_tests, Content};
 
     use super::*;
 
@@ -449,8 +444,7 @@ mod tests {
                 CreateContext::new(CreateContextData::QFidReq(())),
             ],
         };
-        let data_without_header =
-            plain_tests::encode_content(Content::CreateRequest(request));
+        let data_without_header = plain_tests::encode_content(Content::CreateRequest(request));
         assert_eq!(
             data_without_header,
             vec![
@@ -492,12 +486,10 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00,
         ];
-
-        let m = match PlainMessage::read(&mut Cursor::new(&data)).unwrap().content {
+        let m = match plain_tests::decode_content(&data).content {
             Content::CreateResponse(m) => m,
             _ => panic!("Expected SMBCreateResponse"),
         };
-
         assert_eq!(
             m,
             CreateResponse {

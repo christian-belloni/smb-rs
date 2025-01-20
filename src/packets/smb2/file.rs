@@ -25,7 +25,7 @@ pub struct FlushRequest {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FlushResponse {
     #[bw(calc = 4)]
     #[br(assert(_structure_size == 4))]
@@ -193,7 +193,7 @@ pub struct WriteFlags {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::plain::{Content, PlainMessage, tests as plain_tests};
+    use crate::packets::smb2::plain::{tests as plain_tests, Content, PlainMessage};
 
     use super::*;
 
@@ -216,6 +216,16 @@ mod tests {
                 0x51, 0x0, 0x10, 0x0, 0xc, 0x0, 0x0, 0x0
             ]
         )
+    }
+
+    #[test]
+    pub fn test_flush_res_parse() {
+        let data = [
+            0x4u8, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let mut cursor = Cursor::new(data);
+        let resp = FlushResponse::read_le(&mut cursor).unwrap();
+        assert_eq!(resp, FlushResponse {});
     }
 
     #[test]
