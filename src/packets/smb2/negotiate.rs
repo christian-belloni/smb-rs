@@ -109,7 +109,7 @@ impl NegotiateRequest {
                 NegotiateContext {
                     context_type: NegotiateContextType::CompressionCapabilities,
                     data: NegotiateContextValue::CompressionCapabilities(CompressionCapabilities {
-                        flags: CompressionCapabilitiesFlags::new().with_chained(false),
+                        flags: CompressionCapabilitiesFlags::new().with_chained(true),
                         compression_algorithms: vec![CompressionAlgorithm::None],
                     }),
                 },
@@ -386,6 +386,19 @@ pub enum CompressionAlgorithm {
     LZ77Huffman = 0x0003,
     PatternV1 = 0x0004,
     LZ4 = 0x0005,
+}
+
+impl CompressionAlgorithm {
+    /// Relevant for processing compressed messages.
+    pub fn original_payload_size_required(&self) -> bool {
+        matches!(
+            self,
+            CompressionAlgorithm::LZNT1
+                | CompressionAlgorithm::LZ77
+                | CompressionAlgorithm::LZ77Huffman
+                | CompressionAlgorithm::LZ4
+        )
+    }
 }
 
 #[bitfield]
