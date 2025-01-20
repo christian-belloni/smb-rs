@@ -1,3 +1,5 @@
+//! File-related messages: Flush, Read, Write.
+
 use std::io::SeekFrom;
 
 use binrw::prelude::*;
@@ -96,7 +98,7 @@ pub struct ReadResponse {
     #[br(seek_before = SeekFrom::Start(_data_offset.value as u64))]
     #[br(count = _data_length)]
     #[bw(assert(buffer.len() > 0))] // sanity _data_length > 0 on write.
-    #[bw(write_with = PosMarker::write_and_fill_offset, args(&_data_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&_data_offset))]
     pub buffer: Vec<u8>,
 }
 
@@ -152,7 +154,7 @@ pub struct WriteRequest {
     pub flags: WriteFlags,
     #[br(seek_before = SeekFrom::Start(_data_offset.value as u64))]
     #[br(count = _length)]
-    #[bw(write_with = PosMarker::write_and_fill_offset, args(&_data_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&_data_offset))]
     pub buffer: Vec<u8>,
 }
 
@@ -191,7 +193,7 @@ pub struct WriteFlags {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::plain::{Content, PlainMessage};
+    use crate::packets::smb2::plain::{Content, PlainMessage, tests as plain_tests};
 
     use super::*;
 
@@ -233,8 +235,9 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         req.write_le(&mut cursor).unwrap();
         let data = cursor.into_inner();
-        assert![
-            data == [
+        assert_eq![
+            data,
+            [
                 0x31, 0x0, 0x0, 0x0, 0x40, 0x30, 0x20, 0x10, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07,
                 0x06, 0x05, 0x3, 0x3, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0xc5, 0x0, 0x0, 0x0, 0xc, 0x0,
                 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
@@ -260,8 +263,9 @@ mod tests {
             Content::ReadResponse(resp) => resp,
             _ => panic!("Unexpected message type"),
         };
-        assert!(
-            resp == ReadResponse {
+        assert_eq!(
+            resp,
+            ReadResponse {
                 buffer: b"bbbbbb".to_vec(),
             }
         );
@@ -269,7 +273,7 @@ mod tests {
 
     #[test]
     pub fn test_write_req_write() {
-        let msg = PlainMessage::new(Content::WriteRequest(WriteRequest {
+        let data = plain_tests::encode_content(Content::WriteRequest(WriteRequest {
             offset: 0x1234abcd,
             file_id: [
                 0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,
@@ -279,21 +283,15 @@ mod tests {
             flags: WriteFlags::new(),
             buffer: "MeFriend!THIS IS FINE!".as_bytes().to_vec(),
         }));
-
-        let mut cursor = Cursor::new(Vec::new());
-        msg.write(&mut cursor).unwrap();
-        let data = cursor.into_inner();
-        // Skip header for tests matter.
-        let data = &data[Header::STRUCT_SIZE..];
-        assert!(
-            dbg!(data)
-                == [
-                    0x31, 0x0, 0x70, 0x0, 0x16, 0x0, 0x0, 0x0, 0xcd, 0xab, 0x34, 0x12, 0x0, 0x0,
-                    0x0, 0x0, 0x14, 0x4, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x51, 0x0, 0x10, 0x0, 0xc,
-                    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-                    0x0, 0x0, 0x0, 0x4d, 0x65, 0x46, 0x72, 0x69, 0x65, 0x6e, 0x64, 0x21, 0x54,
-                    0x48, 0x49, 0x53, 0x20, 0x49, 0x53, 0x20, 0x46, 0x49, 0x4e, 0x45, 0x21
-                ]
+        assert_eq!(
+            data,
+            [
+                0x31, 0x0, 0x70, 0x0, 0x16, 0x0, 0x0, 0x0, 0xcd, 0xab, 0x34, 0x12, 0x0, 0x0, 0x0,
+                0x0, 0x14, 0x4, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x51, 0x0, 0x10, 0x0, 0xc, 0x0, 0x0,
+                0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0x0, 0x4d, 0x65, 0x46, 0x72, 0x69, 0x65, 0x6e, 0x64, 0x21, 0x54, 0x48, 0x49, 0x53,
+                0x20, 0x49, 0x53, 0x20, 0x46, 0x49, 0x4e, 0x45, 0x21
+            ]
         );
     }
 
@@ -304,6 +302,6 @@ mod tests {
         ];
         let mut cursor = Cursor::new(data);
         let resp = WriteResponse::read_le(&mut cursor).unwrap();
-        assert!(resp == WriteResponse { count: 0xbeefbaaf });
+        assert_eq!(resp, WriteResponse { count: 0xbeefbaaf });
     }
 }

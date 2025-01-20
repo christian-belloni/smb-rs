@@ -1,11 +1,11 @@
 use aes::{
-    cipher::{BlockCipher, BlockEncrypt, BlockSizeUser, generic_array::GenericArray},
+    cipher::{generic_array::GenericArray, BlockCipher, BlockEncrypt, BlockSizeUser},
     Aes128, Aes256,
 };
 use ccm::{
     aead::AeadMutInPlace,
     consts::{U11, U16},
-    Ccm, KeyInit, KeySizeUser
+    Ccm, KeyInit, KeySizeUser,
 };
 use std::{error::Error, fmt::Debug};
 
@@ -74,9 +74,11 @@ where
 
 impl<C> CcmEncryptor<C>
 where
-    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + KeyInit + 'static
+    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + KeyInit + 'static,
 {
-    fn build(encrypting_key: &GenericArray<u8, <C as KeySizeUser>::KeySize>) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
+    fn build(
+        encrypting_key: &GenericArray<u8, <C as KeySizeUser>::KeySize>,
+    ) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
         Ok(Box::new(Self {
             cipher: Ccm::<C, U16, U11>::new_from_slice(encrypting_key)?,
         }))

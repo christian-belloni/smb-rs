@@ -6,7 +6,7 @@ use super::super::binrw_util::prelude::*;
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct TreeConnectRquestFlags {
+pub struct TreeConnectRequestFlags {
     pub cluster_reconnect: bool,
     pub redirect_to_owner: bool,
     pub extension_present: bool,
@@ -20,7 +20,7 @@ pub struct TreeConnectRequest {
     #[bw(calc = 9)]
     #[br(assert(structure_size == 9))]
     structure_size: u16,
-    pub flags: TreeConnectRquestFlags,
+    pub flags: TreeConnectRequestFlags,
     #[bw(calc = PosMarker::default())]
     _path_offset: PosMarker<u16>,
     #[bw(try_calc = buffer.size().try_into())]
@@ -28,14 +28,14 @@ pub struct TreeConnectRequest {
     // TODO: Support extension
     #[brw(little)]
     #[br(args(path_length as u64))]
-    #[bw(write_with=PosMarker::write_and_fill_offset, args(&_path_offset))]
+    #[bw(write_with=PosMarker::write_aoff, args(&_path_offset))]
     pub buffer: SizedWideString,
 }
 
 impl TreeConnectRequest {
     pub fn new(name: &String) -> TreeConnectRequest {
         TreeConnectRequest {
-            flags: TreeConnectRquestFlags::new(),
+            flags: TreeConnectRequestFlags::new(),
             buffer: name.clone().into(),
         }
     }
@@ -116,9 +116,9 @@ pub struct TreeCapabilities {
 #[derive(Debug)]
 #[brw(repr(u8))]
 pub enum TreeConnectShareType {
-    Disk,
-    Pipe,
-    Print,
+    Disk = 0x1,
+    Pipe = 0x2,
+    Print = 0x3,
 }
 
 #[binrw::binrw]
@@ -141,4 +141,43 @@ pub struct TreeDisconnectResponse {
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
     reserved: u16,
+}
+
+#[cfg(test)]
+pub mod tests {
+    use crate::packets::smb2::plain::{tests as plain_tests, Content};
+
+    use super::*;
+
+    #[test]
+    pub fn test_tree_connect_req_write() {
+        let result = plain_tests::encode_content(Content::TreeConnectRequest(
+            TreeConnectRequest::new(&r"\\127.0.0.1\MyShare".into()),
+        ));
+        assert_eq!(
+            result,
+            [
+                0x9, 0x0, 0x0, 0x0, 0x48, 0x0, 0x26, 0x0, 0x5c, 0x0, 0x5c, 0x0, 0x31, 0x0, 0x32,
+                0x0, 0x37, 0x0, 0x2e, 0x0, 0x30, 0x0, 0x2e, 0x0, 0x30, 0x0, 0x2e, 0x0, 0x31, 0x0,
+                0x5c, 0x0, 0x4d, 0x0, 0x79, 0x0, 0x53, 0x0, 0x68, 0x0, 0x61, 0x0, 0x72, 0x0, 0x65,
+                0x0
+            ]
+        );
+    }
+
+    #[test]
+    pub fn test_tree_connect_res_parse() {
+        let data = plain_tests::encode_content(Content::TreeConnectResponse(
+            TreeConnectResponse {
+                share_type: TreeConnectShareType::Disk,
+                share_flags: TreeShareFlags::new().with_access_based_directory_enum(true),
+                capabilities: TreeCapabilities::new(),
+                maximal_access: 0x001f01ff,
+            }
+        ));
+        assert_eq!(
+            data,
+            [0x10, 0x0, 0x1, 0x0, 0x0, 0x8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff, 0x1, 0x1f, 0x0]
+        )
+    }
 }

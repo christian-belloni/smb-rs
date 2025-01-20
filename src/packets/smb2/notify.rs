@@ -1,12 +1,11 @@
 use std::io::SeekFrom;
 
-use binrw::prelude::*;
 use binrw::io::TakeSeekExt;
+use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use crate::packets::binrw_util::prelude::*;
 use super::fscc::*;
-use super::file_id::*;
+use crate::packets::binrw_util::prelude::*;
 
 #[binrw::binrw]
 pub struct ChangeNotifyRequest {
@@ -15,7 +14,7 @@ pub struct ChangeNotifyRequest {
     structure_size: u16,
     flags: NotifyFlags,
     output_buffer_length: u32,
-    file_id: FileId,
+    file_id: Guid,
     completion_filter: NotifyFilter,
     #[br(assert(_reserved == 0))]
     #[bw(calc = 0)]
@@ -67,7 +66,7 @@ pub struct ChangeNotifyResponse {
     buffer: FileNotifyInformation,
 }
 
-
 #[cfg(test)]
 mod tests {
+    // TODO: Add tests!
 }

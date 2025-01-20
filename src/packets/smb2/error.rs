@@ -1,3 +1,5 @@
+//! Error response message
+
 use binrw::prelude::*;
 
 #[binrw::binrw]
@@ -40,4 +42,11 @@ pub struct ErrorResponseContext {
 pub enum ErrorId {
     Default = 0,
     ShareRedirect = 0x72645253,
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    // TODO: error response tests
 }

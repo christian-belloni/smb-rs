@@ -11,7 +11,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 /// Key-based key derivation function using HMAC-SHA256.
 /// SP108-800-CTR-HMAC-SHA256; L*8 bits; 32-bit counter.
-/// 
+///
 /// # Arguments
 /// * `L` - The length of the output key, IN BYTES.
 pub fn kbkdf_hmacsha256<const L: usize>(

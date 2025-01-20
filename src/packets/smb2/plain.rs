@@ -72,6 +72,12 @@ pub enum Content {
     #[br(pre_assert(command == &Command::QueryDirectory && from_srv))]
     QueryDirectoryResponse(dir::QueryDirectoryResponse),
 
+    // query info
+    #[br(pre_assert(command == &Command::QueryInfo && !from_srv))]
+    QueryInfoRequest(info::QueryInfoRequest),
+    #[br(pre_assert(command == &Command::QueryInfo && from_srv))]
+    QueryInfoResponse(info::QueryInfoResponse),
+
     // error response
     #[br(pre_assert(from_srv))]
     ErrorResponse(error::ErrorResponse),
@@ -96,6 +102,7 @@ impl Content {
             ReadRequest(_) | ReadResponse(_) => Command::Read,
             WriteRequest(_) | WriteResponse(_) => Command::Write,
             QueryDirectoryRequest(_) | QueryDirectoryResponse(_) => Command::QueryDirectory,
+            QueryInfoRequest(_) | QueryInfoResponse(_) => Command::QueryInfo,
             ErrorResponse(_) => panic!("Error has no matching command!"),
         }
     }
@@ -128,5 +135,31 @@ impl PlainMessage {
             },
             content,
         }
+    }
+}
+
+/// Contains both tests and test helpers for other modules' tests requiring this module.
+#[cfg(test)]
+pub mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+
+    /// Given a content, encode it into a Vec<u8> as if it were a full message,
+    /// But return only the content bytes.
+    ///
+    /// This is useful when encoding structs with offsets relative to the beginning of the SMB header.
+    pub fn encode_content(content: Content) -> Vec<u8> {
+        let mut cursor = Cursor::new(Vec::new());
+        let msg = PlainMessage::new(content);
+        msg.write(&mut cursor).unwrap();
+        let bytes_of_msg = cursor.into_inner();
+        // We only want to return the content of the message, not the header. So cut the HEADER_SIZE bytes:
+        bytes_of_msg[Header::STRUCT_SIZE..].to_vec()
+    }
+
+    pub fn decode_content(bytes: &[u8]) -> PlainMessage {
+        let mut cursor = Cursor::new(bytes);
+        cursor.read_le().unwrap()
     }
 }

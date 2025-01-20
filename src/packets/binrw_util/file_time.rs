@@ -12,10 +12,12 @@ pub struct FileTime {
 }
 
 impl FileTime {
+    const EPOCH: PrimitiveDateTime = datetime!(1601-01-01 00:00:00);
+    const SCALE: u64 = 100;
+
     pub fn date_time(&self) -> PrimitiveDateTime {
-        let base = datetime!(1601-01-01 00:00:00);
-        let duration = core::time::Duration::from_nanos(self.value * 100);
-        base + duration
+        let duration = core::time::Duration::from_nanos(self.value * Self::SCALE);
+        Self::EPOCH + duration
     }
 }
 
@@ -28,5 +30,20 @@ impl Display for FileTime {
 impl From<u64> for FileTime {
     fn from(value: u64) -> Self {
         Self { value }
+    }
+}
+
+impl From<PrimitiveDateTime> for FileTime {
+    fn from(dt: PrimitiveDateTime) -> Self {
+        let duration = dt - Self::EPOCH;
+        Self {
+            value: duration.whole_nanoseconds() as u64 / Self::SCALE,
+        }
+    }
+}
+
+impl Default for FileTime {
+    fn default() -> Self {
+        Self { value: 0 }
     }
 }

@@ -1,3 +1,5 @@
+//! Encrypted messages
+
 use std::io::Cursor;
 
 use binrw::prelude::*;

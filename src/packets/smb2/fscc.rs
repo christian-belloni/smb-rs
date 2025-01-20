@@ -1,10 +1,10 @@
 //! File System Control Codes (MS-FSCC)
 //!
-//! Implemented using modular_bitfield and binrw, for use in SMB2 messages.
+//! The FSCC types are widely used in SMB messages.
 
-use std::io::Cursor;
+use std::io::{Cursor, SeekFrom};
 
-use binrw::prelude::*;
+use binrw::{io::TakeSeekExt, prelude::*, NullString};
 use modular_bitfield::prelude::*;
 
 use super::super::binrw_util::prelude::*;
@@ -218,7 +218,6 @@ pub struct BothDirectoryInformationItem {
     _seek_next_if_exists: (),
 }
 
-
 #[binrw::binrw]
 #[bw(import(has_next: bool))]
 pub struct FileNotifyInformation {
@@ -234,12 +233,12 @@ pub struct FileNotifyInformation {
     #[br(seek_before = next_entry_offset.seek_relative(true))]
     #[bw(if(has_next))]
     #[bw(align_before = 4)]
-    #[bw(write_with = PosMarker::write_and_fill_relative_offset, args(next_entry_offset))]
-    _seek_next: ()
+    #[bw(write_with = PosMarker::write_roff, args(next_entry_offset))]
+    _seek_next: (),
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[brw(repr(u32))]
 pub enum NotifyAction {
     Added = 0x1,
@@ -252,5 +251,71 @@ pub enum NotifyAction {
     ModifiedStream = 0x8,
     RemovedByDelete = 0x9,
     IdNotTunnelled = 0xa,
-    TunnelledIdCollision = 0xb
+    TunnelledIdCollision = 0xb,
+}
+
+#[binrw::binrw]
+#[derive(Debug)]
+#[bw(import(has_next: bool))]
+pub struct FileGetEaInformation {
+    #[bw(calc = PosMarker::default())]
+    next_entry_offset: PosMarker<u32>,
+    // ea_name_length is the STRING LENGTH of ea_name -- excluding the null terminator!
+    #[bw(try_calc = ea_name.len().try_into())]
+    ea_name_length: u8,
+    #[br(map_stream = |s| s.take_seek(ea_name_length as u64))]
+    pub ea_name: NullString,
+
+    // Seek to next item if exists.
+    #[br(seek_before = next_entry_offset.seek_relative(true))]
+    #[bw(if(has_next))]
+    #[bw(write_with = PosMarker::write_roff, args(&next_entry_offset))]
+    pub _seek_next_if_exists: (),
+}
+
+impl FileGetEaInformation {
+    pub fn new(ea_name: &str) -> Self {
+        Self {
+            ea_name: NullString::from(ea_name),
+            _seek_next_if_exists: (),
+        }
+    }
+
+    /// A [binrw::writer] function to write a list of [FileGetEaInformation] items.
+    /// It makes sure that next_entry_offset is properly set, and should always be used
+    /// to write a list of [FileGetEaInformation] items.
+    #[binrw::writer(writer, endian)]
+    pub fn write_list(value: &Vec<Self>) -> BinResult<()> {
+        for (i, item) in value.iter().enumerate() {
+            let has_next = i < value.len() - 1;
+            item.write_options(writer, endian, (has_next,))?;
+        }
+        Ok(())
+    }
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[brw(repr(u8))]
+pub enum FileInfoClass {
+    AccessInformation = 8,
+    AlignmentInformation = 17,
+    AllInformation = 18,
+    AlternateNameInformation = 21,
+    AttributeTagInformation = 35,
+    BasicInformation = 4,
+    CompressionInformation = 28,
+    EaInformation = 7,
+    FullEaInformation = 15,
+    IdInformation = 59,
+    InternalInformation = 6,
+    ModeInformation = 16,
+    NetworkOpenInformation = 34,
+    NormalizedNameInformation = 48,
+    PipeInformation = 23,
+    PipeLocalInformation = 24,
+    PipeRemoteInformation = 25,
+    PositionInformation = 14,
+    StandardInformation = 5,
+    StreamInformation = 22,
 }

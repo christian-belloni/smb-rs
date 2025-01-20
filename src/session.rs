@@ -164,7 +164,7 @@ impl Session {
         preauth_integrity_hash: [u8; 64],
         label: &[u8],
     ) -> Result<[u8; 16], Box<dyn Error>> {
-        assert!(exchanged_session_key.len() == 16);
+        assert_eq!(exchanged_session_key.len(), 16);
 
         let mut session_key = [0; 16];
         session_key.copy_from_slice(&exchanged_session_key[0..16]);

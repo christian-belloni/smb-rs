@@ -33,12 +33,12 @@ pub struct NegotiateRequest {
     // Align to 8 bytes.
     #[brw(if(dialects.contains(&Dialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
-    #[bw(write_with = PosMarker::write_and_fill_offset, args(&negotiate_context_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&negotiate_context_offset))]
     pub negotiate_context_list: Option<Vec<NegotiateContext>>,
 }
 
 #[bitfield]
-#[derive(BinRead, BinWrite, Debug, Clone, Copy)]
+#[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct SecurityMode {
     pub signing_enabled: bool,
@@ -48,7 +48,7 @@ pub struct SecurityMode {
 }
 
 #[bitfield]
-#[derive(BinRead, BinWrite, Debug, Clone, Copy)]
+#[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct GlobalCapabilities {
     pub dfs: bool,
@@ -134,7 +134,7 @@ impl NegotiateRequest {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NegotiateResponse {
     #[br(assert(structure_size == 0x41))]
     #[bw(calc = 0x41)]
@@ -151,17 +151,19 @@ pub struct NegotiateResponse {
     pub max_write_size: u32,
     pub system_time: FileTime,
     pub server_start_time: FileTime,
+    #[bw(calc = PosMarker::default())]
     security_buffer_offset: PosMarker<u16>,
     #[bw(try_calc(u16::try_from(buffer.len())))]
     security_buffer_length: u16,
+    #[bw(calc = PosMarker::default())]
     negotiate_context_offset: PosMarker<u32>,
     #[br(count = security_buffer_length)]
-    #[bw(write_with = PosMarker::write_and_fill_offset, args(&security_buffer_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&security_buffer_offset))]
     pub buffer: Vec<u8>,
 
     #[brw(if(matches!(dialect_revision, NegotiateDialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]
-    #[bw(write_with = PosMarker::write_and_fill_offset, args(&negotiate_context_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&negotiate_context_offset))]
     pub negotiate_context_list: Option<Vec<NegotiateContext>>,
 }
 
@@ -240,7 +242,7 @@ impl TryFrom<NegotiateDialect> for Dialect {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NegotiateContext {
     // The entire context is 8-byte aligned.
     #[brw(align_before = 8)]
@@ -252,7 +254,7 @@ pub struct NegotiateContext {
     _reserved: u32,
     #[br(args(&context_type))]
     #[br(map_stream = |s| s.take_seek(data_length.value as u64))]
-    #[bw(write_with = PosMarker::write_and_fill_size, args(&data_length))]
+    #[bw(write_with = PosMarker::write_size, args(&data_length))]
     pub data: NegotiateContextValue,
 }
 
@@ -269,7 +271,7 @@ pub enum NegotiateContextType {
     ContextTypeReserved = 0x0100,
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(import(context_type: &NegotiateContextType))]
 pub enum NegotiateContextValue {
     #[br(pre_assert(context_type == &NegotiateContextType::PreauthIntegrityCapabilities))]
@@ -288,6 +290,43 @@ pub enum NegotiateContextValue {
     SigningCapabilities(SigningCapabilities),
 }
 
+impl Into<NegotiateContext> for NegotiateContextValue {
+    fn into(self) -> NegotiateContext {
+        NegotiateContext {
+            context_type: self.get_matching_type(),
+            data: self,
+        }
+    }
+}
+
+impl NegotiateContextValue {
+    pub fn get_matching_type(&self) -> NegotiateContextType {
+        match self {
+            NegotiateContextValue::PreauthIntegrityCapabilities(_) => {
+                NegotiateContextType::PreauthIntegrityCapabilities
+            }
+            NegotiateContextValue::EncryptionCapabilities(_) => {
+                NegotiateContextType::EncryptionCapabilities
+            }
+            NegotiateContextValue::CompressionCapabilities(_) => {
+                NegotiateContextType::CompressionCapabilities
+            }
+            NegotiateContextValue::NetnameNegotiateContextId(_) => {
+                NegotiateContextType::NetnameNegotiateContextId
+            }
+            NegotiateContextValue::TransportCapabilities(_) => {
+                NegotiateContextType::TransportCapabilities
+            }
+            NegotiateContextValue::RdmaTransformCapabilities(_) => {
+                NegotiateContextType::RdmaTransformCapabilities
+            }
+            NegotiateContextValue::SigningCapabilities(_) => {
+                NegotiateContextType::SigningCapabilities
+            }
+        }
+    }
+}
+
 // u16 enum hash algorithms binrw 0x01 is sha512.
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
@@ -296,7 +335,7 @@ pub enum HashAlgorithm {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct PreauthIntegrityCapabilities {
     #[bw(try_calc(u16::try_from(hash_algorithms.len())))]
     hash_algorithm_count: u16,
@@ -309,7 +348,7 @@ pub struct PreauthIntegrityCapabilities {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct EncryptionCapabilities {
     #[bw(try_calc(u16::try_from(ciphers.len())))]
     cipher_count: u16,
@@ -327,7 +366,7 @@ pub enum EncryptionCipher {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CompressionCapabilities {
     #[bw(try_calc(u16::try_from(compression_algorithms.len())))]
     compression_algorithm_count: u16,
@@ -338,7 +377,7 @@ pub struct CompressionCapabilities {
     compression_algorithms: Vec<CompressionAlgorithm>,
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
 pub enum CompressionAlgorithm {
     None = 0x0000,
@@ -350,7 +389,7 @@ pub enum CompressionAlgorithm {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct CompressionCapabilitiesFlags {
     pub chained: bool,
@@ -358,14 +397,14 @@ pub struct CompressionCapabilitiesFlags {
     __: B31,
 }
 
-#[derive(BinRead, BinWrite, Debug)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 pub struct NetnameNegotiateContextId {
     #[br(parse_with = binrw::helpers::until_eof)]
     netname: SizedWideString,
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct TransportCapabilities {
     pub accept_transport_layer_security: bool,
@@ -374,7 +413,7 @@ pub struct TransportCapabilities {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct RdmaTransformCapabilities {
     #[bw(try_calc(u16::try_from(transforms.len())))]
     transform_count: u16,
@@ -391,7 +430,7 @@ pub struct RdmaTransformCapabilities {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SigningCapabilities {
     #[bw(try_calc(u16::try_from(signing_algorithms.len())))]
     signing_algorithm_count: u16,
@@ -405,4 +444,108 @@ pub enum SigningAlgorithmId {
     HmacSha256 = 0x0000,
     AesCmac = 0x0001,
     AesGmac = 0x0002,
+}
+
+#[cfg(test)]
+pub mod tests {
+    use time::macros::datetime;
+
+    use super::*;
+    use crate::packets::smb2::{
+        negotiate::{NegotiateResponse, SecurityMode},
+        plain::{tests as plain_tests, Content},
+    };
+
+    #[test]
+    pub fn test_negotiate_res_parse() {
+        let data = [
+            0xfe, 0x53, 0x4d, 0x42, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0,
+            0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff,
+            0xfe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x41, 0x0, 0x1,
+            0x0, 0x11, 0x3, 0x5, 0x0, 0xb9, 0x21, 0xf8, 0xe0, 0x15, 0x7, 0xaa, 0x41, 0xbe, 0x38,
+            0x67, 0xfe, 0xbf, 0x5e, 0x2e, 0x11, 0x2f, 0x0, 0x0, 0x0, 0x0, 0x0, 0x80, 0x0, 0x0, 0x0,
+            0x80, 0x0, 0x0, 0x0, 0x80, 0x0, 0xa8, 0x76, 0xd8, 0x78, 0xc5, 0x69, 0xdb, 0x1, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x80, 0x0, 0x2a, 0x0, 0xb0, 0x0, 0x0, 0x0, 0x60,
+            0x28, 0x6, 0x6, 0x2b, 0x6, 0x1, 0x5, 0x5, 0x2, 0xa0, 0x1e, 0x30, 0x1c, 0xa0, 0x1a,
+            0x30, 0x18, 0x6, 0xa, 0x2b, 0x6, 0x1, 0x4, 0x1, 0x82, 0x37, 0x2, 0x2, 0x1e, 0x6, 0xa,
+            0x2b, 0x6, 0x1, 0x4, 0x1, 0x82, 0x37, 0x2, 0x2, 0xa, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1,
+            0x0, 0x26, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x20, 0x0, 0x1, 0x0, 0xd5, 0x67, 0x1b,
+            0x24, 0xa1, 0xe9, 0xcc, 0xc8, 0x93, 0xf5, 0x55, 0x5a, 0x31, 0x3, 0x43, 0x5a, 0x85,
+            0x2b, 0xc3, 0xcb, 0x1a, 0xd3, 0x2d, 0xc5, 0x1f, 0x92, 0x80, 0x6e, 0xf3, 0xfb, 0x4d,
+            0xd4, 0x0, 0x0, 0x2, 0x0, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x2, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x8, 0x0, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x7, 0x0, 0xc, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x1, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x3, 0x0, 0xc, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2,
+            0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x2, 0x0, 0x4, 0x0,
+        ];
+
+        let response = match plain_tests::decode_content(&data).content {
+            Content::NegotiateResponse(response) => response,
+            _ => panic!("Expected NegotiateResponse"),
+        };
+
+        assert_eq!(
+            response,
+            NegotiateResponse {
+                security_mode: SecurityMode::new().with_signing_enabled(true),
+                dialect_revision: NegotiateDialect::Smb0311,
+                server_guid: Guid::from([
+                    0xb9, 0x21, 0xf8, 0xe0, 0x15, 0x7, 0xaa, 0x41, 0xbe, 0x38, 0x67, 0xfe, 0xbf,
+                    0x5e, 0x2e, 0x11
+                ]),
+                capabilities: GlobalCapabilities::new()
+                    .with_dfs(true)
+                    .with_leasing(true)
+                    .with_large_mtu(true)
+                    .with_multi_channel(true)
+                    .with_directory_leasing(true),
+                max_transact_size: 8388608,
+                max_read_size: 8388608,
+                max_write_size: 8388608,
+                system_time: datetime!(2025-01-18 16:24:39.448746400).into(),
+                server_start_time: FileTime::default(),
+                buffer: [
+                    0x60, 0x28, 0x6, 0x6, 0x2b, 0x6, 0x1, 0x5, 0x5, 0x2, 0xa0, 0x1e, 0x30, 0x1c,
+                    0xa0, 0x1a, 0x30, 0x18, 0x6, 0xa, 0x2b, 0x6, 0x1, 0x4, 0x1, 0x82, 0x37, 0x2,
+                    0x2, 0x1e, 0x6, 0xa, 0x2b, 0x6, 0x1, 0x4, 0x1, 0x82, 0x37, 0x2, 0x2, 0xa
+                ]
+                .to_vec(),
+                negotiate_context_list: Some(vec![
+                    NegotiateContextValue::PreauthIntegrityCapabilities(
+                        PreauthIntegrityCapabilities {
+                            hash_algorithms: vec![HashAlgorithm::Sha512],
+                            salt: [
+                                0xd5, 0x67, 0x1b, 0x24, 0xa1, 0xe9, 0xcc, 0xc8, 0x93, 0xf5, 0x55,
+                                0x5a, 0x31, 0x3, 0x43, 0x5a, 0x85, 0x2b, 0xc3, 0xcb, 0x1a, 0xd3,
+                                0x2d, 0xc5, 0x1f, 0x92, 0x80, 0x6e, 0xf3, 0xfb, 0x4d, 0xd4
+                            ]
+                            .to_vec()
+                        }
+                    )
+                    .into(),
+                    NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
+                        ciphers: vec![EncryptionCipher::Aes128Gcm]
+                    })
+                    .into(),
+                    NegotiateContextValue::SigningCapabilities(SigningCapabilities {
+                        signing_algorithms: vec![SigningAlgorithmId::AesGmac]
+                    })
+                    .into(),
+                    NegotiateContextValue::RdmaTransformCapabilities(RdmaTransformCapabilities {
+                        transforms: vec![0x0001, 0x0002]
+                    })
+                    .into(),
+                    NegotiateContextValue::CompressionCapabilities(CompressionCapabilities {
+                        flags: CompressionCapabilitiesFlags::new().with_chained(true),
+                        compression_algorithms: vec![
+                            CompressionAlgorithm::LZ77,
+                            CompressionAlgorithm::PatternV1
+                        ]
+                    })
+                    .into(),
+                ])
+            }
+        )
+    }
 }

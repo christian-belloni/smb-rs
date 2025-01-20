@@ -1,0 +1,42 @@
+//! Echo request and response messages
+use binrw::prelude::*;
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct EchoMesasge {
+    #[br(assert(structure_size == 4))]
+    #[bw(calc = 4)]
+    structure_size: u16,
+    #[br(assert(reserved == 0))]
+    #[bw(calc = 0)]
+    reserved: u16,
+}
+
+pub type EchoRequest = EchoMesasge;
+pub type EchoResponse = EchoMesasge;
+
+impl Default for EchoMesasge {
+    fn default() -> Self {
+        EchoMesasge {}
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    pub fn test_echo_req_write() {
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        let echo_req = EchoRequest::default();
+        echo_req.write_le(&mut cursor).unwrap();
+        assert_eq!(cursor.into_inner(), [0x4, 0x0, 0x0, 0x0])
+    }
+
+    #[test]
+    pub fn test_echo_resp_parse() {
+        let data = [0x4, 0x0, 0x0, 0x0];
+        let echo_resp = EchoResponse::read_le(&mut std::io::Cursor::new(&data)).unwrap();
+        assert_eq!(echo_resp, EchoResponse::default());
+    }
+}
