@@ -1,5 +1,6 @@
 pub mod authenticator;
 pub mod client;
+pub mod compression;
 pub mod crypto;
 pub mod directory;
 pub mod file;
@@ -9,4 +10,3 @@ pub mod packets;
 pub mod resource;
 pub mod session;
 pub mod tree;
-pub mod decompressor;

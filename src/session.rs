@@ -15,7 +15,12 @@ use crate::{
     packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
-            encrypted::*, header::{Header, Status}, message::Message, negotiate::{EncryptionCipher, SigningAlgorithmId}, plain::{Content, PlainMessage}, session_setup::{SessionFlags, SessionSetupRequest}
+            encrypted::*,
+            header::{Header, Status},
+            message::Message,
+            negotiate::{EncryptionCipher, SigningAlgorithmId},
+            plain::{Content, PlainMessage},
+            session_setup::{SessionFlags, SessionSetupRequest},
         },
     },
     tree::Tree,
@@ -342,12 +347,9 @@ impl MessageDecryptor {
             msg_in.header.signature,
         )?;
 
-        let result =  Message::read(&mut Cursor::new(&serialized_message))?;
+        let result = Message::read(&mut Cursor::new(&serialized_message))?;
 
-        log::debug!(
-            "Decrypted with signature {}",
-            msg_in.header.signature
-        );
+        log::debug!("Decrypted with signature {}", msg_in.header.signature);
         Ok(result)
     }
 }

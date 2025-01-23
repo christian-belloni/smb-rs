@@ -84,10 +84,10 @@ impl NegotiateRequest {
                 .with_encryption(true),
             client_guid,
             dialects: vec![
-                Dialect::Smb0202,
-                Dialect::Smb021,
-                Dialect::Smb030,
-                Dialect::Smb0302,
+                // Dialect::Smb0202,
+                // Dialect::Smb021,
+                // Dialect::Smb030,
+                // Dialect::Smb0302,
                 Dialect::Smb0311,
             ],
             negotiate_context_list: Some(vec![
@@ -110,7 +110,10 @@ impl NegotiateRequest {
                     context_type: NegotiateContextType::CompressionCapabilities,
                     data: NegotiateContextValue::CompressionCapabilities(CompressionCapabilities {
                         flags: CompressionCapabilitiesFlags::new().with_chained(true),
-                        compression_algorithms: vec![CompressionAlgorithm::None],
+                        compression_algorithms: crate::compression::SUPPORTED_ALGORITHMS
+                            .iter()
+                            .copied()
+                            .collect(),
                     }),
                 },
                 NegotiateContext {

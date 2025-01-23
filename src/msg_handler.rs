@@ -5,7 +5,9 @@ use crate::{
     packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
-            header::{Command, Status}, message::Message, plain::*
+            header::{Command, Status},
+            message::Message,
+            plain::*,
         },
     },
     session::{MessageDecryptor, MessageEncryptor, MessageSigner},

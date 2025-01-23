@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut session = smb.authenticate("LocalAdmin".to_string(), "123456".to_string())?;
     let mut tree = session.tree_connect(r"\\AVIVVM\MyShare".to_string())?;
     let file = tree.create(
-        r"hello\a.txts".to_string(),
+        r"hello\d.txt".to_string(),
         CreateDisposition::Open,
         FileAccessMask::new()
             .with_generic_read(true)

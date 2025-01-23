@@ -1,4 +1,4 @@
-use crate::{decompressor::Decompressor, packets::binrw_util::guid::Guid};
+use crate::{compression::Decompressor, packets::binrw_util::guid::Guid};
 use binrw::prelude::*;
 use core::panic;
 use sha2::{Digest, Sha512};
@@ -330,7 +330,6 @@ impl ClientMessageHandler {
             message
         };
 
-
         // 2. Decompress?
         debug_assert!(!matches!(message, Message::Encrypted(_)));
         let message = if let Message::Compressed(compressed_message) = &message {
@@ -417,10 +416,6 @@ impl MessageHandler for ClientMessageHandler {
         self.credits_balance -= message.header.credit_charge;
         self.credits_balance += message.header.credit_request;
 
-        Ok(IncomingMessage {
-            message,
-            raw,
-            form
-        })
+        Ok(IncomingMessage { message, raw, form })
     }
 }

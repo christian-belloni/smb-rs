@@ -220,9 +220,7 @@ mod tests {
 
     #[test]
     pub fn test_flush_res_parse() {
-        let data = [
-            0x4u8, 0, 0, 0, 0, 0, 0, 0,
-        ];
+        let data = [0x4u8, 0, 0, 0, 0, 0, 0, 0];
         let mut cursor = Cursor::new(data);
         let resp = FlushResponse::read_le(&mut cursor).unwrap();
         assert_eq!(resp, FlushResponse {});
