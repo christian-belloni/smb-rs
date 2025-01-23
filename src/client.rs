@@ -1,4 +1,4 @@
-use crate::packets::binrw_util::guid::Guid;
+use crate::{decompressor::Decompressor, packets::binrw_util::guid::Guid};
 use binrw::prelude::*;
 use core::panic;
 use sha2::{Digest, Sha512};
@@ -305,29 +305,48 @@ impl ClientMessageHandler {
         Ok(raw_message_result)
     }
 
-    /// Given a NetBiosTcpMessage, decrypts (if necessary) and returns the plain SMB2 message.
+    /// Given a NetBiosTcpMessage, decrypts (if necessary), decompresses (if necessary) and returns the plain SMB2 message.
     fn parse_raw(
         &mut self,
         raw: &NetBiosTcpMessage,
         options: &mut ReceiveOptions,
-    ) -> Result<(PlainMessage, bool), Box<dyn Error>> {
-        let smb2_message = match raw.parse()? {
-            NetBiosMessageContent::SMB2Message(smb2_message) => Some(smb2_message),
+    ) -> Result<(PlainMessage, MessageForm), Box<dyn Error>> {
+        let message = match raw.parse()? {
+            NetBiosMessageContent::SMB2Message(message) => Some(message),
             _ => None,
         }
         .ok_or("Expected SMB2 message")?;
 
-        let is_encrypted = matches!(smb2_message, Message::Encrypted(_));
-        let plain = match smb2_message {
-            Message::Plain(plain_message) => plain_message,
-            Message::Encrypted(encrypted_message) => match options.decryptor.take() {
+        let mut form = MessageForm::default();
+
+        // 1. Decrpt?
+        let message = if let Message::Encrypted(encrypted_message) = &message {
+            form.encrypted = true;
+            match options.decryptor.take() {
                 Some(mut decryptor) => decryptor.decrypt_message(&encrypted_message)?,
                 None => return Err("Encrypted message received without decryptor".into()),
-            },
-            Message::Compressed(compressed_message) => todo!(),
+            }
+        } else {
+            message
         };
 
-        Ok((plain, is_encrypted))
+
+        // 2. Decompress?
+        debug_assert!(!matches!(message, Message::Encrypted(_)));
+        let message = if let Message::Compressed(compressed_message) = &message {
+            form.compressed = true;
+            Decompressor::new(compressed_message).decompress()?
+        } else {
+            message
+        };
+
+        // unwrap Message::Plain from Message enum:
+        let message = match message {
+            Message::Plain(message) => message,
+            _ => panic!("Unexpected message type"),
+        };
+
+        Ok((message, form))
     }
 }
 
@@ -370,7 +389,7 @@ impl MessageHandler for ClientMessageHandler {
 
         self.step_preauth_hash(&raw);
 
-        let (message, encrypted) = self.parse_raw(&raw, &mut options)?;
+        let (message, form) = self.parse_raw(&raw, &mut options)?;
 
         // Command matching (if needed).
         if let Some(cmd) = options.cmd {
@@ -401,7 +420,7 @@ impl MessageHandler for ClientMessageHandler {
         Ok(IncomingMessage {
             message,
             raw,
-            encrypted,
+            form
         })
     }
 }

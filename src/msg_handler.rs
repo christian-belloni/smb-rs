@@ -5,8 +5,7 @@ use crate::{
     packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
-            header::{Command, Status},
-            plain::*,
+            header::{Command, Status}, message::Message, plain::*
         },
     },
     session::{MessageDecryptor, MessageEncryptor, MessageSigner},
@@ -53,7 +52,13 @@ pub struct IncomingMessage {
     pub message: PlainMessage,
     pub raw: NetBiosTcpMessage,
 
-    // Did the incoming message required a decryption?
+    // How did the message arrive?
+    pub form: MessageForm,
+}
+
+#[derive(Debug, Default)]
+pub struct MessageForm {
+    pub compressed: bool,
     pub encrypted: bool,
 }
 

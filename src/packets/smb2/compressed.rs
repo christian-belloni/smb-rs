@@ -1,5 +1,7 @@
 //! Compressed messages
 
+use std::io::SeekFrom;
+
 use crate::packets::binrw_util::prelude::*;
 
 use super::negotiate::CompressionAlgorithm;
@@ -9,68 +11,50 @@ use binrw::prelude::*;
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub enum CompressedMessage {
-    Unchained(CompressedUnchainedHeader),
-    Chained(CompressedChainedHeader),
+    Unchained(CompressedUnchainedMessage),
+    Chained(CompressedChainedMessage),
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[brw(magic(b"\xfcSMB"), little)]
-pub struct CompressedUnchainedHeader {
-    original_compressed_segment_size: u32,
+pub struct CompressedUnchainedMessage {
+    pub original_size: u32,
     // The same as the negotiation, but must be set.
     #[brw(assert(!matches!(compression_algorithm, CompressionAlgorithm::None)))]
-    compression_algorithm: CompressionAlgorithm,
+    pub compression_algorithm: CompressionAlgorithm,
     #[br(assert(flags == 0))]
     #[bw(calc = 0)]
     flags: u16,
+    #[bw(calc = 0)]
     offset: u32,
+    #[br(seek_before = SeekFrom::Current(offset as i64))]
+    #[br(parse_with = binrw::helpers::until_eof)]
+    pub data: Vec<u8>,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[brw(magic(b"\xfcSMB"), little)]
-pub struct CompressedChainedHeader {
-    original_compressed_segment_size: u32,
+pub struct CompressedChainedMessage {
+    pub original_size: u32,
     #[br(parse_with = binrw::helpers::until_eof)]
-    items: Vec<CompressedChainedItem>,
+    pub items: Vec<CompressedChainedItem>,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct CompressedChainedItem {
-    compression_algorithm: CompressionAlgorithm,
-    flags: u16,
+    pub compression_algorithm: CompressionAlgorithm,
+    pub flags: u16,
     #[bw(calc = PosMarker::default())]
     length: PosMarker<u32>,
     // Only present if algorithms require it.
-    #[brw(if(compression_algorithm.original_payload_size_required()))]
-    original_payload_size: Option<u32>,
-    #[br(map_stream = |s| s.take_seek(length.value.into()), args(&compression_algorithm))]
+    #[brw(if(compression_algorithm.original_size_required()))]
+    pub original_size: Option<u32>,
+    #[br(map_stream = |s| s.take_seek(length.value.into()), parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = PosMarker::write_size, args(&length))]
-    payload_data: CompressedChainedData,
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-#[br(import(compression_algorithm: &CompressionAlgorithm))]
-pub enum CompressedChainedData {
-    #[br(pre_assert(matches!(compression_algorithm, CompressionAlgorithm::PatternV1)))]
-    PatternV1Payload(PatternV1Payload),
-    Data(CompressedData),
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-pub struct PatternV1Payload {
-    pattern: u8,
-    #[bw(calc = 0)]
-    #[br(assert(reserved1 == 0))]
-    reserved1: u8,
-    #[bw(calc = 0)]
-    #[br(assert(reserved2 == 0))]
-    reserved2: u16,
-    repetitions: u32,
+    pub payload_data: Vec<u8>,
 }
 
 #[binrw::binrw]
@@ -106,49 +90,41 @@ pub mod tests {
 
         assert_eq!(
             CompressedMessage::read_le(&mut cursor).unwrap(),
-            CompressedMessage::Chained(CompressedChainedHeader {
-                original_compressed_segment_size: 368,
+            CompressedMessage::Chained(CompressedChainedMessage {
+                original_size: 368,
                 items: vec![
                     CompressedChainedItem {
                         compression_algorithm: CompressionAlgorithm::None,
                         flags: 1,
-                        original_payload_size: None,
-                        payload_data: CompressedChainedData::Data(CompressedData {
-                            data: [
-                                0xfe, 0x53, 0x4d, 0x42, 0x40, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0,
-                                0x10, 0x0, 0x1, 0x0, 0x30, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x91,
-                                0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff, 0xfe, 0x0, 0x0, 0x1, 0x0,
-                                0x0, 0x0, 0x7d, 0x0, 0x0, 0x28, 0x0, 0x30, 0x0, 0x0, 0x0, 0x0, 0x0,
-                                0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-                                0x29, 0x0, 0x1, 0xf, 0x2a, 0x2, 0x0, 0x0, 0x68, 0x0, 0x0, 0x0, 0x8,
-                                0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x3, 0x0, 0x0, 0x0, 0xee, 0x5,
-                                0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x8d, 0x0, 0x0, 0x0, 0xc, 0x0, 0x0,
-                                0x0
-                            ]
-                            .to_vec()
-                        })
+                        original_size: None,
+                        payload_data: [
+                            0xfe, 0x53, 0x4d, 0x42, 0x40, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x10,
+                            0x0, 0x1, 0x0, 0x30, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x91, 0x0, 0x0,
+                            0x0, 0x0, 0x0, 0x0, 0x0, 0xff, 0xfe, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,
+                            0x7d, 0x0, 0x0, 0x28, 0x0, 0x30, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x29, 0x0, 0x1,
+                            0xf, 0x2a, 0x2, 0x0, 0x0, 0x68, 0x0, 0x0, 0x0, 0x8, 0x1, 0x0, 0x0, 0x0,
+                            0x0, 0x0, 0x0, 0x3, 0x0, 0x0, 0x0, 0xee, 0x5, 0x0, 0x0, 0xc, 0x0, 0x0,
+                            0x0, 0x8d, 0x0, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0
+                        ]
+                        .to_vec()
                     },
                     CompressedChainedItem {
                         compression_algorithm: CompressionAlgorithm::None,
                         flags: 0xb975,
-                        original_payload_size: None,
-                        payload_data: CompressedChainedData::Data(CompressedData {
-                            data: [
-                                0x0, 0x0, 0x0, 0x0, 0x15, 0x24, 0x4d, 0x70, 0x45, 0x61, 0x5f, 0x44,
-                                0x32, 0x36, 0x32, 0x41, 0x43, 0x36, 0x32, 0x34, 0x34, 0x35, 0x31,
-                                0x32, 0x39, 0x35
-                            ]
-                            .to_vec()
-                        })
+                        original_size: None,
+                        payload_data: [
+                            0x0, 0x0, 0x0, 0x0, 0x15, 0x24, 0x4d, 0x70, 0x45, 0x61, 0x5f, 0x44,
+                            0x32, 0x36, 0x32, 0x41, 0x43, 0x36, 0x32, 0x34, 0x34, 0x35, 0x31, 0x32,
+                            0x39, 0x35
+                        ]
+                        .to_vec(),
                     },
                     CompressedChainedItem {
                         compression_algorithm: CompressionAlgorithm::PatternV1,
                         flags: 0,
-                        original_payload_size: None,
-                        payload_data: CompressedChainedData::PatternV1Payload(PatternV1Payload {
-                            pattern: 0,
-                            repetitions: 238
-                        })
+                        original_size: None,
+                        payload_data: vec![0x0, 0x0, 0x0, 0x0, 0xee, 0x0, 0x0, 0x0]
                     }
                 ]
             })
@@ -157,48 +133,41 @@ pub mod tests {
 
     #[test]
     pub fn test_compressed_data_chained_write() {
-        let value = CompressedMessage::Chained(CompressedChainedHeader {
-            original_compressed_segment_size: 368,
+        let value = CompressedMessage::Chained(CompressedChainedMessage {
+            original_size: 368,
             items: vec![
                 CompressedChainedItem {
                     compression_algorithm: CompressionAlgorithm::None,
                     flags: 1,
-                    original_payload_size: None,
-                    payload_data: CompressedChainedData::Data(CompressedData {
-                        data: [
-                            0xfe, 0x53, 0x4d, 0x42, 0x40, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x10,
-                            0x0, 0x1, 0x0, 0x30, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1e, 0x3, 0x0,
-                            0x0, 0x0, 0x0, 0x0, 0x0, 0xff, 0xfe, 0x0, 0x0, 0x5, 0x0, 0x0, 0x0, 0x9,
-                            0x0, 0x0, 0x2c, 0x0, 0x30, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-                            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x29, 0x0, 0x1, 0xf, 0x2a,
-                            0x2, 0x0, 0x0, 0x68, 0x0, 0x0, 0x0, 0x8, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0,
-                            0x0, 0x3, 0x0, 0x0, 0x0, 0x11, 0x7, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x69,
-                            0x0, 0x20, 0x0, 0xc, 0x0, 0x0, 0x0,
-                        ]
-                        .to_vec(),
-                    }),
+                    original_size: None,
+                    payload_data: [
+                        0xfe, 0x53, 0x4d, 0x42, 0x40, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x10, 0x0,
+                        0x1, 0x0, 0x30, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1e, 0x3, 0x0, 0x0,
+                        0x0, 0x0, 0x0, 0x0, 0xff, 0xfe, 0x0, 0x0, 0x5, 0x0, 0x0, 0x0, 0x9, 0x0,
+                        0x0, 0x2c, 0x0, 0x30, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x29, 0x0, 0x1, 0xf, 0x2a, 0x2,
+                        0x0, 0x0, 0x68, 0x0, 0x0, 0x0, 0x8, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x3,
+                        0x0, 0x0, 0x0, 0x11, 0x7, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x69, 0x0, 0x20,
+                        0x0, 0xc, 0x0, 0x0, 0x0,
+                    ]
+                    .to_vec(),
                 },
                 CompressedChainedItem {
                     compression_algorithm: CompressionAlgorithm::None,
                     flags: 0,
-                    original_payload_size: None,
-                    payload_data: CompressedChainedData::Data(CompressedData {
-                        data: [
-                            0x0, 0x0, 0x0, 0x0, 0x15, 0x24, 0x4d, 0x70, 0x45, 0x61, 0x5f, 0x44,
-                            0x32, 0x36, 0x32, 0x41, 0x43, 0x36, 0x32, 0x34, 0x34, 0x35, 0x31, 0x32,
-                            0x39, 0x35,
-                        ]
-                        .to_vec(),
-                    }),
+                    original_size: None,
+                    payload_data: [
+                        0x0, 0x0, 0x0, 0x0, 0x15, 0x24, 0x4d, 0x70, 0x45, 0x61, 0x5f, 0x44, 0x32,
+                        0x36, 0x32, 0x41, 0x43, 0x36, 0x32, 0x34, 0x34, 0x35, 0x31, 0x32, 0x39,
+                        0x35,
+                    ]
+                    .to_vec(),
                 },
                 CompressedChainedItem {
                     compression_algorithm: CompressionAlgorithm::PatternV1,
                     flags: 0,
-                    original_payload_size: None,
-                    payload_data: CompressedChainedData::PatternV1Payload(PatternV1Payload {
-                        pattern: 0,
-                        repetitions: 238,
-                    }),
+                    original_size: None,
+                    payload_data: vec![0x0, 0x0, 0x0, 0x0, 0xee, 0x0, 0x0, 0x0],
                 },
             ],
         });

@@ -15,11 +15,7 @@ use crate::{
     packets::{
         netbios::NetBiosTcpMessage,
         smb2::{
-            encrypted::*,
-            header::{Header, Status},
-            negotiate::{EncryptionCipher, SigningAlgorithmId},
-            plain::{Content, PlainMessage},
-            session_setup::{SessionFlags, SessionSetupRequest},
+            encrypted::*, header::{Header, Status}, message::Message, negotiate::{EncryptionCipher, SigningAlgorithmId}, plain::{Content, PlainMessage}, session_setup::{SessionFlags, SessionSetupRequest}
         },
     },
     tree::Tree,
@@ -337,7 +333,7 @@ impl MessageDecryptor {
     pub fn decrypt_message(
         &mut self,
         msg_in: &EncryptedMessage,
-    ) -> Result<PlainMessage, Box<dyn Error>> {
+    ) -> Result<Message, Box<dyn Error>> {
         let mut serialized_message = msg_in.encrypted_message.clone();
         self.algo.decrypt(
             &mut serialized_message,
@@ -346,15 +342,13 @@ impl MessageDecryptor {
             msg_in.header.signature,
         )?;
 
-        let mut cursor = Cursor::new(serialized_message);
-        let message = PlainMessage::read(&mut cursor)?;
+        let result =  Message::read(&mut Cursor::new(&serialized_message))?;
 
         log::debug!(
-            "Decrypted message {} with signature {}",
-            message.header.message_id,
+            "Decrypted with signature {}",
             msg_in.header.signature
         );
-        Ok(message)
+        Ok(result)
     }
 }
 
@@ -477,7 +471,7 @@ impl MessageHandler for SessionMessageHandler {
         }
         let mut incoming = self.upstream.borrow_mut().hrecvo(options)?;
         // TODO: check whether this is the correct case to do such a thing.
-        if self.should_sign() && !incoming.encrypted {
+        if self.should_sign() && !incoming.form.encrypted {
             // Skip authentication is message ID is -1 or status is pending.
             if incoming.message.header.message_id != u64::MAX
                 && incoming.message.header.status != Status::Pending

@@ -9,3 +9,4 @@ pub mod packets;
 pub mod resource;
 pub mod session;
 pub mod tree;
+pub mod decompressor;

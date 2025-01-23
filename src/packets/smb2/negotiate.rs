@@ -377,7 +377,7 @@ pub struct CompressionCapabilities {
     compression_algorithms: Vec<CompressionAlgorithm>,
 }
 
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u16))]
 pub enum CompressionAlgorithm {
     None = 0x0000,
@@ -390,7 +390,7 @@ pub enum CompressionAlgorithm {
 
 impl CompressionAlgorithm {
     /// Relevant for processing compressed messages.
-    pub fn original_payload_size_required(&self) -> bool {
+    pub fn original_size_required(&self) -> bool {
         matches!(
             self,
             CompressionAlgorithm::LZNT1
