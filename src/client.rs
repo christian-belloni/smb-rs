@@ -324,6 +324,7 @@ impl ClientMessageHandler {
                 Some(mut decryptor) => decryptor.decrypt_message(&encrypted_message)?,
                 None => return Err("Encrypted message received without decryptor".into()),
             },
+            Message::Compressed(compressed_message) => todo!(),
         };
 
         Ok((plain, is_encrypted))
