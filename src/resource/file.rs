@@ -57,16 +57,42 @@ impl File {
 
 impl Seek for File {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        match pos {
+        let next_pos = match pos {
             std::io::SeekFrom::Start(pos) => {
-                self.pos = pos;
+                pos
             }
             std::io::SeekFrom::End(pos) => {
-                self.pos = self.end_of_file + pos as u64;
+                let pos = self.end_of_file as i64 + pos;
+                if pos < 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Invalid seek position",
+                    ));
+                }
+                pos.try_into().map_err(|_| std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Invalid seek position",
+                ))?
             }
             std::io::SeekFrom::Current(pos) => {
-                self.pos = self.pos + pos as u64;
+                let pos = self.pos as i64 + pos;
+                if pos < 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Invalid seek position",
+                    ));
+                }
+                pos.try_into().map_err(|_| std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Invalid seek position",
+                ))?
             }
+        };
+        if next_pos > self.end_of_file {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Invalid seek position",
+            ));
         }
         Ok(self.pos)
     }
@@ -83,6 +109,11 @@ impl Read for File {
                 std::io::ErrorKind::PermissionDenied,
                 "No read permission",
             ));
+        }
+
+        // EOF
+        if self.pos >= self.end_of_file {
+            return Ok(0);
         }
 
         log::debug!(
