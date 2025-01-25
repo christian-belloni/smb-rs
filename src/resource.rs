@@ -3,8 +3,6 @@ use std::error::Error;
 use time::PrimitiveDateTime;
 
 use crate::{
-    directory::Directory,
-    file::File,
     msg_handler::{HandlerReference, MessageHandler},
     packets::{
         binrw_util::guid::Guid,
@@ -16,6 +14,12 @@ use crate::{
     },
     tree::TreeMessageHandler,
 };
+
+pub mod file;
+pub mod directory;
+
+use file::*;
+use directory::*;
 
 type Upstream = HandlerReference<TreeMessageHandler>;
 

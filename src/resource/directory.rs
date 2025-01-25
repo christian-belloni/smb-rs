@@ -1,6 +1,6 @@
 use crate::packets::smb2::{dir::*, fscc::*, plain::*};
 
-use super::resource::ResourceHandle;
+use super::ResourceHandle;
 
 pub struct Directory {
     pub handle: ResourceHandle,

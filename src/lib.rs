@@ -2,8 +2,6 @@ pub mod authenticator;
 pub mod client;
 pub mod compression;
 pub mod crypto;
-pub mod directory;
-pub mod file;
 pub mod msg_handler;
 pub mod netbios_client;
 pub mod packets;
