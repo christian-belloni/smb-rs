@@ -1,4 +1,6 @@
-use crate::packets::smb2::{compressed::*, message::*, negotiate::CompressionAlgorithm};
+use crate::packets::smb2::{
+    compressed::*, header::Header, message::*, negotiate::CompressionAlgorithm,
+};
 use binrw::prelude::*;
 use lz4_flex;
 ///! Implements (de)compression logic.
@@ -14,14 +16,14 @@ impl<'a> Decompressor<'a> {
         Decompressor { original }
     }
 
-    pub fn decompress(&self) -> Result<Message, Box<dyn std::error::Error>> {
+    pub fn decompress(&self) -> Result<(Message, Vec<u8>), Box<dyn std::error::Error>> {
         let method: Box<dyn DecompressionMethod> = match self.original {
             CompressedMessage::Unchained(_) => Box::new(UnchainedDecompression),
             CompressedMessage::Chained(_) => Box::new(ChainedDecompression),
         };
         let bytes = method.decompress(&self.original)?;
-        let mut cursor = std::io::Cursor::new(bytes);
-        Ok(Message::read(&mut cursor)?)
+        let mut cursor = std::io::Cursor::new(&bytes);
+        Ok((Message::read(&mut cursor)?, bytes))
     }
 }
 
@@ -78,21 +80,35 @@ impl DecompressionMethod for ChainedDecompression {
             CompressedMessage::Chained(c) => c,
             _ => Err("Expected Chained message")?,
         };
-        let mut data = Vec::<u8>::with_capacity(compressed.original_size as usize);
+
+        if compressed.original_size < Header::STRUCT_SIZE as u32 {
+            Err("Original size must be greater than 0")?;
+        }
+
+        // TODO: There should be a safer way to implement an append-only,
+        // size-limited vector.
+        let mut data = Vec::with_capacity(compressed.original_size as usize);
 
         for item in compressed.items.iter() {
-            let current_length_written = data.len();
-            // for extra safety, limit the end of the decompression target slice, too.
-            let end_of_decomression_target_slice = match item.original_size {
-                Some(a) => a as usize,
-                None => data.capacity() as usize,
-            };
+            let len_before = data.len();
             self.get_compression_algorithm(item.compression_algorithm)?
-                .decompress(
-                    &item.payload_data,
-                    item.original_size,
-                    &mut data[current_length_written..end_of_decomression_target_slice],
-                )?;
+                .decompress(&item.payload_data, item.original_size, &mut data)?;
+            let len_after = data.len();
+            if len_after - len_before <= 0 {
+                Err("Decompression failed or invalid")?;
+            }
+            if len_after > compressed.original_size as usize {
+                return Err("Decompressed size exceeds the expected size")?;
+            }
+            if let Some(original_size) = item.original_size {
+                if len_after != original_size as usize {
+                    Err("Decompressed size does not match the item expected size")?;
+                }
+            }
+        }
+
+        if data.len() != compressed.original_size as usize {
+            Err("Decompressed size does not match the expected size")?;
         }
 
         Ok(data)
@@ -101,11 +117,15 @@ impl DecompressionMethod for ChainedDecompression {
 
 /// This trait describes a compression algorithm -- an algorithm that takes a chunk of memory and compresses or decompresses it.
 trait CompressionAlgorithmImpl {
+    /// Decompress the compressed data into the output buffer.
+    ///
+    /// The original size is optional, and is only used for chained decompression.
+    ///
     fn decompress(
         &self,
         compressed: &Vec<u8>,
         original_size: Option<u32>,
-        out: &mut [u8],
+        out: &mut Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
@@ -122,11 +142,11 @@ impl CompressionAlgorithmImpl for NoneDecompression {
         &self,
         compressed: &Vec<u8>,
         original_size: Option<u32>,
-        out: &mut [u8],
+        out: &mut Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         debug_assert!(original_size.is_none());
 
-        out.copy_from_slice(compressed);
+        out.extend_from_slice(compressed);
         Ok(())
     }
 }
@@ -152,16 +172,16 @@ impl CompressionAlgorithmImpl for PatternV1Decompression {
         &self,
         compressed: &Vec<u8>,
         original_size: Option<u32>,
-        out: &mut [u8],
+        out: &mut Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         debug_assert!(original_size.is_none());
         assert!(compressed.len() == 8);
         let mut cursor = Cursor::new(&compressed);
 
         let parsed_payload = PatternV1Payload::read(&mut cursor)?;
-        for i in 0..parsed_payload.repetitions as usize {
-            out[i] = parsed_payload.pattern;
-        }
+        out.extend(
+            std::iter::repeat(parsed_payload.pattern).take(parsed_payload.repetitions as usize),
+        );
 
         Ok(())
     }
@@ -174,7 +194,7 @@ impl CompressionAlgorithmImpl for Lz4Decompression {
         &self,
         compressed: &Vec<u8>,
         original_size: Option<u32>,
-        out: &mut [u8],
+        out: &mut Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         debug_assert!(original_size.is_some());
 
@@ -189,12 +209,14 @@ impl CompressionAlgorithmImpl for Lz4Decompression {
 
 #[cfg(test)]
 mod tests {
+    use crate::packets::smb2::{file::ReadResponse, header::*, plain::*};
+
     use super::*;
 
     #[test]
     pub fn test_none_algorithm_decompression() {
         let compressed = vec![1, 2, 3, 4, 5];
-        let mut out = vec![0; 5];
+        let mut out = vec![];
         super::NoneDecompression
             .decompress(&compressed, None, &mut out)
             .unwrap();
@@ -204,9 +226,85 @@ mod tests {
     #[test]
     pub fn test_pattern_v1_algorithm_decompression() {
         let pattern_v1_payload_buffer = vec!['h' as u8, 0x0, 0x0, 0x0, 0xee, 0x1, 0x0, 0x0];
-        let mut out = vec![0; 0x1ee as usize];
+        let mut out = vec![];
         super::PatternV1Decompression
             .decompress(&pattern_v1_payload_buffer, None, &mut out)
             .unwrap();
+    }
+
+    #[test]
+    pub fn test_chained_decompression() {
+        let parsed_message = CompressedMessage::Chained(CompressedChainedMessage {
+            original_size: 1104,
+            items: vec![
+                CompressedChainedItem {
+                    compression_algorithm: CompressionAlgorithm::None,
+                    flags: 1,
+                    original_size: None,
+                    payload_data: vec![
+                        0xfe, 0x53, 0x4d, 0x42, 0x40, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x8, 0x0,
+                        0x1, 0x0, 0x19, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x7, 0x0, 0x0, 0x0, 0x0,
+                        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x51, 0x0, 0x0, 0x0,
+                        0x0, 0x34, 0x0, 0x0, 0xa, 0x9b, 0xe1, 0x41, 0x4b, 0x98, 0x8c, 0xf0, 0xd4,
+                        0xcd, 0x0, 0xa3, 0xfa, 0x8a, 0x7c, 0x64, 0x11, 0x0, 0x50, 0x0, 0x0, 0x4,
+                        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                    ],
+                },
+                CompressedChainedItem {
+                    compression_algorithm: CompressionAlgorithm::PatternV1,
+                    flags: 0,
+                    original_size: None,
+                    payload_data: vec![0x64, 0x0, 0x0, 0x0, 0x0, 0x4, 0x0, 0x0],
+                },
+            ],
+        });
+
+        let decompressor = Decompressor::new(&parsed_message);
+        let (dmsg, draw) = decompressor.decompress().unwrap();
+        assert_eq!(
+            draw[..80],
+            vec![
+                254, 83, 77, 66, 64, 0, 1, 0, 0, 0, 0, 0, 8, 0, 1, 0, 25, 0, 0, 0, 0, 0, 0, 0, 7,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 81, 0, 0, 0, 0, 52, 0, 0, 10, 155,
+                225, 65, 75, 152, 140, 240, 212, 205, 0, 163, 250, 138, 124, 100, 17, 0, 80, 0, 0,
+                4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+            ]
+        );
+        assert_eq!(draw[80..], vec![0x64; 0x400]);
+        // This is a compressed read response, let's unwrap it.
+        let plain_unwrapped = match dmsg {
+            Message::Plain(p) => p,
+            _ => panic!("Expected plain message"),
+        };
+        // Validate header
+        assert_eq!(
+            plain_unwrapped.header,
+            Header {
+                credit_charge: 1,
+                status: Status::Success,
+                command: Command::Read,
+                credit_request: 1,
+                flags: HeaderFlags::new()
+                    .with_server_to_redir(true)
+                    .with_signed(true)
+                    .with_priority_mask(1),
+                next_command: 0,
+                message_id: 7,
+                tree_id: 1,
+                session_id: 0x340000000051,
+                signature: 133569463218962867026972765300193336074
+            }
+        );
+        // unwrap & validate read response.
+        let read_response = match plain_unwrapped.content {
+            Content::ReadResponse(r) => r,
+            _ => panic!("Expected read response"),
+        };
+        assert_eq!(
+            read_response,
+            ReadResponse {
+                buffer: vec![0x64; 0x400]
+            }
+        )
     }
 }

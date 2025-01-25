@@ -297,7 +297,7 @@ impl ClientMessageHandler {
         let mut raw_message_result = NetBiosTcpMessage::build(&content)?;
         if let Some(mut signer) = msg.signer.take() {
             assert!(is_signed_set);
-            signer.sign_message(&mut header_copy, &mut raw_message_result)?;
+            signer.sign_message(&mut header_copy, &mut raw_message_result.content)?;
         };
 
         self.step_preauth_hash(&raw_message_result);
@@ -308,10 +308,10 @@ impl ClientMessageHandler {
     /// Given a NetBiosTcpMessage, decrypts (if necessary), decompresses (if necessary) and returns the plain SMB2 message.
     fn parse_raw(
         &mut self,
-        raw: &NetBiosTcpMessage,
+        netbios: NetBiosTcpMessage,
         options: &mut ReceiveOptions,
-    ) -> Result<(PlainMessage, MessageForm), Box<dyn Error>> {
-        let message = match raw.parse()? {
+    ) -> Result<(PlainMessage, Vec<u8>, MessageForm), Box<dyn Error>> {
+        let message = match netbios.parse()? {
             NetBiosMessageContent::SMB2Message(message) => Some(message),
             _ => None,
         }
@@ -320,23 +320,23 @@ impl ClientMessageHandler {
         let mut form = MessageForm::default();
 
         // 1. Decrpt?
-        let message = if let Message::Encrypted(encrypted_message) = &message {
+        let (message, raw) = if let Message::Encrypted(encrypted_message) = &message {
             form.encrypted = true;
             match options.decryptor.take() {
                 Some(mut decryptor) => decryptor.decrypt_message(&encrypted_message)?,
                 None => return Err("Encrypted message received without decryptor".into()),
             }
         } else {
-            message
+            (message, netbios.content)
         };
 
         // 2. Decompress?
         debug_assert!(!matches!(message, Message::Encrypted(_)));
-        let message = if let Message::Compressed(compressed_message) = &message {
+        let (message, raw) = if let Message::Compressed(compressed_message) = &message {
             form.compressed = true;
             Decompressor::new(compressed_message).decompress()?
         } else {
-            message
+            (message, raw)
         };
 
         // unwrap Message::Plain from Message enum:
@@ -345,7 +345,7 @@ impl ClientMessageHandler {
             _ => panic!("Unexpected message type"),
         };
 
-        Ok((message, form))
+        Ok((message, raw, form))
     }
 }
 
@@ -384,11 +384,11 @@ impl MessageHandler for ClientMessageHandler {
         &mut self,
         mut options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        let raw = self.netbios_client.recieve_bytes()?;
+        let netbios = self.netbios_client.recieve_bytes()?;
 
-        self.step_preauth_hash(&raw);
+        self.step_preauth_hash(&netbios);
 
-        let (message, form) = self.parse_raw(&raw, &mut options)?;
+        let (message, raw, form) = self.parse_raw(netbios, &mut options)?;
 
         // Command matching (if needed).
         if let Some(cmd) = options.cmd {

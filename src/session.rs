@@ -225,7 +225,7 @@ impl MessageSigner {
     pub fn verify_signature(
         &mut self,
         header: &mut Header,
-        raw_data: &NetBiosTcpMessage,
+        raw_data: &Vec<u8>,
     ) -> Result<(), Box<dyn Error>> {
         let calculated_signature = self.calculate_signature(header, raw_data)?;
         if calculated_signature != header.signature {
@@ -241,11 +241,11 @@ impl MessageSigner {
     pub fn sign_message(
         &mut self,
         header: &mut Header,
-        raw_data: &mut NetBiosTcpMessage,
+        raw_data: &mut Vec<u8>,
     ) -> Result<(), Box<dyn Error>> {
         header.signature = self.calculate_signature(header, raw_data)?;
         // Update raw data to include the signature.
-        let mut header_writer = Cursor::new(&mut raw_data.content[0..Header::STRUCT_SIZE]);
+        let mut header_writer = Cursor::new(&mut raw_data[0..Header::STRUCT_SIZE]);
         header.write(&mut header_writer)?;
         log::debug!(
             "Message #{} signed (signature={}).",
@@ -258,7 +258,7 @@ impl MessageSigner {
     fn calculate_signature(
         &mut self,
         header: &mut Header,
-        raw_message: &NetBiosTcpMessage,
+        raw_message: &Vec<u8>,
     ) -> Result<u128, Box<dyn Error>> {
         // Write header.
         let signture_backup = header.signature;
@@ -270,7 +270,7 @@ impl MessageSigner {
         self.signing_algo.update(&header_bytes.into_inner());
 
         // And write rest of the raw message.
-        let message_body = &raw_message.content[Header::STRUCT_SIZE..];
+        let message_body = &raw_message[Header::STRUCT_SIZE..];
         self.signing_algo.update(message_body);
 
         Ok(self.signing_algo.finalize())
@@ -338,7 +338,7 @@ impl MessageDecryptor {
     pub fn decrypt_message(
         &mut self,
         msg_in: &EncryptedMessage,
-    ) -> Result<Message, Box<dyn Error>> {
+    ) -> Result<(Message, Vec<u8>), Box<dyn Error>> {
         let mut serialized_message = msg_in.encrypted_message.clone();
         self.algo.decrypt(
             &mut serialized_message,
@@ -350,7 +350,7 @@ impl MessageDecryptor {
         let result = Message::read(&mut Cursor::new(&serialized_message))?;
 
         log::debug!("Decrypted with signature {}", msg_in.header.signature);
-        Ok(result)
+        Ok((result, serialized_message))
     }
 }
 

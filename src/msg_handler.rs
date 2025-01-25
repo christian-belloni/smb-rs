@@ -24,6 +24,9 @@ pub struct OutgoingMessage {
     /// Whether to finalize the preauth hash after sending this message.
     /// If this is set to true twice per connection, an error will be thrown.
     pub finalize_preauth_hash: bool,
+
+    /// Ask the sender to compress the message before sending, if possible.
+    pub compress: bool
 }
 
 impl OutgoingMessage {
@@ -33,6 +36,7 @@ impl OutgoingMessage {
             signer: None,
             encryptor: None,
             finalize_preauth_hash: false,
+            compress: false,
         }
     }
 }
@@ -52,7 +56,8 @@ impl SendMessageResult {
 #[derive(Debug)]
 pub struct IncomingMessage {
     pub message: PlainMessage,
-    pub raw: NetBiosTcpMessage,
+    /// The raw message received from the server, after applying transformations (e.g. decompression).
+    pub raw: Vec<u8>,
 
     // How did the message arrive?
     pub form: MessageForm,

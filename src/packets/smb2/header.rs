@@ -60,7 +60,7 @@ pub enum Status {
 }
 
 #[binrw::binrw]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[brw(magic(b"\xfeSMB"), little)]
 pub struct Header {
     #[bw(calc = Self::STRUCT_SIZE as u16)]
@@ -85,7 +85,7 @@ impl Header {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct HeaderFlags {
     pub server_to_redir: bool,

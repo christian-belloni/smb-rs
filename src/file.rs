@@ -95,7 +95,7 @@ impl Read for File {
             .handle
             .send_receive(Content::ReadRequest(ReadRequest {
                 padding: 0,
-                flags: ReadFlags::new(),
+                flags: ReadFlags::new().with_read_compressed(true),
                 length: buf.len() as u32,
                 offset: self.pos,
                 file_id: self.handle.file_id(),
