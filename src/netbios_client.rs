@@ -25,7 +25,7 @@ impl NetBiosClient {
 
     /// Sends a NetBios message.
     pub fn send(&mut self, data: NetBiosMessageContent) -> Result<(), Box<dyn std::error::Error>> {
-        let raw_message = NetBiosTcpMessage::build(&data)?;
+        let raw_message = NetBiosTcpMessage::from_content(&data)?;
         self.send_raw(raw_message)
     }
 

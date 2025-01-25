@@ -1,8 +1,11 @@
+//! SMB Session logic module.
+//!
+//! This module contains the session setup logic, as well as the session message handling,
+//! including encryption and signing of messages.
+
 use binrw::prelude::*;
-use ccm::aead::OsRng;
-use rand::RngCore;
 use sspi::{AuthIdentity, Secret, Username};
-use std::{cell::OnceCell, error::Error, io::Cursor};
+use std::{cell::OnceCell, error::Error};
 
 use crate::{
     authenticator::GssAuthenticator,
@@ -12,22 +15,23 @@ use crate::{
         HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, ReceiveOptions,
         SendMessageResult,
     },
-    packets::{
-        netbios::NetBiosTcpMessage,
-        smb2::{
-            encrypted::*,
-            header::{Header, Status},
-            message::Message,
-            negotiate::{EncryptionCipher, SigningAlgorithmId},
-            plain::{Content, PlainMessage},
-            session_setup::{SessionFlags, SessionSetupRequest},
-        },
+    packets::smb2::{
+        header::Status,
+        negotiate::{EncryptionCipher, SigningAlgorithmId},
+        plain::{Content, PlainMessage},
+        session_setup::{SessionFlags, SessionSetupRequest},
     },
     tree::Tree,
 };
 
 type DerivedKeyValue = [u8; 16];
 type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
+
+mod encryptor_decryptor;
+mod signer;
+
+pub use encryptor_decryptor::{MessageDecryptor, MessageEncryptor};
+pub use signer::MessageSigner;
 
 pub struct Session {
     is_set_up: bool,
@@ -209,148 +213,6 @@ impl Drop for Session {
         self.logoff().unwrap_or_else(|e| {
             log::error!("Failed to logoff: {}", e);
         });
-    }
-}
-
-#[derive(Debug)]
-pub struct MessageSigner {
-    signing_algo: Box<dyn crypto::SigningAlgo>,
-}
-
-impl MessageSigner {
-    pub fn new(signing_algo: Box<dyn crypto::SigningAlgo>) -> MessageSigner {
-        MessageSigner { signing_algo }
-    }
-
-    pub fn verify_signature(
-        &mut self,
-        header: &mut Header,
-        raw_data: &Vec<u8>,
-    ) -> Result<(), Box<dyn Error>> {
-        let calculated_signature = self.calculate_signature(header, raw_data)?;
-        if calculated_signature != header.signature {
-            return Err("Signature verification failed".into());
-        }
-        log::debug!(
-            "Signature verification passed (signature={}).",
-            header.signature
-        );
-        Ok(())
-    }
-
-    pub fn sign_message(
-        &mut self,
-        header: &mut Header,
-        raw_data: &mut Vec<u8>,
-    ) -> Result<(), Box<dyn Error>> {
-        header.signature = self.calculate_signature(header, raw_data)?;
-        // Update raw data to include the signature.
-        let mut header_writer = Cursor::new(&mut raw_data[0..Header::STRUCT_SIZE]);
-        header.write(&mut header_writer)?;
-        log::debug!(
-            "Message #{} signed (signature={}).",
-            header.message_id,
-            header.signature
-        );
-        Ok(())
-    }
-
-    fn calculate_signature(
-        &mut self,
-        header: &mut Header,
-        raw_message: &Vec<u8>,
-    ) -> Result<u128, Box<dyn Error>> {
-        // Write header.
-        let signture_backup = header.signature;
-        header.signature = 0;
-        let mut header_bytes = Cursor::new([0; Header::STRUCT_SIZE]);
-        header.write(&mut header_bytes)?;
-        header.signature = signture_backup;
-        self.signing_algo.start(&header);
-        self.signing_algo.update(&header_bytes.into_inner());
-
-        // And write rest of the raw message.
-        let message_body = &raw_message[Header::STRUCT_SIZE..];
-        self.signing_algo.update(message_body);
-
-        Ok(self.signing_algo.finalize())
-    }
-}
-
-#[derive(Debug)]
-pub struct MessageEncryptor {
-    algo: Box<dyn crypto::EncryptingAlgo>,
-}
-
-impl MessageEncryptor {
-    pub fn new(algo: Box<dyn crypto::EncryptingAlgo>) -> MessageEncryptor {
-        MessageEncryptor { algo }
-    }
-
-    pub fn encrypt_message(
-        &mut self,
-        msg_in: &PlainMessage,
-    ) -> Result<EncryptedMessage, Box<dyn Error>> {
-        debug_assert!(msg_in.header.session_id != 0);
-        // Serialize message:
-        let mut cursor = Cursor::new(vec![]);
-        msg_in.write(&mut cursor)?;
-        let mut serialized_message = cursor.into_inner();
-        let mut header = EncryptedHeader {
-            signature: 0,
-            nonce: self.gen_nonce(),
-            original_message_size: serialized_message.len().try_into()?,
-            session_id: msg_in.header.session_id,
-        };
-
-        let result =
-            self.algo
-                .encrypt(&mut serialized_message, &header.aead_bytes(), &header.nonce)?;
-
-        header.signature = result.signature;
-
-        log::debug!("Encrypted message with signature: {:?}", header.signature);
-
-        Ok(EncryptedMessage {
-            header,
-            encrypted_message: serialized_message,
-        })
-    }
-
-    fn gen_nonce(&self) -> [u8; 16] {
-        let mut nonce = [0; 16];
-        // Generate self.algo.nonce_size() random bytes:
-        OsRng.fill_bytes(&mut nonce[..self.algo.nonce_size()]);
-        nonce
-    }
-}
-
-#[derive(Debug)]
-pub struct MessageDecryptor {
-    algo: Box<dyn crypto::EncryptingAlgo>,
-}
-
-impl MessageDecryptor {
-    pub fn new(algo: Box<dyn crypto::EncryptingAlgo>) -> MessageDecryptor {
-        MessageDecryptor { algo }
-    }
-
-    pub fn decrypt_message(
-        &mut self,
-        msg_in: &EncryptedMessage,
-    ) -> Result<(Message, Vec<u8>), Box<dyn Error>> {
-        let mut serialized_message = msg_in.encrypted_message.clone();
-        self.algo.decrypt(
-            &mut serialized_message,
-            &msg_in.header.aead_bytes(),
-            &msg_in.header.nonce,
-            msg_in.header.signature,
-        )?;
-
-        let result = Message::read(&mut Cursor::new(&serialized_message))?;
-
-        log::debug!("Decrypted with signature {}", msg_in.header.signature);
-        Ok((result, serialized_message))
     }
 }
 

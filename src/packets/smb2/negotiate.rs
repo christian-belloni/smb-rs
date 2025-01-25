@@ -202,6 +202,20 @@ impl NegotiateResponse {
                 })
         })
     }
+
+    pub fn get_compression(&self) -> Option<&CompressionCapabilities> {
+        self.negotiate_context_list.as_ref().and_then(|contexts| {
+            contexts
+                .iter()
+                .find_map(|context| match &context.context_type {
+                    NegotiateContextType::CompressionCapabilities => match &context.data {
+                        NegotiateContextValue::CompressionCapabilities(caps) => Some(caps),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+        })
+    }
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
@@ -375,9 +389,9 @@ pub struct CompressionCapabilities {
     compression_algorithm_count: u16,
     #[bw(calc = 0)]
     _padding: u16,
-    flags: CompressionCapabilitiesFlags,
+    pub flags: CompressionCapabilitiesFlags,
     #[br(count = compression_algorithm_count)]
-    compression_algorithms: Vec<CompressionAlgorithm>,
+    pub compression_algorithms: Vec<CompressionAlgorithm>,
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]

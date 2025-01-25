@@ -26,7 +26,7 @@ pub struct OutgoingMessage {
     pub finalize_preauth_hash: bool,
 
     /// Ask the sender to compress the message before sending, if possible.
-    pub compress: bool
+    pub compress: bool,
 }
 
 impl OutgoingMessage {
