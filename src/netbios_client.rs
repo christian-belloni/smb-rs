@@ -50,7 +50,7 @@ impl NetBiosClient {
         // Recieve header.
         let header_receiver = &mut NoSeek::new(&mut tcp);
         let header = NetBiosTcpMessageHeader::read(header_receiver)?;
-        if header.stream_protocol_length.value > 4096 {
+        if header.stream_protocol_length.value > 2u32.pow(3 * 8) - 1 {
             return Err("Stream protocol length is too large".into());
         }
 

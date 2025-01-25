@@ -319,7 +319,7 @@ impl ClientMessageHandler {
 
         // 2. Compress
         data = {
-            if msg.compress {
+            if msg.compress && data.len() > 1024 {
                 if let Some(compressor) = self.negotiate_state().unwrap().compressor.as_ref() {
                     let compressed = compressor.compress(&data)?;
                     data.clear();

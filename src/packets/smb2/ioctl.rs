@@ -1,4 +1,3 @@
-use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 use std::io::SeekFrom;

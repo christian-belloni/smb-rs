@@ -7,16 +7,16 @@ use std::{error::Error, io::prelude::*};
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let mut smb = Client::new();
-    smb.connect("172.16.204.145:445")?;
+    smb.connect("3.70.138.47:445")?;
     smb.negotiate()?;
     let mut session = smb.authenticate("LocalAdmin".to_string(), "123456".to_string())?;
     let mut tree = session.tree_connect(r"\\AVIVVM\MyShare".to_string())?;
     let file = tree.create(
-        r"hello\d.txt".to_string(),
+        r"ntoskrnl.exe".to_string(),
         CreateDisposition::Open,
         FileAccessMask::new()
             .with_generic_read(true)
-            .with_generic_write(true),
+            .with_generic_write(false),
     )?;
     match file {
         smb::resource::Resource::File(mut smbfile) => {
@@ -31,12 +31,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             log::info!("File info: {:?}", info);
 
             // Let's read some data from the file.
-            let mut buf = [0; 1024];
+            let mut buf = [0; 0x1000];
             let n = smbfile.read(&mut buf)?;
             println!("{:?}", String::from_utf8_lossy(&buf[..n]));
 
             // Let's write some data to the file.
-            smbfile.write_all(b"Hello, world!")?;
+            // smbfile.write_all(b"Hello, world!")?;
         }
         smb::resource::Resource::Directory(mut smbdirectory) => {
             log::info!(

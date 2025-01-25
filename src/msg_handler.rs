@@ -2,14 +2,10 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     client::PreauthHashValue,
-    packets::{
-        netbios::NetBiosTcpMessage,
-        smb2::{
+    packets::smb2::{
             header::{Command, Status},
-            message::Message,
             plain::*,
         },
-    },
     session::{MessageDecryptor, MessageEncryptor, MessageSigner},
 };
 
@@ -36,7 +32,7 @@ impl OutgoingMessage {
             signer: None,
             encryptor: None,
             finalize_preauth_hash: false,
-            compress: false,
+            compress: true,
         }
     }
 }

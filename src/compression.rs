@@ -1,6 +1,4 @@
-use crate::packets::smb2::{
-    compressed::*, header::*, message::*, negotiate::CompressionAlgorithm,
-};
+use crate::packets::smb2::{compressed::*, header::*, message::*, negotiate::CompressionAlgorithm};
 use binrw::prelude::*;
 use lz4_flex;
 ///! Implements (de)compression logic.
@@ -152,14 +150,11 @@ impl CompressionMethod for ChainedCompression {
             self.get_compression_algorithm(item.compression_algorithm)?
                 .decompress(&item.payload_data, item.original_size, &mut data)?;
             let len_after = data.len();
-            if len_after - len_before <= 0 {
-                Err("Compression failed or invalid")?;
-            }
             if len_after > compressed.original_size as usize {
                 return Err("Decompressed size exceeds the expected size")?;
             }
             if let Some(original_size) = item.original_size {
-                if len_after != original_size as usize {
+                if len_after - len_before != original_size as usize {
                     Err("Decompressed size does not match the item expected size")?;
                 }
             }
@@ -273,9 +268,10 @@ impl CompressionAlgorithmImpl for Lz4Compression {
         original_size: Option<u32>,
         out: &mut Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        debug_assert!(original_size.is_some());
+        let start_index = out.len();
+        out.resize(start_index + original_size.unwrap() as usize, 0);
 
-        let size = lz4_flex::decompress_into(compressed, out)?;
+        let size = lz4_flex::decompress_into(compressed, &mut out[start_index..])?;
 
         if size != original_size.unwrap() as usize {
             Err("Decompressed size does not match the expected size")?;
