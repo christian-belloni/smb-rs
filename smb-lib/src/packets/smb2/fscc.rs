@@ -201,6 +201,7 @@ pub struct BothDirectoryInformationItem {
 }
 
 #[binrw::binrw]
+#[derive(Debug)]
 #[bw(import(has_next: bool))]
 pub struct FileNotifyInformation {
     #[br(assert(next_entry_offset.value % 4 == 0))]

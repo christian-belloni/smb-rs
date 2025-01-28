@@ -9,6 +9,7 @@ use super::fscc::*;
 use crate::packets::binrw_util::prelude::*;
 
 #[binrw::binrw]
+#[derive(Debug)]
 pub struct ChangeNotifyRequest {
     #[bw(calc = 32)]
     #[br(assert(structure_size == 32))]
@@ -55,6 +56,7 @@ pub struct NotifyFilter {
 }
 
 #[binrw::binrw]
+#[derive(Debug)]
 pub struct ChangeNotifyResponse {
     #[bw(calc = 9)]
     #[br(assert(structure_size == 9))]

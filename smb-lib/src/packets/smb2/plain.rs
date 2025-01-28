@@ -72,11 +72,27 @@ pub enum Content {
     #[br(pre_assert(matches!(command, Command::Ioctl) && from_srv))]
     IoctlResponse(ioctl::IoctlResponse),
 
+    // cancel
+    #[br(pre_assert(matches!(command, Command::Cancel) && !from_srv))]
+    CancelRequest(cancel::CancelRequest),
+
+    // echo
+    #[br(pre_assert(matches!(command, Command::Echo) && !from_srv))]
+    EchoRequest(echo::EchoRequest),
+    #[br(pre_assert(matches!(command, Command::Echo) && from_srv))]
+    EchoResponse(echo::EchoResponse),
+
     // query directory
     #[br(pre_assert(matches!(command, Command::QueryDirectory) && !from_srv))]
     QueryDirectoryRequest(dir::QueryDirectoryRequest),
     #[br(pre_assert(matches!(command, Command::QueryDirectory) && from_srv))]
     QueryDirectoryResponse(dir::QueryDirectoryResponse),
+
+    // change notify
+    #[br(pre_assert(matches!(command, Command::ChangeNotify) && !from_srv))]
+    ChangeNotifyRequest(notify::ChangeNotifyRequest),
+    #[br(pre_assert(matches!(command, Command::ChangeNotify) && from_srv))]
+    ChangeNotifyResponse(notify::ChangeNotifyResponse),
 
     // query info
     #[br(pre_assert(matches!(command, Command::QueryInfo) && !from_srv))]
@@ -107,8 +123,12 @@ impl Content {
             FlushRequest(_) | FlushResponse(_) => Command::Flush,
             ReadRequest(_) | ReadResponse(_) => Command::Read,
             WriteRequest(_) | WriteResponse(_) => Command::Write,
+            // TODO: LOCK
             IoctlRequest(_) | IoctlResponse(_) => Command::Ioctl,
+            CancelRequest(_) => Command::Cancel,
+            EchoRequest(_) | EchoResponse(_) => Command::Echo,
             QueryDirectoryRequest(_) | QueryDirectoryResponse(_) => Command::QueryDirectory,
+            ChangeNotifyRequest(_) | ChangeNotifyResponse(_) => Command::ChangeNotify,
             QueryInfoRequest(_) | QueryInfoResponse(_) => Command::QueryInfo,
             ErrorResponse(_) => panic!("Error has no matching command!"),
         }

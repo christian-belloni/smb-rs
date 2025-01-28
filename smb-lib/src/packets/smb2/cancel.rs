@@ -3,6 +3,7 @@
 use binrw::prelude::*;
 
 #[binrw::binrw]
+#[derive(Debug, Default)]
 pub struct CancelRequest {
     #[br(assert(structure_size == 4))]
     #[bw(calc = 4)]
@@ -10,12 +11,6 @@ pub struct CancelRequest {
     #[br(assert(reserved == 0))]
     #[bw(calc = 0)]
     reserved: u16,
-}
-
-impl Default for CancelRequest {
-    fn default() -> Self {
-        CancelRequest {}
-    }
 }
 
 #[cfg(test)]
