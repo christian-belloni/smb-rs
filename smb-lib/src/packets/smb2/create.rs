@@ -3,6 +3,7 @@
 use std::io::SeekFrom;
 
 use super::super::binrw_util::prelude::*;
+use super::super::guid::Guid;
 use super::fscc::*;
 use super::header::Status;
 use binrw::io::TakeSeekExt;

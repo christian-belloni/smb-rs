@@ -1,7 +1,6 @@
-use crate::{
-    compression::{Compressor, Decompressor},
-    packets::binrw_util::guid::Guid,
-};
+use crate::compression::{Compressor, Decompressor};
+
+use crate::packets::guid::Guid;
 use binrw::prelude::*;
 use core::panic;
 use sha2::{Digest, Sha512};

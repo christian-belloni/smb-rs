@@ -58,9 +58,7 @@ impl File {
 impl Seek for File {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         let next_pos = match pos {
-            std::io::SeekFrom::Start(pos) => {
-                pos
-            }
+            std::io::SeekFrom::Start(pos) => pos,
             std::io::SeekFrom::End(pos) => {
                 let pos = self.end_of_file as i64 + pos;
                 if pos < 0 {
@@ -69,10 +67,9 @@ impl Seek for File {
                         "Invalid seek position",
                     ));
                 }
-                pos.try_into().map_err(|_| std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Invalid seek position",
-                ))?
+                pos.try_into().map_err(|_| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid seek position")
+                })?
             }
             std::io::SeekFrom::Current(pos) => {
                 let pos = self.pos as i64 + pos;
@@ -82,10 +79,9 @@ impl Seek for File {
                         "Invalid seek position",
                     ));
                 }
-                pos.try_into().map_err(|_| std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Invalid seek position",
-                ))?
+                pos.try_into().map_err(|_| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid seek position")
+                })?
             }
         };
         if next_pos > self.end_of_file {

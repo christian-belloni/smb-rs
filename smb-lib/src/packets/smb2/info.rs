@@ -2,6 +2,7 @@
 
 use std::io::{Cursor, SeekFrom};
 
+use super::super::guid::Guid;
 use super::fscc::*;
 use super::{super::binrw_util::prelude::*, security::*};
 use binrw::{io::TakeSeekExt, prelude::*};

@@ -3,9 +3,9 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     client::PreauthHashValue,
     packets::smb2::{
-            header::{Command, Status},
-            plain::*,
-        },
+        header::{Command, Status},
+        plain::*,
+    },
     session::{MessageDecryptor, MessageEncryptor, MessageSigner},
 };
 

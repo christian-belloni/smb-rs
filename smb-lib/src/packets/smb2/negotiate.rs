@@ -5,6 +5,7 @@ use rand::rngs::OsRng;
 use rand::Rng;
 
 use super::super::binrw_util::prelude::*;
+use super::super::guid::Guid;
 
 #[binrw::binrw]
 #[derive(Debug)]

@@ -7,6 +7,7 @@ use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
 use super::super::binrw_util::prelude::*;
+use super::super::guid::Guid;
 
 use super::fscc::*;
 

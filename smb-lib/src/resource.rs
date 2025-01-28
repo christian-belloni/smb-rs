@@ -5,7 +5,7 @@ use time::PrimitiveDateTime;
 use crate::{
     msg_handler::{HandlerReference, MessageHandler},
     packets::{
-        binrw_util::guid::Guid,
+        guid::Guid,
         smb2::{
             create::*,
             fscc::{FileAccessMask, FileAttributes},
@@ -15,11 +15,11 @@ use crate::{
     tree::TreeMessageHandler,
 };
 
-pub mod file;
 pub mod directory;
+pub mod file;
 
-use file::*;
 use directory::*;
+use file::*;
 
 type Upstream = HandlerReference<TreeMessageHandler>;
 

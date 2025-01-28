@@ -2,6 +2,7 @@ use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 use std::io::SeekFrom;
 
+use super::super::guid::Guid;
 use crate::packets::binrw_util::prelude::*;
 
 #[binrw::binrw]

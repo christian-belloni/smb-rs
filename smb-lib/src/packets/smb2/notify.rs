@@ -4,6 +4,7 @@ use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
+use super::super::guid::Guid;
 use super::fscc::*;
 use crate::packets::binrw_util::prelude::*;
 
