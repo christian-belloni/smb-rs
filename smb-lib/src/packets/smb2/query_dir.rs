@@ -17,7 +17,7 @@ pub struct QueryDirectoryRequest {
     #[bw(calc = 33)]
     #[br(assert(_structure_size == 33))]
     _structure_size: u16,
-    pub file_information_class: FileInfoClass,
+    pub file_information_class: QueryFileInfoClass,
     pub flags: QueryDirectoryFlags,
     // If SMB2_INDEX_SPECIFIED is set in Flags, this value MUST be supplied.
     // Otherwise, it MUST be set to zero and the server MUST ignore it.
@@ -116,9 +116,9 @@ mod tests {
             0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xbc, 0xf8, 0x0, 0x0,
             0x0, 0x0, 0x4, 0x0, 0x64, 0x0, 0x2e, 0x0, 0x74, 0x0, 0x78, 0x0, 0x74, 0x0,
         ];
-        let result = DirectoryInfoVector::read_args(
+        let result = QueryDirectoryInfoVector::read_args(
             &mut Cursor::new(&data),
-            (FileInfoClass::IdBothDirectoryInformation,),
+            (QueryFileInfoClass::IdBothDirectoryInformation,),
         )
         .unwrap();
 

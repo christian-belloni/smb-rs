@@ -52,7 +52,10 @@ impl Resource {
                 CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
                     timeout: 0,
                     flags: DH2QFlags::new(),
-                    create_guid: 273489604278964.into(),
+                    create_guid: Guid::try_from(&[
+                        180, 122, 182, 194, 188, 248, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    ])
+                    .unwrap(),
                 })),
                 CreateContext::new(CreateContextData::MxAcReq(())),
                 CreateContext::new(CreateContextData::QFidReq(())),

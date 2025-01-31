@@ -14,8 +14,8 @@ use modular_bitfield::prelude::*;
 #[derive(Debug)]
 pub struct CreateRequest {
     #[bw(calc = 57)]
-    #[br(assert(structure_size == 57))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 57))]
+    _structure_size: u16,
     #[bw(calc = 0)] // reserved
     #[br(assert(_security_flags == 0))]
     _security_flags: u8,
@@ -129,8 +129,8 @@ pub struct ShareAccessFlags {
 #[derive(Debug, PartialEq, Eq)]
 pub struct CreateResponse {
     #[bw(calc = 89)]
-    #[br(assert(structure_size == 89))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 89))]
+    _structure_size: u16,
     pub oplock_level: OplockLevel,
     pub flags: CreateResponseFlags,
     pub create_action: CreateAction,
@@ -208,8 +208,8 @@ pub struct CreateContext<const IS_REQUEST: bool> {
     #[bw(calc = u16::try_from(name.len()).unwrap())]
     name_length: u16,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u16,
+    #[br(assert(_reserved == 0))]
+    _reserved: u16,
     #[bw(calc = PosMarker::default())]
     _data_offset: PosMarker<u16>,
     #[bw(calc = PosMarker::default())]
@@ -439,7 +439,7 @@ mod tests {
                 CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
                     timeout: 0,
                     flags: DH2QFlags::new(),
-                    create_guid: 0x821680290c007b8b11efc0a0c679a320.into(),
+                    create_guid: 0x821680290c007b8b11efc0a0c679a320u128.to_le_bytes().into(),
                 })),
                 CreateContext::new(CreateContextData::MxAcReq(())),
                 CreateContext::new(CreateContextData::QFidReq(())),
@@ -504,7 +504,7 @@ mod tests {
                 allocation_size: 0,
                 endof_file: 0,
                 file_attributes: FileAttributes::new().with_directory(true),
-                file_id: 950737950337192747837452976457.into(),
+                file_id: 950737950337192747837452976457u128.to_le_bytes().into(),
                 create_contexts: vec![
                     CreateContext::new(CreateContextData::MxAcResp(MxAcResp {
                         query_status: Status::Success,

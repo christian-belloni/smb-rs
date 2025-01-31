@@ -255,7 +255,7 @@ pub struct ClientMessageHandler {
 impl ClientMessageHandler {
     fn new() -> ClientMessageHandler {
         ClientMessageHandler {
-            client_guid: Guid::new(),
+            client_guid: Guid::gen(),
             netbios_client: NetBiosClient::new(),
             negotiate_state: OnceCell::new(),
             current_message_id: 0,

@@ -1,4 +1,4 @@
-use crate::packets::smb2::{dir::*, fscc::*, plain::*};
+use crate::packets::smb2::{fscc::*, plain::*, query_dir::*};
 
 use super::ResourceHandle;
 
@@ -26,7 +26,7 @@ impl Directory {
         let response =
             self.handle
                 .send_receive(Content::QueryDirectoryRequest(QueryDirectoryRequest {
-                    file_information_class: FileInfoClass::IdBothDirectoryInformation,
+                    file_information_class: QueryFileInfoClass::IdBothDirectoryInformation,
                     flags: QueryDirectoryFlags::new().with_restart_scans(true),
                     file_index: 0,
                     file_id: self.handle.file_id(),
@@ -38,11 +38,11 @@ impl Directory {
             Content::QueryDirectoryResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
-        let result = match DirectoryInfoVector::parse(
+        let result = match QueryDirectoryInfoVector::parse(
             &content.output_buffer,
-            FileInfoClass::IdBothDirectoryInformation,
+            QueryFileInfoClass::IdBothDirectoryInformation,
         )? {
-            DirectoryInfoVector::IdBothDirectoryInformation(val) => val,
+            QueryDirectoryInfoVector::IdBothDirectoryInformation(val) => val,
         };
         Ok(result.into())
     }

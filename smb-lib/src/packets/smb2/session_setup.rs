@@ -7,8 +7,8 @@ use super::super::binrw_util::prelude::*;
 #[derive(Debug)]
 pub struct SessionSetupRequest {
     #[bw(calc = 25)]
-    #[br(assert(structure_size == 25))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 25))]
+    _structure_size: u16,
     pub flags: SetupRequestFlags,
     pub security_mode: SecurityMode,
     pub capabilities: NegotiateCapabilities,
@@ -68,8 +68,8 @@ impl SessionSetupRequest {
 #[derive(Debug, PartialEq, Eq)]
 pub struct SessionSetupResponse {
     #[bw(calc = 9)]
-    #[br(assert(structure_size == 9))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 9))]
+    _structure_size: u16,
     pub session_flags: SessionFlags,
     #[bw(calc = PosMarker::default())]
     _security_buffer_offset: PosMarker<u16>,
@@ -95,22 +95,22 @@ pub struct SessionFlags {
 #[derive(Debug, Default)]
 pub struct LogoffRequest {
     #[bw(calc = 4)]
-    #[br(assert(structure_size == 4))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 4))]
+    _structure_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u16,
+    #[br(assert(_reserved == 0))]
+    _reserved: u16,
 }
 
 #[binrw::binrw]
 #[derive(Debug)]
 pub struct LogoffResponse {
     #[bw(calc = 4)]
-    #[br(assert(structure_size == 4))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 4))]
+    _structure_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u16,
+    #[br(assert(_reserved == 0))]
+    _reserved: u16,
 }
 
 #[cfg(test)]

@@ -90,9 +90,9 @@ pub enum Content {
 
     // query directory
     #[br(pre_assert(matches!(command, Command::QueryDirectory) && !from_srv))]
-    QueryDirectoryRequest(dir::QueryDirectoryRequest),
+    QueryDirectoryRequest(query_dir::QueryDirectoryRequest),
     #[br(pre_assert(matches!(command, Command::QueryDirectory) && from_srv))]
-    QueryDirectoryResponse(dir::QueryDirectoryResponse),
+    QueryDirectoryResponse(query_dir::QueryDirectoryResponse),
 
     // change notify
     #[br(pre_assert(matches!(command, Command::ChangeNotify) && !from_srv))]
@@ -105,6 +105,12 @@ pub enum Content {
     QueryInfoRequest(info::QueryInfoRequest),
     #[br(pre_assert(matches!(command, Command::QueryInfo) && from_srv))]
     QueryInfoResponse(info::QueryInfoResponse),
+
+    // set info
+    #[br(pre_assert(matches!(command, Command::SetInfo) && !from_srv))]
+    SetInfoRequest(info::SetInfoRequest),
+    #[br(pre_assert(matches!(command, Command::SetInfo) && from_srv))]
+    SetInfoResponse(info::SetInfoResponse),
 
     // oplock
     #[br(pre_assert(matches!(command, Command::OplockBreak) && !from_srv))]
@@ -150,7 +156,7 @@ impl Content {
             QueryDirectoryRequest(_) | QueryDirectoryResponse(_) => Command::QueryDirectory,
             ChangeNotifyRequest(_) | ChangeNotifyResponse(_) => Command::ChangeNotify,
             QueryInfoRequest(_) | QueryInfoResponse(_) => Command::QueryInfo,
-            // oplocks breaks/leases:
+            SetInfoRequest(_) | SetInfoResponse(_) => Command::SetInfo,
             OplockBreakAck(_)
             | LeaseBreakAck(_)
             | OplockBreakNotify(_)

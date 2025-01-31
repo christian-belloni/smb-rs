@@ -135,23 +135,23 @@ impl From<FileAccessMask> for DirAccessMask {
 
 #[binrw::binrw]
 #[derive(Debug)]
-#[brw(import(c: FileInfoClass))]
+#[brw(import(c: QueryFileInfoClass))]
 #[brw(little)]
-pub enum DirectoryInfoVector {
-    #[br(pre_assert(c == FileInfoClass::IdBothDirectoryInformation))]
+pub enum QueryDirectoryInfoVector {
+    #[br(pre_assert(c == QueryFileInfoClass::IdBothDirectoryInformation))]
     IdBothDirectoryInformation(IdBothDirectoryInfoVector),
 }
 
-impl DirectoryInfoVector {
-    pub fn parse(payload: &[u8], class: FileInfoClass) -> Result<Self, binrw::Error> {
+impl QueryDirectoryInfoVector {
+    pub fn parse(payload: &[u8], class: QueryFileInfoClass) -> Result<Self, binrw::Error> {
         let mut cursor = Cursor::new(payload);
         Self::read_args(&mut cursor, (class,))
     }
 }
 
-impl DirectoryInfoVector {
-    pub const SUPPORTED_DIRECTORY_CLASSES: [FileInfoClass; 1] =
-        [FileInfoClass::DirectoryInformation];
+impl QueryDirectoryInfoVector {
+    pub const SUPPORTED_DIRECTORY_CLASSES: [QueryFileInfoClass; 1] =
+        [QueryFileInfoClass::DirectoryInformation];
 }
 
 #[binrw::binrw]
@@ -201,23 +201,34 @@ pub struct BothDirectoryInformationItem {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[bw(import(has_next: bool))]
 pub struct FileNotifyInformation {
     #[br(assert(next_entry_offset.value % 4 == 0))]
+    #[bw(calc = PosMarker::default())]
     next_entry_offset: PosMarker<u32>,
-    action: NotifyAction,
+    pub action: NotifyAction,
     #[bw(try_calc = file_name.size().try_into())]
     file_name_length: u32,
     #[br(args(file_name_length.into()))]
-    file_name: SizedWideString,
+    pub file_name: SizedWideString,
 
     // Handle next entry.
     #[br(seek_before = next_entry_offset.seek_relative(true))]
     #[bw(if(has_next))]
     #[bw(align_before = 4)]
-    #[bw(write_with = PosMarker::write_aoff, args(next_entry_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&next_entry_offset))]
     _seek_next: (),
+}
+
+impl FileNotifyInformation {
+    pub fn new(action: NotifyAction, file_name: &str) -> Self {
+        Self {
+            action,
+            file_name: SizedWideString::from(file_name),
+            _seek_next: (),
+        }
+    }
 }
 
 #[binrw::binrw]
@@ -280,10 +291,10 @@ impl FileGetEaInformation {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u8))]
-pub enum FileInfoClass {
+pub enum QueryFileInfoClass {
     /// this value is not specified in FSCC, but we need it for SMB.
     None = 0,
-    // File stuff
+    // File stuff, general info
     AccessInformation = 8,
     AlignmentInformation = 17,
     AllInformation = 18,
@@ -322,7 +333,7 @@ pub enum FileInfoClass {
     InformationClassReserved = 0x64,
 }
 
-impl FileInfoClass {
+impl QueryFileInfoClass {
     pub const DIRECTORY_CLASSES: [Self; 11] = [
         Self::DirectoryInformation,
         Self::FullDirectoryInformation,
@@ -362,12 +373,44 @@ impl FileInfoClass {
 }
 
 #[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[brw(repr(u8))]
+pub enum SetFileInfoClass {
+    EndOfFileInformation = 20,
+    DispositionInformation = 13,
+    RenameInformation = 10,
+}
+
+#[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-#[brw(import(c: FileInfoClass), little)]
-#[brw(assert(c != FileInfoClass::None))]
-pub enum FileInfo {
-    #[br(pre_assert(c == FileInfoClass::BasicInformation))]
+#[brw(import(c: QueryFileInfoClass), little)]
+#[brw(assert(c != QueryFileInfoClass::None))]
+pub enum QueryFileInfo {
+    #[br(pre_assert(c == QueryFileInfoClass::BasicInformation))]
     BasicInformation(FileBasicInformation),
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+#[brw(little)]
+#[br(import(c: SetFileInfoClass))]
+pub enum SetFileInfo {
+    #[br(pre_assert(c == SetFileInfoClass::EndOfFileInformation))]
+    EndOfFileInformation(FileEndOfFileInformation),
+    #[br(pre_assert(c == SetFileInfoClass::DispositionInformation))]
+    DispositionInformation(FileDispositionInformation),
+    #[br(pre_assert(c == SetFileInfoClass::RenameInformation))]
+    RenameInformation(RenameInformation2),
+}
+
+impl SetFileInfo {
+    pub fn info_class(&self) -> SetFileInfoClass {
+        match self {
+            SetFileInfo::EndOfFileInformation(_) => SetFileInfoClass::EndOfFileInformation,
+            SetFileInfo::DispositionInformation(_) => SetFileInfoClass::DispositionInformation,
+            SetFileInfo::RenameInformation(_) => SetFileInfoClass::RenameInformation,
+        }
+    }
 }
 
 #[binrw::binrw]
@@ -381,6 +424,35 @@ pub struct FileBasicInformation {
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u32,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileEndOfFileInformation {
+    pub end_of_file: u64,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileDispositionInformation {
+    pub delete_pending: u8,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct RenameInformation2 {
+    pub replace_if_exists: u8,
+    #[bw(calc = 0)]
+    _reserved: u8,
+    #[bw(calc = 0)]
+    _reserved2: u16,
+    #[bw(calc = 0)]
+    _reserved3: u32,
+    pub root_directory: u64,
+    #[bw(try_calc = file_name.size().try_into())]
+    _file_name_length: u32,
+    #[br(args(_file_name_length as u64))]
+    pub file_name: SizedWideString,
 }
 
 #[binrw::binrw]

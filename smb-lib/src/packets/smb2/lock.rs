@@ -6,8 +6,8 @@ use modular_bitfield::prelude::*;
 #[derive(Debug)]
 pub struct LockRequest {
     #[bw(calc = 48)]
-    #[br(assert(structure_size == 48))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 48))]
+    _structure_size: u16,
     #[bw(try_calc = locks.len().try_into())]
     lock_count: u16,
     pub lock_sequence: LockSequence,
@@ -31,8 +31,8 @@ pub struct LockElement {
     pub length: u64,
     pub flags: LockFlag,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u32,
+    #[br(assert(_reserved == 0))]
+    _reserved: u32,
 }
 
 #[bitfield]
@@ -51,17 +51,16 @@ pub struct LockFlag {
 #[derive(Debug)]
 pub struct LockResponse {
     #[bw(calc = 4)]
-    #[br(assert(structure_size == 4))]
-    pub structure_size: u16,
+    #[br(assert(_structure_size == 4))]
+    pub _structure_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    pub reserved: u16,
+    #[br(assert(_reserved == 0))]
+    pub _reserved: u16,
 }
-
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
+    
 
     // TODO: tests
 }

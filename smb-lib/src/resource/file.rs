@@ -29,26 +29,26 @@ impl File {
         let response = self
             .handle
             .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
-                info_type: QueryInfoType::File,
-                file_info_class: FileInfoClass::BasicInformation,
+                info_type: InfoType::File,
+                file_info_class: QueryFileInfoClass::BasicInformation,
                 output_buffer_length: 1024,
-                additional_information: QueryAdditionalInfo::new(),
+                additional_information: AdditionalInfo::new(),
                 flags: QueryInfoFlags::new()
                     .with_restart_scan(true)
                     .with_return_single_entry(true),
                 file_id: self.handle.file_id(),
-                data: QueryInfoRequestData::None(()),
+                data: GetInfoRequestData::None(()),
             }))?;
         let query_info_response = match response.message.content {
             Content::QueryInfoResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
         let result = query_info_response
-            .parse(QueryInfoType::File)?
+            .parse(InfoType::File)?
             .unwrap_file()
-            .parse(FileInfoClass::BasicInformation)?;
+            .parse(QueryFileInfoClass::BasicInformation)?;
         let result = match result {
-            FileInfo::BasicInformation(val) => val,
+            QueryFileInfo::BasicInformation(val) => val,
             _ => panic!("Unexpected response"),
         };
         Ok(result)

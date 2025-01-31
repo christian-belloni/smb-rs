@@ -18,8 +18,8 @@ pub struct TreeConnectRequestFlags {
 #[derive(Debug)]
 pub struct TreeConnectRequest {
     #[bw(calc = 9)]
-    #[br(assert(structure_size == 9))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 9))]
+    _structure_size: u16,
     pub flags: TreeConnectRequestFlags,
     #[bw(calc = PosMarker::default())]
     _path_offset: PosMarker<u16>,
@@ -45,8 +45,8 @@ impl TreeConnectRequest {
 #[derive(Debug, PartialEq, Eq)]
 pub struct TreeConnectResponse {
     #[bw(calc = 16)]
-    #[br(assert(structure_size == 16))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 16))]
+    _structure_size: u16,
     pub share_type: TreeConnectShareType,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
@@ -125,22 +125,22 @@ pub enum TreeConnectShareType {
 #[derive(Debug, Default)]
 pub struct TreeDisconnectRequest {
     #[bw(calc = 4)]
-    #[br(assert(structure_size == 4))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 4))]
+    _structure_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u16,
+    #[br(assert(_reserved == 0))]
+    _reserved: u16,
 }
 
 #[binrw::binrw]
 #[derive(Debug)]
 pub struct TreeDisconnectResponse {
     #[bw(calc = 4)]
-    #[br(assert(structure_size == 4))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 4))]
+    _structure_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u16,
+    #[br(assert(_reserved == 0))]
+    _reserved: u16,
 }
 
 #[cfg(test)]

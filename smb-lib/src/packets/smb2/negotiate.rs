@@ -11,14 +11,14 @@ use super::super::guid::Guid;
 #[derive(Debug)]
 pub struct NegotiateRequest {
     #[bw(calc = 0x24)]
-    #[br(assert(structure_size == 0x24))]
-    structure_size: u16,
+    #[br(assert(_structure_size == 0x24))]
+    _structure_size: u16,
     #[bw(try_calc(u16::try_from(dialects.len())))]
     dialect_count: u16,
     pub security_mode: SecurityMode,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u16,
+    #[br(assert(_reserved == 0))]
+    _reserved: u16,
     pub capabilities: GlobalCapabilities,
     pub client_guid: Guid,
     // TODO: The 3 fields below are possibly a union in older versions of SMB.
@@ -140,9 +140,9 @@ impl NegotiateRequest {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct NegotiateResponse {
-    #[br(assert(structure_size == 0x41))]
+    #[br(assert(_structure_size == 0x41))]
     #[bw(calc = 0x41)]
-    structure_size: u16,
+    _structure_size: u16,
     pub security_mode: SecurityMode,
     pub dialect_revision: NegotiateDialect,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]

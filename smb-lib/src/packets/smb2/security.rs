@@ -2,6 +2,7 @@
 
 use binrw::prelude::*;
 
+/// TODO: implement!
 #[binrw::binrw]
 #[derive(Debug)]
 pub struct SecurityDescriptor {}

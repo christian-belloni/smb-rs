@@ -12,8 +12,8 @@ pub struct IoctlRequest {
     #[br(assert(struct_size == 57))]
     struct_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u16,
+    #[br(assert(_reserved == 0))]
+    _reserved: u16,
     pub ctl_code: u32,
     pub file_id: Guid,
     #[bw(calc = PosMarker::default())]
@@ -54,8 +54,8 @@ pub struct IoctlResponse {
     #[br(assert(struct_size == 49))]
     struct_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u16,
+    #[br(assert(_reserved == 0))]
+    _reserved: u16,
     pub ctl_code: u32,
     pub file_id: Guid,
     #[bw(calc = PosMarker::default())]

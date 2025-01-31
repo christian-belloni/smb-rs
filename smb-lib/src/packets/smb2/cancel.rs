@@ -5,12 +5,12 @@ use binrw::prelude::*;
 #[binrw::binrw]
 #[derive(Debug, Default)]
 pub struct CancelRequest {
-    #[br(assert(structure_size == 4))]
+    #[br(assert(_structure_size == 4))]
     #[bw(calc = 4)]
-    structure_size: u16,
-    #[br(assert(reserved == 0))]
+    _structure_size: u16,
+    #[br(assert(_reserved == 0))]
     #[bw(calc = 0)]
-    reserved: u16,
+    _reserved: u16,
 }
 
 #[cfg(test)]
