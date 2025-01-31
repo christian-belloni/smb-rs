@@ -1,4 +1,4 @@
-use crate::packets::smb2::{compressed::*, header::*, message::*, negotiate::CompressionAlgorithm};
+use crate::packets::smb2::*;
 use binrw::prelude::*;
 use lz4_flex;
 ///! Implements (de)compression logic.
@@ -286,7 +286,6 @@ impl CompressionAlgorithmImpl for Lz4Compression {
 
 #[cfg(test)]
 mod tests {
-    use crate::packets::smb2::{file::ReadResponse, plain::Content};
 
     use super::*;
 

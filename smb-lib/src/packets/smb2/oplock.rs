@@ -41,6 +41,7 @@ pub struct LeaseBreakNotify {
 }
 
 #[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
 #[brw(repr(u8))]
 pub enum OplockLevel {
     None = 0,
@@ -89,10 +90,9 @@ pub type LeaseBreakResponse = LeaseBreakAckResponse;
 
 #[cfg(test)]
 pub mod tests {
-    use crate::packets::smb2::plain::Content;
+    use crate::packets::smb2::*;
     use std::io::Cursor;
 
-    use super::super::plain::tests as plain_tests;
     use super::*;
     #[test]
     pub fn test_lease_break_notify_parses() {
@@ -119,7 +119,7 @@ pub mod tests {
 
     #[test]
     pub fn test_lease_break_ack_response_write() {
-        let req_data = plain_tests::encode_content(Content::LeaseBreakAck(LeaseBreakAck {
+        let req_data = encode_content(Content::LeaseBreakAck(LeaseBreakAck {
             lease_key: "70c8619e-165d-315e-d492-a01b0cbb3af2".parse().unwrap(),
             lease_state: LeaseState::new(),
         }));

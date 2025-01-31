@@ -104,7 +104,7 @@ impl From<SetFileInfo> for RawSetFileInfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::packets::smb2::plain::{tests as plain_tests, Content};
+    use crate::packets::smb2::*;
 
     use super::*;
 
@@ -120,7 +120,7 @@ mod tests {
         let req = RawSetFileInfo::from(set_info)
             .to_set_data()
             .to_req(cls, "00000042-000e-0000-0500-10000e000000".parse().unwrap());
-        let req_data = plain_tests::encode_content(Content::SetInfoRequest(req));
+        let req_data = encode_content(Content::SetInfoRequest(req));
         assert_eq!(
             req_data,
             [

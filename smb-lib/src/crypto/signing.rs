@@ -1,6 +1,6 @@
 use std::{error::Error, fmt::Debug};
 
-use crate::packets::smb2::{header::Header, negotiate::SigningAlgorithmId};
+use crate::packets::smb2::*;
 
 type SigningKey = [u8; 16];
 
@@ -83,8 +83,6 @@ mod gmac_signer {
     };
     use binrw::prelude::*;
     use modular_bitfield::prelude::*;
-
-    use crate::packets::smb2::header::Command;
 
     use super::*;
 

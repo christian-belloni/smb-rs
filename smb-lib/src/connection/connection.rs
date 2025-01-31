@@ -1,15 +1,12 @@
 use crate::compression::{Compressor, Decompressor};
 
+use super::negotiation_state::SmbNegotiateState;
+use super::netbios_client::NetBiosClient;
+use super::preauth_hash::*;
 use crate::packets::guid::Guid;
-use binrw::prelude::*;
-use core::panic;
-use sha2::{Digest, Sha512};
-use std::{cell::OnceCell, error::Error, fmt::Display, io::Cursor};
-
 use crate::{
     crypto,
     msg_handler::*,
-    netbios_client::NetBiosClient,
     packets::{
         netbios::{NetBiosMessageContent, NetBiosTcpMessage},
         smb1::SMB1NegotiateMessage,
@@ -17,76 +14,11 @@ use crate::{
     },
     session::Session,
 };
+use binrw::prelude::*;
+use core::panic;
+use std::{cell::OnceCell, error::Error, fmt::Display, io::Cursor};
 
-pub type PreauthHashValue = [u8; 64];
-
-#[derive(Debug, Clone)]
-pub enum PreauthHashState {
-    InProgress(PreauthHashValue),
-    Finished(PreauthHashValue),
-}
-
-impl PreauthHashState {
-    pub fn next(self, data: &[u8]) -> PreauthHashState {
-        match self {
-            PreauthHashState::InProgress(hash) => {
-                let mut hasher = Sha512::new();
-                hasher.update(&hash);
-                hasher.update(data);
-                PreauthHashState::InProgress(hasher.finalize().into())
-            }
-            _ => panic!("Preauth hash not started/already finished."),
-        }
-    }
-
-    pub fn finish(self) -> PreauthHashState {
-        match self {
-            PreauthHashState::InProgress(hash) => PreauthHashState::Finished(hash),
-            _ => panic!("Preauth hash not started"),
-        }
-    }
-
-    pub fn unwrap_final_hash(self) -> PreauthHashValue {
-        match self {
-            PreauthHashState::Finished(hash) => hash,
-            _ => panic!("Preauth hash not finished"),
-        }
-    }
-}
-
-impl Default for PreauthHashState {
-    fn default() -> PreauthHashState {
-        PreauthHashState::InProgress([0; 64])
-    }
-}
-
-#[derive(Debug)]
-pub struct SmbNegotiateState {
-    pub server_guid: Guid,
-
-    pub max_transact_size: u32,
-    pub max_read_size: u32,
-    pub max_write_size: u32,
-
-    pub gss_negotiate_token: Vec<u8>,
-
-    pub selected_dialect: Dialect,
-    pub signing_algo: SigningAlgorithmId,
-    pub compressor: Option<Compressor>,
-    pub decompressor: Option<Decompressor>,
-}
-
-impl SmbNegotiateState {
-    pub fn get_gss_token(&self) -> &[u8] {
-        &self.gss_negotiate_token
-    }
-
-    pub fn get_signing_algo(&self) -> SigningAlgorithmId {
-        self.signing_algo
-    }
-}
-
-pub struct Client {
+pub struct Connection {
     handler: HandlerReference<ClientMessageHandler>,
 }
 
@@ -101,9 +33,9 @@ impl Display for SmbClientNotConnectedError {
 
 impl Error for SmbClientNotConnectedError {}
 
-impl Client {
-    pub fn new() -> Client {
-        Client {
+impl Connection {
+    pub fn new() -> Connection {
+        Connection {
             handler: HandlerReference::new(ClientMessageHandler::new()),
         }
     }
@@ -227,7 +159,7 @@ impl Client {
     }
 
     pub fn authenticate(
-        self: &mut Client,
+        self: &mut Connection,
         user_name: String,
         password: String,
     ) -> Result<Session, Box<dyn Error>> {

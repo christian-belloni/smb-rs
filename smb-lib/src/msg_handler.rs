@@ -1,11 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    client::PreauthHashValue,
-    packets::smb2::{
-        header::{Command, Status},
-        plain::*,
-    },
+    connection::preauth_hash::PreauthHashValue,
+    packets::smb2::*,
     session::{MessageDecryptor, MessageEncryptor, MessageSigner},
 };
 
@@ -69,7 +66,7 @@ pub struct MessageForm {
 ///
 /// Use a builder pattern to set the options:
 /// ```
-/// use smb_lib::packets::smb2::header::{Command, Status};
+/// use smb_lib::packets::smb2::*;
 /// use smb_lib::msg_handler::ReceiveOptions;
 ///
 /// let options = ReceiveOptions::new()

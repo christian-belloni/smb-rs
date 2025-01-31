@@ -147,15 +147,15 @@ pub struct TreeDisconnectResponse {
 pub mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::plain::{tests as plain_tests, Content};
+    use crate::packets::smb2::*;
 
     use super::*;
 
     #[test]
     pub fn test_tree_connect_req_write() {
-        let result = plain_tests::encode_content(Content::TreeConnectRequest(
-            TreeConnectRequest::new(&r"\\127.0.0.1\MyShare".into()),
-        ));
+        let result = encode_content(Content::TreeConnectRequest(TreeConnectRequest::new(
+            &r"\\127.0.0.1\MyShare".into(),
+        )));
         assert_eq!(
             result,
             [

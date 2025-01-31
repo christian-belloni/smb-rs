@@ -9,7 +9,7 @@ use ccm::{
 };
 use std::{error::Error, fmt::Debug};
 
-use crate::packets::smb2::{encrypted::EncryptionNonce, negotiate::EncryptionCipher};
+use crate::packets::smb2::*;
 
 pub struct EncryptionResult {
     pub signature: u128,

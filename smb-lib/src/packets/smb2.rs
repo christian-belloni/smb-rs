@@ -19,3 +19,30 @@ pub mod query_dir;
 pub mod security;
 pub mod session_setup;
 pub mod tree_connect;
+
+pub use cancel::*;
+pub use compressed::*;
+pub use create::*;
+pub use echo::*;
+pub use encrypted::*;
+pub use error::*;
+pub use file::*;
+pub use fscc::*;
+pub use header::*;
+pub use info::*;
+pub use ioctl::*;
+pub use lock::*;
+pub use message::*;
+pub use negotiate::*;
+pub use notify::*;
+pub use oplock::*;
+pub use plain::*;
+pub use query_dir::*;
+pub use security::*;
+pub use session_setup::*;
+pub use tree_connect::*;
+
+#[cfg(test)]
+mod test;
+#[cfg(test)]
+use test::*;

@@ -4,8 +4,8 @@ use std::io::SeekFrom;
 
 use super::super::binrw_util::prelude::*;
 use super::super::guid::Guid;
-use super::fscc::*;
 use super::header::Status;
+use super::*;
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
@@ -173,17 +173,6 @@ pub struct CreateResponseFlags {
     pub reparsepoint: bool,
     #[skip]
     __: B7,
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-#[brw(repr(u8))]
-pub enum OplockLevel {
-    None = 0,
-    II = 1,
-    Exclusive = 8,
-    Batch = 9,
-    Lease = 0xff,
 }
 
 // CreateAction
@@ -414,7 +403,7 @@ pub struct CloseFlags {
 
 #[cfg(test)]
 mod tests {
-    use crate::packets::smb2::plain::{tests as plain_tests, Content};
+    use crate::packets::smb2::*;
 
     use super::*;
 
@@ -445,7 +434,7 @@ mod tests {
                 CreateContext::new(CreateContextData::QFidReq(())),
             ],
         };
-        let data_without_header = plain_tests::encode_content(Content::CreateRequest(request));
+        let data_without_header = encode_content(Content::CreateRequest(request));
         assert_eq!(
             data_without_header,
             vec![
@@ -487,7 +476,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00,
         ];
-        let m = match plain_tests::decode_content(&data).content {
+        let m = match decode_content(&data).content {
             Content::CreateResponse(m) => m,
             _ => panic!("Expected SMBCreateResponse"),
         };

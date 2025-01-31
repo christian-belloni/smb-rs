@@ -4,14 +4,7 @@ use time::PrimitiveDateTime;
 
 use crate::{
     msg_handler::{HandlerReference, MessageHandler},
-    packets::{
-        guid::Guid,
-        smb2::{
-            create::*,
-            fscc::{FileAccessMask, FileAttributes},
-            plain::Content,
-        },
-    },
+    packets::{guid::Guid, smb2::*},
     tree::TreeMessageHandler,
 };
 

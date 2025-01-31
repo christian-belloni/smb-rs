@@ -1,7 +1,5 @@
 use std::io::prelude::*;
 
-use crate::packets::smb2::{file::*, fscc::*, info::*, plain::*};
-
 use super::*;
 
 pub struct File {

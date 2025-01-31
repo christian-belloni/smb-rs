@@ -74,9 +74,8 @@ pub struct ChangeNotifyResponse {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::plain::Content;
+    use crate::packets::smb2::*;
 
-    use super::super::plain::tests as plain_tests;
     use super::*;
 
     #[test]
@@ -123,7 +122,7 @@ mod tests {
             0x0, 0x64, 0x0, 0x73, 0x0, 0x61, 0x0,
         ];
 
-        let parsed = plain_tests::decode_content(&data);
+        let parsed = decode_content(&data);
         let notify_response = match parsed.content {
             Content::ChangeNotifyResponse(response) => response,
             _ => panic!("Unexpected response type"),

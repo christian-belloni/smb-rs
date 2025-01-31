@@ -60,7 +60,6 @@ pub struct LockResponse {
 
 #[cfg(test)]
 pub mod tests {
-    
 
     // TODO: tests
 }

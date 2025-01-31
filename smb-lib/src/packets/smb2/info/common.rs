@@ -1,6 +1,5 @@
 //! Common data structures for query/set info messages.
 
-
 use super::super::security::*;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;

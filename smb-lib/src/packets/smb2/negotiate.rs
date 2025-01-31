@@ -15,7 +15,7 @@ pub struct NegotiateRequest {
     _structure_size: u16,
     #[bw(try_calc(u16::try_from(dialects.len())))]
     dialect_count: u16,
-    pub security_mode: SecurityMode,
+    pub security_mode: NegotiateSecurityMode,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u16,
@@ -41,7 +41,7 @@ pub struct NegotiateRequest {
 #[bitfield]
 #[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct SecurityMode {
+pub struct NegotiateSecurityMode {
     pub signing_enabled: bool,
     pub signing_required: bool,
     #[skip]
@@ -74,7 +74,7 @@ impl NegotiateRequest {
         encrypting_algorithms: Vec<EncryptionCipher>,
     ) -> NegotiateRequest {
         NegotiateRequest {
-            security_mode: SecurityMode::new().with_signing_enabled(true),
+            security_mode: NegotiateSecurityMode::new().with_signing_enabled(true),
             capabilities: GlobalCapabilities::new()
                 .with_dfs(true)
                 .with_leasing(true)
@@ -143,7 +143,7 @@ pub struct NegotiateResponse {
     #[br(assert(_structure_size == 0x41))]
     #[bw(calc = 0x41)]
     _structure_size: u16,
-    pub security_mode: SecurityMode,
+    pub security_mode: NegotiateSecurityMode,
     pub dialect_revision: NegotiateDialect,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
     #[br(assert(if dialect_revision == NegotiateDialect::Smb0311 { negotiate_context_count > 0 } else { negotiate_context_count == 0 }))]
@@ -482,10 +482,7 @@ pub mod tests {
     use time::macros::datetime;
 
     use super::*;
-    use crate::packets::smb2::{
-        negotiate::{NegotiateResponse, SecurityMode},
-        plain::{tests as plain_tests, Content},
-    };
+    use crate::packets::smb2::*;
 
     #[test]
     pub fn test_negotiate_res_parse() {
@@ -511,7 +508,7 @@ pub mod tests {
             0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x2, 0x0, 0x4, 0x0,
         ];
 
-        let response = match plain_tests::decode_content(&data).content {
+        let response = match decode_content(&data).content {
             Content::NegotiateResponse(response) => response,
             _ => panic!("Expected NegotiateResponse"),
         };
@@ -519,7 +516,7 @@ pub mod tests {
         assert_eq!(
             response,
             NegotiateResponse {
-                security_mode: SecurityMode::new().with_signing_enabled(true),
+                security_mode: NegotiateSecurityMode::new().with_signing_enabled(true),
                 dialect_revision: NegotiateDialect::Smb0311,
                 server_guid: Guid::from([
                     0xb9, 0x21, 0xf8, 0xe0, 0x15, 0x7, 0xaa, 0x41, 0xbe, 0x38, 0x67, 0xfe, 0xbf,

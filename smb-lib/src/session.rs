@@ -8,28 +8,24 @@ use sspi::{AuthIdentity, Secret, Username};
 use std::{cell::OnceCell, error::Error};
 
 use crate::{
-    authenticator::GssAuthenticator,
-    client::ClientMessageHandler,
+    connection::connection::ClientMessageHandler,
     crypto,
     msg_handler::{
         HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, ReceiveOptions,
         SendMessageResult,
     },
-    packets::smb2::{
-        header::Status,
-        negotiate::{EncryptionCipher, SigningAlgorithmId},
-        plain::{Content, PlainMessage},
-        session_setup::{SessionFlags, SessionSetupRequest},
-    },
+    packets::smb2::*,
     tree::Tree,
 };
 
 type DerivedKeyValue = [u8; 16];
 type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
 
+mod authenticator;
 mod encryptor_decryptor;
 mod signer;
 
+use authenticator::GssAuthenticator;
 pub use encryptor_decryptor::{MessageDecryptor, MessageEncryptor};
 pub use signer::MessageSigner;
 

@@ -193,7 +193,7 @@ pub struct WriteFlags {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::plain::{tests as plain_tests, Content, PlainMessage};
+    use crate::packets::smb2::*;
 
     use super::*;
 
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     pub fn test_write_req_write() {
-        let data = plain_tests::encode_content(Content::WriteRequest(WriteRequest {
+        let data = encode_content(Content::WriteRequest(WriteRequest {
             offset: 0x1234abcd,
             file_id: [
                 0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,

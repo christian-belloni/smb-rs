@@ -186,13 +186,13 @@ impl QueryInfoFileRaw {
 mod tests {
     use time::macros::datetime;
 
-    use crate::packets::smb2::plain::{tests as plain_tests, Content};
+    use crate::packets::smb2::*;
 
     use super::*;
 
     #[test]
     pub fn test_query_info_req_short_write() {
-        let data = plain_tests::encode_content(Content::QueryInfoRequest(QueryInfoRequest {
+        let data = encode_content(Content::QueryInfoRequest(QueryInfoRequest {
             info_type: InfoType::File,
             file_info_class: QueryFileInfoClass::NetworkOpenInformation,
             output_buffer_length: 56,
@@ -232,7 +232,7 @@ mod tests {
             }),
             output_buffer_length: 554,
         };
-        let content_data = plain_tests::encode_content(Content::QueryInfoRequest(req));
+        let content_data = encode_content(Content::QueryInfoRequest(req));
         assert_eq!(
             content_data,
             [
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     pub fn test_query_info_resp_parse_basic() {
-        let parsed = plain_tests::decode_content(&[
+        let parsed = decode_content(&[
             0xfe, 0x53, 0x4d, 0x42, 0x40, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x10, 0x0, 0x1, 0x0,
             0x19, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x6, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
             0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x69, 0x0, 0x0, 0x28, 0x0, 0x30, 0x0, 0x0, 0x77,
