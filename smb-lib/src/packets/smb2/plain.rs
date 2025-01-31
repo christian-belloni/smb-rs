@@ -66,6 +66,12 @@ pub enum Content {
     #[br(pre_assert(matches!(command, Command::Write) && from_srv))]
     WriteResponse(file::WriteResponse),
 
+    // lock
+    #[br(pre_assert(matches!(command, Command::Lock) && !from_srv))]
+    LockRequest(lock::LockRequest),
+    #[br(pre_assert(matches!(command, Command::Lock) && from_srv))]
+    LockResponse(lock::LockResponse),
+
     // ioctl
     #[br(pre_assert(matches!(command, Command::Ioctl) && !from_srv))]
     IoctlRequest(ioctl::IoctlRequest),
@@ -100,6 +106,20 @@ pub enum Content {
     #[br(pre_assert(matches!(command, Command::QueryInfo) && from_srv))]
     QueryInfoResponse(info::QueryInfoResponse),
 
+    // oplock
+    #[br(pre_assert(matches!(command, Command::OplockBreak) && !from_srv))]
+    OplockBreakAck(oplock::OplockBreakAck),
+    #[br(pre_assert(matches!(command, Command::OplockBreak) && !from_srv))]
+    LeaseBreakAck(oplock::LeaseBreakAck),
+    #[br(pre_assert(matches!(command, Command::OplockBreak) && from_srv))]
+    OplockBreakNotify(oplock::OplockBreakNotify),
+    #[br(pre_assert(matches!(command, Command::OplockBreak) && from_srv))]
+    LeaseBreakNotify(oplock::LeaseBreakNotify),
+    #[br(pre_assert(matches!(command, Command::OplockBreak) && from_srv))]
+    OplockBreakResponse(oplock::OplockBreakResponse),
+    #[br(pre_assert(matches!(command, Command::OplockBreak) && from_srv))]
+    LeaseBreakResponse(oplock::LeaseBreakResponse),
+
     // error response
     #[br(pre_assert(from_srv))]
     ErrorResponse(error::ErrorResponse),
@@ -123,13 +143,20 @@ impl Content {
             FlushRequest(_) | FlushResponse(_) => Command::Flush,
             ReadRequest(_) | ReadResponse(_) => Command::Read,
             WriteRequest(_) | WriteResponse(_) => Command::Write,
-            // TODO: LOCK
+            LockRequest(_) | LockResponse(_) => Command::Lock,
             IoctlRequest(_) | IoctlResponse(_) => Command::Ioctl,
             CancelRequest(_) => Command::Cancel,
             EchoRequest(_) | EchoResponse(_) => Command::Echo,
             QueryDirectoryRequest(_) | QueryDirectoryResponse(_) => Command::QueryDirectory,
             ChangeNotifyRequest(_) | ChangeNotifyResponse(_) => Command::ChangeNotify,
             QueryInfoRequest(_) | QueryInfoResponse(_) => Command::QueryInfo,
+            // oplocks breaks/leases:
+            OplockBreakAck(_)
+            | LeaseBreakAck(_)
+            | OplockBreakNotify(_)
+            | OplockBreakResponse(_)
+            | LeaseBreakNotify(_)
+            | LeaseBreakResponse(_) => Command::OplockBreak,
             ErrorResponse(_) => panic!("Error has no matching command!"),
         }
     }

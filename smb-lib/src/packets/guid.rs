@@ -3,6 +3,7 @@ use std::fmt::Display;
 use binrw::prelude::*;
 use rand::{rngs::OsRng, Rng};
 
+/// Represents a standard, 16-byte GUID.
 #[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Guid(u128);
 

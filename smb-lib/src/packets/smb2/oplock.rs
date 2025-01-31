@@ -1,66 +1,88 @@
+use super::super::guid::Guid;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
-use super::super::guid::Guid;
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct LockRequest {
-    #[bw(calc = 48)]
-    #[br(assert(structure_size == 48))]
+pub struct OplockBreakMsg {
+    #[bw(calc = 24)]
+    #[br(assert(structure_size == 24))]
     structure_size: u16,
-    #[bw(try_calc = locks.len().try_into())]
-    lock_count: u16,
-    pub lock_sequence: LockSequence,
-    pub file_id: Guid,
-    #[br(count = lock_count)]
-    pub locks: Vec<LockElement>
-}
-
-#[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
-#[bw(map = |&x| Self::into_bytes(x))]
-pub struct LockSequence {
-    pub number: B4,
-    pub index: B28,
+    oplock_level: u8,
+    #[bw(calc = 0)]
+    #[br(assert(reserved == 0))]
+    reserved: u8,
+    #[bw(calc = 0)]
+    #[br(assert(reserved2 == 0))]
+    reserved2: u32,
+    file_id: Guid,
 }
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct LockElement {
-    pub offset: u64,
-    pub length: u64,
-    pub flags: LockFlag,
+pub struct LeaseBreakNotify {
+    #[bw(calc = 44)]
+    #[br(assert(structure_size == 44))]
+    structure_size: u16,
+    new_epoch: u16,
+    ack_required: u8,
+    lease_key: Guid,
+    current_lease_state: LeaseState,
+    new_lease_state: LeaseState,
     #[bw(calc = 0)]
-    #[br(assert(reserved == 0))]
-    reserved: u32,
+    #[br(assert(break_reason == 0))]
+    break_reason: u32,
+    #[bw(calc = 0)]
+    #[br(assert(access_mask_hint == 0))]
+    access_mask_hint: u32,
+    #[bw(calc = 0)]
+    #[br(assert(share_mask_hint == 0))]
+    share_mask_hint: u32,
+}
+
+#[binrw::binrw]
+#[brw(repr(u8))]
+pub enum OplockLevel {
+    None = 0,
+    II = 1,
+    Exclusive = 2,
 }
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct LockFlag {
-    pub shared: bool,
-    pub exclusive: bool,
-    pub unlock: bool,
-    pub fail_immediately: bool,
-    #[skip] __: B28,
+pub struct LeaseState {
+    pub read_caching: bool,
+    pub handle_caching: bool,
+    pub write_caching: bool,
+    #[skip]
+    __: B29,
 }
+
+// Those are all the same.
+pub type OplockBreakNotify = OplockBreakMsg;
+pub type OplockBreakAck = OplockBreakMsg;
+pub type OplockBreakResponse = OplockBreakMsg;
 
 #[binrw::binrw]
-pub struct LockResponse {
-    #[bw(calc = 4)]
-    #[br(assert(structure_size == 4))]
-    pub structure_size: u16,
+#[derive(Debug)]
+pub struct LeaseBreakAckResponse {
+    #[bw(calc = 36)]
+    #[br(assert(structure_size == 36))]
+    structure_size: u16,
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
-    pub reserved: u16,
+    reserved: u16,
+    #[bw(calc = 0)]  // reserved
+    #[br(assert(flags == 0))]
+    flags: u32,
+    lease_key: Guid,
+    lease_state: LeaseState,
+    #[bw(calc = 0)]  // reserved
+    #[br(assert(lease_duration == 0))]
+    lease_duration: u64,
 }
 
-// TODO: OplockBreak
-
-#[cfg(test)]
-pub mod tests {
-    use super::*;
-
-    // TODO: tests
-}
+// Those are the same.
+pub type LeaseBreakAck = LeaseBreakAckResponse;
+pub type LeaseBreakResponse = LeaseBreakAckResponse;

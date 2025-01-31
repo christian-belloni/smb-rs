@@ -17,4 +17,5 @@ pub mod plain;
 pub mod security;
 pub mod session_setup;
 pub mod tree_connect;
+pub mod lock;
 pub mod oplock;
