@@ -2007,6 +2007,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
+name = "smb-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "log",
+ "maybe-async",
+ "smb-lib",
+ "tokio",
+]
+
+[[package]]
 name = "smb"
 version = "0.1.0"
 dependencies = [

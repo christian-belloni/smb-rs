@@ -214,13 +214,33 @@ impl Session {
 
         Ok(())
     }
+
+    #[cfg(feature = "async")]
+    #[maybe_async]
+    pub async fn logoff_async(&mut self) {
+        self.logoff().await.unwrap_or_else(|e| {
+            log::error!("Failed to logoff: {}", e);
+        });
+    }
 }
 
+#[cfg(not(feature = "async"))]
 impl Drop for Session {
     fn drop(&mut self) {
         self.logoff().unwrap_or_else(|e| {
             log::error!("Failed to logoff: {}", e);
         });
+    }
+}
+
+#[cfg(feature = "async")]
+impl Drop for Session {
+    fn drop(&mut self) {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.logoff_async().await;
+            })
+        })
     }
 }
 

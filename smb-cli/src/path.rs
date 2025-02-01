@@ -1,4 +1,5 @@
 use crate::cli::Cli;
+use maybe_async::*;
 use smb::{
     connection::Connection, packets::smb2::*, resource::Resource, session::Session, tree::Tree,
 };
@@ -12,23 +13,31 @@ pub struct UncPath {
 }
 
 impl UncPath {
-    pub fn connect_and_open(
+    #[maybe_async]
+    pub async fn connect_and_open(
         &self,
         cli: &Cli,
     ) -> Result<(Connection, Session, Tree, Option<Resource>), Box<dyn Error>> {
         let mut smb = Connection::new();
-        smb.connect(format!("{}:{}", self.server, cli.port).as_str())?;
-        smb.negotiate()?;
-        let mut session = smb.authenticate(cli.username.clone(), cli.password.clone())?;
-        let mut tree = session.tree_connect(format!(r"\\{}\{}", self.server, self.tree))?;
+        smb.connect(format!("{}:{}", self.server, cli.port).as_str())
+            .await?;
+        smb.negotiate().await?;
+        let mut session = smb
+            .authenticate(cli.username.clone(), cli.password.clone())
+            .await?;
+        let mut tree = session
+            .tree_connect(format!(r"\\{}\{}", self.server, self.tree))
+            .await?;
         if let Some(path) = &self.path {
-            let file = tree.create(
-                path.clone(),
-                CreateDisposition::Open,
-                FileAccessMask::new()
-                    .with_generic_read(true)
-                    .with_generic_write(false),
-            )?;
+            let file = tree
+                .create(
+                    path.clone(),
+                    CreateDisposition::Open,
+                    FileAccessMask::new()
+                        .with_generic_read(true)
+                        .with_generic_write(false),
+                )
+                .await?;
             Ok((smb, session, tree, Some(file)))
         } else {
             Ok((smb, session, tree, None))

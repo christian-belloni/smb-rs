@@ -1,5 +1,7 @@
 use maybe_async::*;
 use std::{cell::OnceCell, error::Error};
+#[cfg(feature = "async")]
+use tokio;
 
 use crate::{
     msg_handler::{HandlerReference, MessageHandler},
@@ -79,6 +81,8 @@ impl Tree {
 
     #[maybe_async]
     async fn disconnect(&mut self) -> Result<(), Box<dyn Error>> {
+        log::debug!("Disconnecting from tree {}", self.name);
+
         if self.handler.borrow_mut().connect_info.get().is_none() {
             // No tree connection to disconnect from.
             return Ok(());
@@ -96,8 +100,21 @@ impl Tree {
         self.handler.borrow_mut().connect_info.take();
         Ok(())
     }
+
+    #[cfg(feature = "async")]
+    #[inline]
+    pub async fn disconnect_async(&mut self) {
+        self.disconnect()
+            .await
+            .or_else(|e| {
+                log::error!("Failed to disconnect from tree {}: {}", self.name, e);
+                Err(e)
+            })
+            .ok();
+    }
 }
 
+#[cfg(not(feature = "async"))]
 impl Drop for Tree {
     fn drop(&mut self) {
         self.disconnect()
@@ -106,6 +123,17 @@ impl Drop for Tree {
                 Err(e)
             })
             .ok();
+    }
+}
+
+#[cfg(feature = "async")]
+impl Drop for Tree {
+    fn drop(&mut self) {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.disconnect_async().await;
+            })
+        })
     }
 }
 

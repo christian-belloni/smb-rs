@@ -1,5 +1,6 @@
 use super::*;
 use maybe_async::*;
+use tokio::io::AsyncRead;
 use std::io::prelude::*;
 
 pub struct File {

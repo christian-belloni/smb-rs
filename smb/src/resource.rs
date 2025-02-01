@@ -11,8 +11,8 @@ use crate::{
 pub mod directory;
 pub mod file;
 
-use directory::*;
-use file::*;
+pub use directory::*;
+pub use file::*;
 
 type Upstream = HandlerReference<TreeMessageHandler>;
 
@@ -193,8 +193,20 @@ impl ResourceHandle {
     ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
         self.handler.send_recv(msg).await
     }
+
+    #[cfg(feature = "async")]
+    pub async fn close_async(&mut self) {
+        self.close()
+            .await
+            .or_else(|e| {
+                log::error!("Error closing file: {}", e);
+                Err(e)
+            })
+            .ok();
+    }
 }
 
+#[cfg(not(feature = "async"))]
 impl Drop for ResourceHandle {
     fn drop(&mut self) {
         self.close()
@@ -203,6 +215,17 @@ impl Drop for ResourceHandle {
                 Err(e)
             })
             .ok();
+    }
+}
+
+#[cfg(feature = "async")]
+impl Drop for ResourceHandle {
+    fn drop(&mut self) {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.close_async().await;
+            })
+        })
     }
 }
 
