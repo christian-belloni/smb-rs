@@ -3,3 +3,4 @@ members = [
     "smb-lib",
     "smb-cli"
 ]
+resolver = "2"

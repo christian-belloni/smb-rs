@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 smb-lib = { path = "../smb-lib" }
+
+# CLI & logging
 clap = { version = "4.5.27", features = ["derive"] }
 env_logger = "0.11.6"
 log = "0.4.22"
