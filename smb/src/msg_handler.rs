@@ -1,5 +1,5 @@
 use std::{cell::RefCell, rc::Rc};
-
+use maybe_async::*;
 use crate::{
     connection::preauth_hash::PreauthHashValue,
     packets::smb2::*,
@@ -114,11 +114,12 @@ impl Default for ReceiveOptions {
 
 /// Chain-of-responsibility pattern trait for handling SMB messages
 /// outgoing from the client or incoming from the server.
+#[maybe_async(AFIT)]
 pub trait MessageHandler {
     /// Send a message to the server, returning the result.
     /// This must be implemented. Each handler in the chain must call the next handler,
     /// after possibly modifying the message.
-    fn hsendo(
+    async fn hsendo(
         &mut self,
         msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>>;
@@ -126,7 +127,7 @@ pub trait MessageHandler {
     /// Receive a message from the server, returning the result.
     /// This must be implemented, and must call the next handler in the chain,
     /// if there is one, using the provided `ReceiveOptions`.
-    fn hrecvo(
+    async fn hrecvo(
         &mut self,
         options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>>;
@@ -153,53 +154,60 @@ impl<T: MessageHandler> HandlerReference<T> {
         }
     }
 
-    pub fn sendo(
+    #[maybe_async]
+    pub async fn sendo(
         &mut self,
         msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
-        self.handler.borrow_mut().hsendo(msg)
+        self.handler.borrow_mut().hsendo(msg).await
     }
 
-    pub fn send(&mut self, msg: Content) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
-        self.sendo(OutgoingMessage::new(PlainMessage::new(msg)))
+    #[maybe_async]
+    pub async fn send(&mut self, msg: Content) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
+        self.sendo(OutgoingMessage::new(PlainMessage::new(msg))).await
     }
 
-    pub fn recvo(
+    #[maybe_async]
+    pub async fn recvo(
         &mut self,
         options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        self.handler.borrow_mut().hrecvo(options)
+        self.handler.borrow_mut().hrecvo(options).await
     }
 
-    pub fn recv(&mut self, cmd: Command) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        self.recvo(ReceiveOptions::new().cmd(Some(cmd)))
+    #[maybe_async]
+    pub async fn recv(&mut self, cmd: Command) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+        self.recvo(ReceiveOptions::new().cmd(Some(cmd))).await
     }
 
-    pub fn sendo_recvo(
+    #[maybe_async]
+    pub async fn sendo_recvo(
         &mut self,
         msg: OutgoingMessage,
         options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        self.sendo(msg)?;
-        self.recvo(options)
+        self.sendo(msg).await?;
+        self.recvo(options).await
     }
 
-    pub fn send_recvo(
+    #[maybe_async]
+    pub async fn send_recvo(
         &mut self,
         msg: Content,
         options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        self.send(msg)?;
-        self.recvo(options)
+        self.send(msg).await?;
+        self.recvo(options).await
     }
 
-    pub fn send_recv(
+    #[maybe_async]
+    pub async fn send_recv(
         &mut self,
         msg: Content,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         let cmd = msg.associated_cmd();
-        self.send(msg)?;
-        self.recvo(ReceiveOptions::new().cmd(Some(cmd)))
+        self.send(msg).await?;
+        self.recvo(ReceiveOptions::new().cmd(Some(cmd))).await
     }
 }
 

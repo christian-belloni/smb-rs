@@ -15,8 +15,8 @@ use crate::{
     session::Session,
 };
 use binrw::prelude::*;
-use maybe_async::*;
 use core::panic;
+use maybe_async::*;
 use std::{cell::OnceCell, error::Error, fmt::Display, io::Cursor};
 
 pub struct Connection {
@@ -43,7 +43,11 @@ impl Connection {
 
     #[maybe_async]
     pub async fn connect(&mut self, address: &str) -> Result<(), Box<dyn Error>> {
-        self.handler.borrow_mut().netbios_client.connect(address).await?;
+        self.handler
+            .borrow_mut()
+            .netbios_client
+            .connect(address)
+            .await?;
         log::info!("Connected to {}", address);
         Ok(())
     }
@@ -57,10 +61,11 @@ impl Connection {
             .netbios_client
             .send(NetBiosMessageContent::SMB1Message(
                 SMB1NegotiateMessage::new(),
-            )).await?;
+            ))
+            .await?;
 
         // 2. Expect SMB2 negotiate response
-        let smb2_response = self.handler.recv(Command::Negotiate)?;
+        let smb2_response = self.handler.recv(Command::Negotiate).await?;
         let smb2_negotiate_response = match smb2_response.message.content {
             Content::NegotiateResponse(response) => Some(response),
             _ => None,
@@ -89,7 +94,8 @@ impl Connection {
                 client_guid,
                 crypto::SIGNING_ALGOS.into(),
                 crypto::ENCRYPTING_ALGOS.to_vec(),
-            )))?;
+            )))
+            .await?;
 
         let smb2_negotiate_response = match response.message.content {
             Content::NegotiateResponse(response) => Some(response),
@@ -154,7 +160,6 @@ impl Connection {
 
         Ok(())
     }
-
 
     #[maybe_async]
     pub async fn negotiate(&mut self) -> Result<(), Box<dyn Error>> {
@@ -331,7 +336,8 @@ impl ClientMessageHandler {
 }
 
 impl MessageHandler for ClientMessageHandler {
-    fn hsendo(
+    #[maybe_async]
+    async fn hsendo(
         &mut self,
         mut msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
@@ -351,7 +357,7 @@ impl MessageHandler for ClientMessageHandler {
 
         let finalize_hash_required = msg.finalize_preauth_hash;
         let final_message = self.tranform_outgoing(msg)?;
-        self.netbios_client.send_raw(final_message)?;
+        self.netbios_client.send_raw(final_message).await?;
 
         let hash = match finalize_hash_required {
             true => Some(self.finalize_preauth_hash()),
@@ -361,11 +367,12 @@ impl MessageHandler for ClientMessageHandler {
         Ok(SendMessageResult::new(hash.clone()))
     }
 
-    fn hrecvo(
+    #[maybe_async]
+    async fn hrecvo(
         &mut self,
         mut options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        let netbios = self.netbios_client.recieve_bytes()?;
+        let netbios = self.netbios_client.recieve_bytes().await?;
 
         self.step_preauth_hash(&netbios.content);
 
