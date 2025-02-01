@@ -2,7 +2,10 @@ use maybe_async::*;
 use std::io::Cursor;
 
 #[cfg(not(feature = "async"))]
-use std::{net::TcpStream, io::{Read, Write}};
+use std::{
+    io::{Read, Write},
+    net::TcpStream,
+};
 #[cfg(feature = "async")]
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

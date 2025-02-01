@@ -1,10 +1,10 @@
-use std::{cell::RefCell, rc::Rc};
-use maybe_async::*;
 use crate::{
     connection::preauth_hash::PreauthHashValue,
     packets::smb2::*,
     session::{MessageDecryptor, MessageEncryptor, MessageSigner},
 };
+use maybe_async::*;
+use std::{cell::RefCell, rc::Rc};
 
 #[derive(Debug)]
 pub struct OutgoingMessage {
@@ -163,8 +163,12 @@ impl<T: MessageHandler> HandlerReference<T> {
     }
 
     #[maybe_async]
-    pub async fn send(&mut self, msg: Content) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
-        self.sendo(OutgoingMessage::new(PlainMessage::new(msg))).await
+    pub async fn send(
+        &mut self,
+        msg: Content,
+    ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
+        self.sendo(OutgoingMessage::new(PlainMessage::new(msg)))
+            .await
     }
 
     #[maybe_async]
@@ -176,7 +180,10 @@ impl<T: MessageHandler> HandlerReference<T> {
     }
 
     #[maybe_async]
-    pub async fn recv(&mut self, cmd: Command) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+    pub async fn recv(
+        &mut self,
+        cmd: Command,
+    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         self.recvo(ReceiveOptions::new().cmd(Some(cmd))).await
     }
 

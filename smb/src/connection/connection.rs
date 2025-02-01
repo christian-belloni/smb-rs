@@ -169,14 +169,15 @@ impl Connection {
         Ok(())
     }
 
-    pub fn authenticate(
+    #[maybe_async]
+    pub async fn authenticate(
         self: &mut Connection,
         user_name: String,
         password: String,
     ) -> Result<Session, Box<dyn Error>> {
         let mut session = Session::new(self.handler.clone());
 
-        session.setup(user_name, password)?;
+        session.setup(user_name, password).await?;
 
         Ok(session)
     }

@@ -1,3 +1,4 @@
+use maybe_async::*;
 use std::{cell::OnceCell, error::Error};
 
 use crate::{
@@ -32,16 +33,18 @@ impl Tree {
         }
     }
 
-    pub fn connect(&mut self) -> Result<(), Box<dyn Error>> {
+    #[maybe_async]
+    pub async fn connect(&mut self) -> Result<(), Box<dyn Error>> {
         if self.handler.borrow().connect_info().is_some() {
             return Err("Tree connection already established!".into());
         }
         // send and receive tree request & response.
-        let response =
-            self.handler
-                .send_recv(Content::TreeConnectRequest(TreeConnectRequest::new(
-                    &self.name,
-                )))?;
+        let response = self
+            .handler
+            .send_recv(Content::TreeConnectRequest(TreeConnectRequest::new(
+                &self.name,
+            )))
+            .await?;
 
         let _response_content = match response.message.content {
             Content::TreeConnectResponse(response) => Some(response),
@@ -64,30 +67,30 @@ impl Tree {
     }
 
     /// Connects to a resource (file, directory, etc.) on the remote server by it's name.
-    pub fn create(
+    #[maybe_async]
+    pub async fn create(
         &mut self,
         file_name: String,
         disposition: CreateDisposition,
         desired_access: FileAccessMask,
     ) -> Result<Resource, Box<dyn Error>> {
-        Ok(Resource::create(
-            file_name,
-            self.handler.clone(),
-            disposition,
-            desired_access,
-        )?)
+        Ok(Resource::create(file_name, self.handler.clone(), disposition, desired_access).await?)
     }
 
-    fn disconnect(&mut self) -> Result<(), Box<dyn Error>> {
+    #[maybe_async]
+    async fn disconnect(&mut self) -> Result<(), Box<dyn Error>> {
         if self.handler.borrow_mut().connect_info.get().is_none() {
             // No tree connection to disconnect from.
             return Ok(());
         };
 
         // send and receive tree disconnect request & response.
-        let _response = self.handler.send_recv(Content::TreeDisconnectRequest(
-            TreeDisconnectRequest::default(),
-        ))?;
+        let _response = self
+            .handler
+            .send_recv(Content::TreeDisconnectRequest(
+                TreeDisconnectRequest::default(),
+            ))
+            .await?;
 
         log::info!("Disconnected from tree {}", self.name);
         self.handler.borrow_mut().connect_info.take();
@@ -125,7 +128,8 @@ impl TreeMessageHandler {
 }
 
 impl MessageHandler for TreeMessageHandler {
-    fn hsendo(
+    #[maybe_async]
+    async fn hsendo(
         &mut self,
         mut msg: crate::msg_handler::OutgoingMessage,
     ) -> Result<crate::msg_handler::SendMessageResult, Box<dyn std::error::Error>> {
@@ -133,13 +137,14 @@ impl MessageHandler for TreeMessageHandler {
             Some(info) => info.tree_id,
             None => 0,
         };
-        self.upstream.borrow_mut().hsendo(msg)
+        self.upstream.borrow_mut().hsendo(msg).await
     }
 
-    fn hrecvo(
+    #[maybe_async]
+    async fn hrecvo(
         &mut self,
         options: crate::msg_handler::ReceiveOptions,
     ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
-        self.upstream.borrow_mut().hrecvo(options)
+        self.upstream.borrow_mut().hrecvo(options).await
     }
 }

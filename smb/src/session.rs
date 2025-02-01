@@ -3,10 +3,6 @@
 //! This module contains the session setup logic, as well as the session message handling,
 //! including encryption and signing of messages.
 
-use binrw::prelude::*;
-use sspi::{AuthIdentity, Secret, Username};
-use std::{cell::OnceCell, error::Error};
-
 use crate::{
     connection::connection::ClientMessageHandler,
     crypto,
@@ -17,6 +13,10 @@ use crate::{
     packets::smb2::*,
     tree::Tree,
 };
+use binrw::prelude::*;
+use maybe_async::*;
+use sspi::{AuthIdentity, Secret, Username};
+use std::{cell::OnceCell, error::Error};
 
 type DerivedKeyValue = [u8; 16];
 type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
@@ -42,7 +42,12 @@ impl Session {
         }
     }
 
-    pub fn setup(&mut self, user_name: String, password: String) -> Result<(), Box<dyn Error>> {
+    #[maybe_async]
+    pub async fn setup(
+        &mut self,
+        user_name: String,
+        password: String,
+    ) -> Result<(), Box<dyn Error>> {
         log::debug!("Setting up session for user {}.", user_name);
         // Build the authenticator.
         let (mut authenticator, next_buf) = {
@@ -61,10 +66,13 @@ impl Session {
         )));
 
         // response hash is processed later, in the loop.
-        let response = self.handler.sendo_recvo(
-            request,
-            ReceiveOptions::new().status(Status::MoreProcessingRequired),
-        )?;
+        let response = self
+            .handler
+            .sendo_recvo(
+                request,
+                ReceiveOptions::new().status(Status::MoreProcessingRequired),
+            )
+            .await?;
 
         // Set session id.
         self.handler
@@ -107,7 +115,7 @@ impl Session {
                     ));
                     let is_about_to_finish = authenticator.keys_exchanged() && !self.is_set_up;
                     request.finalize_preauth_hash = is_about_to_finish;
-                    let result = self.handler.sendo(request)?;
+                    let result = self.handler.sendo(request).await?;
 
                     // Keys exchanged? We can set-up the session!
                     if is_about_to_finish {
@@ -124,7 +132,8 @@ impl Session {
                     };
                     let response = self
                         .handler
-                        .recvo(ReceiveOptions::new().status(expected_status))?;
+                        .recvo(ReceiveOptions::new().status(expected_status))
+                        .await?;
                     Some(response)
                 }
                 None => None,
@@ -180,18 +189,21 @@ impl Session {
         true
     }
 
-    pub fn tree_connect(&mut self, name: String) -> Result<Tree, Box<dyn Error>> {
+    #[maybe_async]
+    pub async fn tree_connect(&mut self, name: String) -> Result<Tree, Box<dyn Error>> {
         let mut tree = Tree::new(name, self.handler.clone());
-        tree.connect()?;
+        tree.connect().await?;
         Ok(tree)
     }
 
-    fn logoff(&mut self) -> Result<(), Box<dyn Error>> {
+    #[maybe_async]
+    async fn logoff(&mut self) -> Result<(), Box<dyn Error>> {
         log::debug!("Logging off session.");
 
         let _response = self
             .handler
-            .send_recv(Content::LogoffRequest(Default::default()))?;
+            .send_recv(Content::LogoffRequest(Default::default()))
+            .await?;
 
         // Reset session ID and keys.
         self.handler.borrow_mut().session_id.take();
@@ -304,7 +316,8 @@ impl SessionMessageHandler {
 }
 
 impl MessageHandler for SessionMessageHandler {
-    fn hsendo(
+    #[maybe_async]
+    async fn hsendo(
         &mut self,
         mut msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
@@ -318,10 +331,11 @@ impl MessageHandler for SessionMessageHandler {
             msg.encryptor = Some(self.make_encryptor()?);
         }
         msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
-        self.upstream.borrow_mut().hsendo(msg)
+        self.upstream.borrow_mut().hsendo(msg).await
     }
 
-    fn hrecvo(
+    #[maybe_async]
+    async fn hrecvo(
         &mut self,
         mut options: crate::msg_handler::ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
@@ -329,7 +343,7 @@ impl MessageHandler for SessionMessageHandler {
         if self.should_encrypt() {
             options.decryptor = Some(self.make_decryptor()?);
         }
-        let mut incoming = self.upstream.borrow_mut().hrecvo(options)?;
+        let mut incoming = self.upstream.borrow_mut().hrecvo(options).await?;
         // TODO: check whether this is the correct case to do such a thing.
         if self.should_sign() && !incoming.form.encrypted {
             // Skip authentication is message ID is -1 or status is pending.

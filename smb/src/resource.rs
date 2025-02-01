@@ -1,5 +1,5 @@
+use maybe_async::*;
 use std::error::Error;
-
 use time::PrimitiveDateTime;
 
 use crate::{
@@ -23,37 +23,40 @@ pub enum Resource {
 }
 
 impl Resource {
-    pub fn create(
+    #[maybe_async]
+    pub async fn create(
         name: String,
         mut upstream: Upstream,
         create_disposition: CreateDisposition,
         desired_access: FileAccessMask,
     ) -> Result<Resource, Box<dyn Error>> {
-        let response = upstream.send_recv(Content::CreateRequest(CreateRequest {
-            requested_oplock_level: OplockLevel::None,
-            impersonation_level: ImpersonationLevel::Impersonation,
-            desired_access,
-            file_attributes: FileAttributes::new(),
-            share_access: ShareAccessFlags::new()
-                .with_read(true)
-                .with_write(true)
-                .with_delete(true),
-            create_disposition,
-            create_options: CreateOptions::new(),
-            name: name.clone().into(),
-            contexts: vec![
-                CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
-                    timeout: 0,
-                    flags: DH2QFlags::new(),
-                    create_guid: Guid::try_from(&[
-                        180, 122, 182, 194, 188, 248, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    ])
-                    .unwrap(),
-                })),
-                CreateContext::new(CreateContextData::MxAcReq(())),
-                CreateContext::new(CreateContextData::QFidReq(())),
-            ],
-        }))?;
+        let response = upstream
+            .send_recv(Content::CreateRequest(CreateRequest {
+                requested_oplock_level: OplockLevel::None,
+                impersonation_level: ImpersonationLevel::Impersonation,
+                desired_access,
+                file_attributes: FileAttributes::new(),
+                share_access: ShareAccessFlags::new()
+                    .with_read(true)
+                    .with_write(true)
+                    .with_delete(true),
+                create_disposition,
+                create_options: CreateOptions::new(),
+                name: name.clone().into(),
+                contexts: vec![
+                    CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
+                        timeout: 0,
+                        flags: DH2QFlags::new(),
+                        create_guid: Guid::try_from(&[
+                            180, 122, 182, 194, 188, 248, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        ])
+                        .unwrap(),
+                    })),
+                    CreateContext::new(CreateContextData::MxAcReq(())),
+                    CreateContext::new(CreateContextData::QFidReq(())),
+                ],
+            }))
+            .await?;
 
         let content = match response.message.content {
             Content::CreateResponse(response) => response,
@@ -155,15 +158,19 @@ impl ResourceHandle {
     }
 
     /// Close the handle.
-    fn close(&mut self) -> Result<(), Box<dyn Error>> {
+    #[maybe_async]
+    async fn close(&mut self) -> Result<(), Box<dyn Error>> {
         if !self.is_valid() {
             return Err("File ID invalid -- Is this an already closed handle?!".into());
         }
 
         log::debug!("Closing handle for {} ({})", self.name, self.file_id);
-        let _response = self.handler.send_recv(Content::CloseRequest(CloseRequest {
-            file_id: self.file_id,
-        }))?;
+        let _response = self
+            .handler
+            .send_recv(Content::CloseRequest(CloseRequest {
+                file_id: self.file_id,
+            }))
+            .await?;
 
         self.file_id = Guid::MAX;
         log::info!("Closed file {}.", self.name);
@@ -178,12 +185,13 @@ impl ResourceHandle {
 
     /// Send and receive a message, returning the result.
     /// See [SMBHandlerReference::send] and [SMBHandlerReference::receive] for details.
+    #[maybe_async]
     #[inline]
-    pub fn send_receive(
+    pub async fn send_receive(
         &mut self,
         msg: Content,
     ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
-        self.handler.send_recv(msg)
+        self.handler.send_recv(msg).await
     }
 }
 
@@ -209,19 +217,21 @@ impl MessageHandleHandler {
 }
 
 impl MessageHandler for MessageHandleHandler {
+    #[maybe_async]
     #[inline]
-    fn hsendo(
+    async fn hsendo(
         &mut self,
         msg: crate::msg_handler::OutgoingMessage,
     ) -> Result<crate::msg_handler::SendMessageResult, Box<dyn std::error::Error>> {
-        self.upstream.borrow_mut().hsendo(msg)
+        self.upstream.borrow_mut().hsendo(msg).await
     }
 
+    #[maybe_async]
     #[inline]
-    fn hrecvo(
+    async fn hrecvo(
         &mut self,
         options: crate::msg_handler::ReceiveOptions,
     ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
-        self.upstream.borrow_mut().hrecvo(options)
+        self.upstream.borrow_mut().hrecvo(options).await
     }
 }

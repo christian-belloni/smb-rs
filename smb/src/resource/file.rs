@@ -1,6 +1,6 @@
-use std::io::prelude::*;
-
 use super::*;
+use maybe_async::*;
+use std::io::prelude::*;
 
 pub struct File {
     pub handle: ResourceHandle,
@@ -23,7 +23,8 @@ impl File {
         }
     }
 
-    pub fn query_info(&mut self) -> Result<FileBasicInformation, Box<dyn std::error::Error>> {
+    #[maybe_async]
+    pub async fn query_info(&mut self) -> Result<FileBasicInformation, Box<dyn std::error::Error>> {
         let response = self
             .handle
             .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
@@ -36,7 +37,8 @@ impl File {
                     .with_return_single_entry(true),
                 file_id: self.handle.file_id(),
                 data: GetInfoRequestData::None(()),
-            }))?;
+            }))
+            .await?;
         let query_info_response = match response.message.content {
             Content::QueryInfoResponse(response) => response,
             _ => panic!("Unexpected response"),
@@ -92,6 +94,7 @@ impl Seek for File {
     }
 }
 
+#[sync_impl]
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if buf.is_empty() {
@@ -145,6 +148,7 @@ impl Read for File {
     }
 }
 
+#[sync_impl]
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if buf.is_empty() {
