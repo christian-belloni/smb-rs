@@ -24,6 +24,11 @@ pub struct NetBiosTcpMessageHeader {
     pub stream_protocol_length: PosMarker3Byte,
 }
 
+impl NetBiosTcpMessageHeader {
+    /// Size of the header, including the magic number (0x00).
+    pub const SIZE: usize = 4;
+}
+
 impl Default for NetBiosTcpMessageHeader {
     fn default() -> NetBiosTcpMessageHeader {
         NetBiosTcpMessageHeader {

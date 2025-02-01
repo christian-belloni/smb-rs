@@ -15,6 +15,7 @@ use crate::{
     session::Session,
 };
 use binrw::prelude::*;
+use maybe_async::*;
 use core::panic;
 use std::{cell::OnceCell, error::Error, fmt::Display, io::Cursor};
 
@@ -40,13 +41,15 @@ impl Connection {
         }
     }
 
-    pub fn connect(&mut self, address: &str) -> Result<(), Box<dyn Error>> {
-        self.handler.borrow_mut().netbios_client.connect(address)?;
+    #[maybe_async]
+    pub async fn connect(&mut self, address: &str) -> Result<(), Box<dyn Error>> {
+        self.handler.borrow_mut().netbios_client.connect(address).await?;
         log::info!("Connected to {}", address);
         Ok(())
     }
 
-    fn negotiate_smb1(&mut self) -> Result<(), Box<dyn Error>> {
+    #[maybe_async]
+    async fn negotiate_smb1(&mut self) -> Result<(), Box<dyn Error>> {
         log::debug!("Negotiating SMB1");
         // 1. Send SMB1 negotiate request
         self.handler
@@ -54,7 +57,7 @@ impl Connection {
             .netbios_client
             .send(NetBiosMessageContent::SMB1Message(
                 SMB1NegotiateMessage::new(),
-            ))?;
+            )).await?;
 
         // 2. Expect SMB2 negotiate response
         let smb2_response = self.handler.recv(Command::Negotiate)?;
@@ -71,7 +74,8 @@ impl Connection {
         Ok(())
     }
 
-    fn negotiate_smb2(&mut self) -> Result<(), Box<dyn Error>> {
+    #[maybe_async]
+    async fn negotiate_smb2(&mut self) -> Result<(), Box<dyn Error>> {
         log::debug!("Negotiating SMB2");
         // Start preauth hash.
         self.handler.borrow_mut().preauth_hash = Some(PreauthHashState::default());
@@ -151,9 +155,11 @@ impl Connection {
         Ok(())
     }
 
-    pub fn negotiate(&mut self) -> Result<(), Box<dyn Error>> {
-        self.negotiate_smb1()?;
-        self.negotiate_smb2()?;
+
+    #[maybe_async]
+    pub async fn negotiate(&mut self) -> Result<(), Box<dyn Error>> {
+        self.negotiate_smb1().await?;
+        self.negotiate_smb2().await?;
         log::info!("Negotiation successful");
         Ok(())
     }
