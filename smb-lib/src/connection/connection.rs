@@ -84,7 +84,7 @@ impl Connection {
                 "AVIV-MBP".to_string(),
                 client_guid,
                 crypto::SIGNING_ALGOS.into(),
-                crypto::ENCRYPTING_ALGOS.into(),
+                crypto::ENCRYPTING_ALGOS.to_vec(),
             )))?;
 
         let smb2_negotiate_response = match response.message.content {

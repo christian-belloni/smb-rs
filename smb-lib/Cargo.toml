@@ -9,8 +9,8 @@ rand = "0.8.5"
 modular-bitfield = "0.11.2"
 gss-api = {version = "0.1.0", features = []}
 der = {version = "0.7.9", features = ["std", "alloc"]}
-aes-gcm = {version = "0.10.3", features = ["std"]}
-cmac = {version = "0.7.2"}
+aes-gcm = {version = "0.10.3", features = ["std"], optional = true}
+cmac = {version = "0.7.2", optional = true}
 hmac = "0.12.1"
 sha2 = "0.10.8"
 rust-kbkdf = {version = "1.0.1"}
@@ -18,5 +18,23 @@ aes = "0.8.4"
 log = "0.4.22"
 sspi = { version = "0.15.0", path = "../../sspi-rs" }
 time = {version = "0.3.37", features = ["macros"]}
-ccm = "0.5.0"
-lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
+ccm = {version = "0.5.0", optional = true}
+lz4_flex = { version = "0.11", default-features = false, features = ["std"], optional = true }
+
+[features]
+default = ["sign", "encrypt", "compress"]
+# Compression
+compress_pattern_v1 = []
+compress_lz4 = ["dep:lz4_flex"]
+compress = ["compress_pattern_v1", "compress_lz4"]
+
+# Encryption
+encrypt_aes128ccm = ["dep:ccm"]
+encrypt_aes256ccm = ["dep:ccm"]
+encrypt_aesccm = ["encrypt_aes128ccm", "encrypt_aes256ccm"]
+encrypt = ["encrypt_aesccm"] 
+
+# Signing
+sign_gmac = ["dep:aes-gcm"]
+sign_cmac = ["dep:cmac"]
+sign = ["sign_gmac", "sign_cmac"]

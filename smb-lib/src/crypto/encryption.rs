@@ -1,7 +1,12 @@
-use aes::{
-    cipher::{generic_array::GenericArray, BlockCipher, BlockEncrypt, BlockSizeUser},
-    Aes128, Aes256,
-};
+
+
+#[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
+use aes::cipher::{generic_array::GenericArray, BlockCipher, BlockEncrypt, BlockSizeUser};
+#[cfg(feature = "encrypt_aes128ccm")]
+use aes::Aes128;
+#[cfg(feature = "encrypt_aes256ccm")]
+use aes::Aes256;
+#[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 use ccm::{
     aead::AeadMutInPlace,
     consts::{U11, U16},
@@ -45,7 +50,12 @@ pub trait EncryptingAlgo: Debug {
     }
 }
 
-pub const ENCRYPTING_ALGOS: [EncryptionCipher; 1] = [EncryptionCipher::Aes128Ccm];
+pub const ENCRYPTING_ALGOS: &[EncryptionCipher] = &[
+    #[cfg(feature = "encrypt_aes128ccm")]
+    EncryptionCipher::Aes128Ccm,
+    #[cfg(feature = "encrypt_aes256ccm")]
+    EncryptionCipher::Aes256Ccm,
+];
 
 pub fn make_encrypting_algo(
     encrypting_algorithm: EncryptionCipher,
@@ -59,12 +69,15 @@ pub fn make_encrypting_algo(
         .into());
     }
     match encrypting_algorithm {
+        #[cfg(feature = "encrypt_aes128ccm")]
         EncryptionCipher::Aes128Ccm => Ok(CcmEncryptor::<Aes128>::build(encrypting_key.into())?),
+        #[cfg(feature = "encrypt_aes256ccm")]
         EncryptionCipher::Aes256Ccm => Ok(CcmEncryptor::<Aes256>::build(encrypting_key.into())?),
         _ => Err("Unsupported encrypting algorithm".into()),
     }
 }
 
+#[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 pub struct CcmEncryptor<C>
 where
     C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt,
@@ -72,6 +85,7 @@ where
     cipher: Ccm<C, U16, U11>,
 }
 
+#[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 impl<C> CcmEncryptor<C>
 where
     C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + KeyInit + 'static,
@@ -85,6 +99,7 @@ where
     }
 }
 
+#[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 impl<C> EncryptingAlgo for CcmEncryptor<C>
 where
     C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt,
@@ -128,6 +143,7 @@ where
     }
 }
 
+#[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 impl<C> Debug for CcmEncryptor<C>
 where
     C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt,

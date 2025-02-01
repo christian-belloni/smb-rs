@@ -374,7 +374,7 @@ pub struct EncryptionCapabilities {
     ciphers: Vec<EncryptionCipher>,
 }
 
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u16))]
 pub enum EncryptionCipher {
     Aes128Ccm = 0x0001,

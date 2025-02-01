@@ -12,14 +12,20 @@ pub fn make_signing_algo(
         return Err(format!("Unsupported signing algorithm {:?}", signing_algorithm).into());
     }
     match signing_algorithm {
+        #[cfg(feature = "sign_cmac")]
         SigningAlgorithmId::AesCmac => Ok(cmac_signer::Cmac128Signer::build(signing_key)?),
+        #[cfg(feature = "sign_gmac")]
         SigningAlgorithmId::AesGmac => Ok(gmac_signer::Gmac128Signer::new(signing_key)),
         _ => Err("Unsupported signing algorithm".into()),
     }
 }
 
-pub const SIGNING_ALGOS: [SigningAlgorithmId; 2] =
-    [SigningAlgorithmId::AesCmac, SigningAlgorithmId::AesGmac];
+pub const SIGNING_ALGOS: &[SigningAlgorithmId] = &[
+    #[cfg(feature = "sign_cmac")]
+    SigningAlgorithmId::AesCmac,
+    #[cfg(feature = "sign_gmac")]
+    SigningAlgorithmId::AesGmac,
+];
 
 /// A trait for SMB signing algorithms.
 pub trait SigningAlgo: Debug {
@@ -42,6 +48,7 @@ pub trait SigningAlgo: Debug {
     fn finalize(&mut self) -> u128;
 }
 
+#[cfg(feature = "sign_cmac")]
 mod cmac_signer {
     use super::*;
     use aes::Aes128;
@@ -72,6 +79,7 @@ mod cmac_signer {
     }
 }
 
+#[cfg(feature = "sign_gmac")]
 mod gmac_signer {
 
     use std::cell::OnceCell;

@@ -1,5 +1,4 @@
 use crate::cli::Cli;
-use clap::Parser;
 use smb_lib::{
     connection::Connection, packets::smb2::*, resource::Resource, session::Session, tree::Tree,
 };

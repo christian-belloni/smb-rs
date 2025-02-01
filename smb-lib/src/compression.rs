@@ -1,5 +1,6 @@
 use crate::packets::smb2::*;
 use binrw::prelude::*;
+#[cfg(feature = "compress_lz4")]
 use lz4_flex;
 ///! Implements (de)compression logic.
 use std::io::Cursor;
@@ -73,7 +74,9 @@ trait CompressionMethod {
     ) -> Result<Box<dyn CompressionAlgorithmImpl>, &'static str> {
         Ok(match algo {
             CompressionAlgorithm::None => Box::new(NoneCompression),
+            #[cfg(feature = "compress_pattern_v1")]
             CompressionAlgorithm::PatternV1 => Box::new(PatternV1Compression),
+            #[cfg(feature = "compress_lz4")]
             CompressionAlgorithm::LZ4 => Box::new(Lz4Compression),
             _ => Err("Unsupported compression algorithm")?,
         })
@@ -193,9 +196,11 @@ trait CompressionAlgorithmImpl {
     fn compress(&self, data: &Vec<u8>) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 }
 
-pub const SUPPORTED_ALGORITHMS: [CompressionAlgorithm; 3] = [
+pub const SUPPORTED_ALGORITHMS: &[CompressionAlgorithm] = &[
     CompressionAlgorithm::None,
+    #[cfg(feature = "compress_pattern_v1")]
     CompressionAlgorithm::PatternV1,
+    #[cfg(feature = "compress_lz4")]
     CompressionAlgorithm::LZ4,
 ];
 
@@ -219,8 +224,10 @@ impl CompressionAlgorithmImpl for NoneCompression {
     }
 }
 
+#[cfg(feature = "compress_pattern_v1")]
 struct PatternV1Compression;
 
+#[cfg(feature = "compress_pattern_v1")]
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[brw(little)]
@@ -235,6 +242,7 @@ pub struct PatternV1Payload {
     repetitions: u32,
 }
 
+#[cfg(feature = "compress_pattern_v1")]
 impl CompressionAlgorithmImpl for PatternV1Compression {
     fn decompress(
         &self,
@@ -259,8 +267,10 @@ impl CompressionAlgorithmImpl for PatternV1Compression {
     }
 }
 
+#[cfg(feature = "compress_lz4")]
 struct Lz4Compression;
 
+#[cfg(feature = "compress_lz4")]
 impl CompressionAlgorithmImpl for Lz4Compression {
     fn decompress(
         &self,
@@ -299,6 +309,7 @@ mod tests {
         assert_eq!(compressed, out);
     }
 
+    #[cfg(feature = "compress_pattern_v1")]
     #[test]
     pub fn test_pattern_v1_algorithm_decompression() {
         let pattern_v1_payload_buffer = vec!['h' as u8, 0x0, 0x0, 0x0, 0xee, 0x1, 0x0, 0x0];
@@ -308,6 +319,7 @@ mod tests {
             .unwrap();
     }
 
+    #[cfg(feature = "compress_pattern_v1")]
     #[test]
     pub fn test_chained_decompression() {
         let parsed_message = CompressedMessage::Chained(CompressedChainedMessage {

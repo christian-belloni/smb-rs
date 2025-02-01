@@ -1,7 +1,7 @@
 //! SMB Message encryption/decryption implementation.
 
 use binrw::prelude::*;
-use ccm::aead::OsRng;
+use rand::rngs::OsRng;
 use rand::RngCore;
 use std::{error::Error, io::Cursor};
 
