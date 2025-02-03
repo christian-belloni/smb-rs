@@ -478,7 +478,7 @@ pub enum SigningAlgorithmId {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use time::macros::datetime;
 
     use super::*;

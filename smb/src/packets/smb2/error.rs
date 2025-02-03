@@ -48,7 +48,7 @@ pub enum ErrorId {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use crate::packets::smb2::*;
 
     use super::*;

@@ -66,7 +66,7 @@ impl Deref for FileTime {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use super::*;
     use time::macros::datetime;
 
