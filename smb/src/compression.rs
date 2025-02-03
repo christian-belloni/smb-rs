@@ -31,14 +31,14 @@ impl<'a> Decompressor {
 #[derive(Debug)]
 pub struct Compressor {
     algorithms: Vec<CompressionAlgorithm>,
-    chained: bool,
+    _chained: bool,
 }
 
 impl Compressor {
     pub fn new(algorithms: Vec<CompressionAlgorithm>, chained: bool) -> Compressor {
         Compressor {
             algorithms: algorithms.to_vec(),
-            chained,
+            _chained: chained,
         }
     }
 

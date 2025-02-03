@@ -1,5 +1,4 @@
 use super::*;
-use maybe_async::*;
 use std::io::prelude::*;
 
 pub struct File {
@@ -49,7 +48,6 @@ impl File {
             .parse(QueryFileInfoClass::BasicInformation)?;
         let result = match result {
             QueryFileInfo::BasicInformation(val) => val,
-            _ => panic!("Unexpected response"),
         };
         Ok(result)
     }
