@@ -13,10 +13,13 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compile_features: [ async, sync ]
 
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+    - name: Build/${{ matrix.compile_features }}
+      run: cargo build --verbose --features ${{ matrix.compile_features }}
+    - name: Tests/${{ matrix.compile_features }}
+      run: cargo test --verbose --features ${{ matrix.compile_features }}
