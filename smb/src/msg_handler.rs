@@ -115,6 +115,7 @@ impl Default for ReceiveOptions {
 /// Chain-of-responsibility pattern trait for handling SMB messages
 /// outgoing from the client or incoming from the server.
 #[maybe_async(AFIT)]
+#[allow(async_fn_in_trait)] // We need `async`-ed trait functions for the #[maybe_async] macro.
 pub trait MessageHandler {
     /// Send a message to the server, returning the result.
     /// This must be implemented. Each handler in the chain must call the next handler,
