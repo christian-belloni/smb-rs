@@ -1,7 +1,13 @@
 [package]
 name = "smb"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # Encoding/Decoding

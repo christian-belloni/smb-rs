@@ -8,8 +8,9 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT"
+description = "A Pure Rust SMB Client implementation"
 homepage = "https://github.com/AvivNaaman/smb-rs"
 repository = "https://github.com/AvivNaaman/smb-rs"
 authors = ["Aviv Naaman <avivnaaman04@gmail.com>"]
-keywords = ["smb", "network", "file-sharing", "windows", "linux", "macos"]
-categories = ["network-programming", "parsing-tools", "system-programming", "file-systems"]
+keywords = ["smb", "network", "file-sharing", "windows"]
+categories = ["network-programming", "parsing", "filesystem"]
