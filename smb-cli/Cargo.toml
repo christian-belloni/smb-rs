@@ -15,5 +15,5 @@ log = "0.4.22"
 
 [features]
 default = []
-async = ["smb-lib/async", "dep:tokio"]
-sync = ["smb-lib/sync", "maybe-async/is_sync"]
+async = ["smb/async", "dep:tokio"]
+sync = ["smb/sync", "maybe-async/is_sync"]

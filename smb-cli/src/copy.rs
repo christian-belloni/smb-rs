@@ -1,7 +1,7 @@
 use crate::{path::*, Cli};
 use clap::Parser;
 use maybe_async::*;
-use smb_lib::resource::*;
+use smb::resource::*;
 use std::error::Error;
 
 #[cfg(not(feature = "async"))]
