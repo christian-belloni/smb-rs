@@ -1,8 +1,9 @@
 use crate::compression::{Compressor, Decompressor};
 
-use super::negotiation_state::SmbNegotiateState;
+use super::negotiation_state::NegotiateState;
 use super::netbios_client::NetBiosClient;
 use super::preauth_hash::*;
+use super::worker::ConnectionWorker;
 use crate::packets::guid::Guid;
 use crate::{
     crypto,
@@ -47,12 +48,15 @@ impl Connection {
 
     #[maybe_async]
     pub async fn connect(&mut self, address: &str) -> Result<(), Box<dyn Error>> {
+        log::debug!("Connecting to {}, multi-protocol negotiation.", address);
         self.handler
             .borrow_mut()
-            .netbios_client
+            .neg_mode
+            .multi()?
             .connect(address)
             .await?;
-        log::info!("Connected to {}", address);
+        log::info!("Connected to {}.", address);
+        self.mprot_negotiate().await?;
         Ok(())
     }
 
@@ -62,7 +66,8 @@ impl Connection {
         // 1. Send SMB1 negotiate request
         self.handler
             .borrow_mut()
-            .netbios_client
+            .neg_mode
+            .multi()?
             .send(NetBiosMessageContent::SMB1Message(
                 SMB1NegotiateMessage::new(),
             ))
@@ -117,12 +122,9 @@ impl Connection {
         }
 
         // TODO: Support non-SMB 3.1.1 dialects. (no contexts)
-        let selected_signing_algo: SigningAlgorithmId =
-            smb2_negotiate_response.get_signing_algo().unwrap();
-        if !crypto::SIGNING_ALGOS.contains(&selected_signing_algo) {
-            return Err(
-                format!("Unsupported signing algorithm {:?}", selected_signing_algo).into(),
-            );
+        let signing_algo: SigningAlgorithmId = smb2_negotiate_response.get_signing_algo().unwrap();
+        if !crypto::SIGNING_ALGOS.contains(&signing_algo) {
+            return Err(format!("Unsupported signing algorithm {:?}", signing_algo).into());
         }
 
         // Make sure preauth integrity capability is SHA-512, if it exists in response:
@@ -132,23 +134,28 @@ impl Connection {
             }
         }
 
-        let compression = smb2_negotiate_response.get_compression().unwrap();
-        let compressor = Compressor::new(
-            compression.compression_algorithms.clone(),
-            compression.flags.chained(),
-        );
-        let decompressor = Decompressor::new();
+        // And verify that the encryption algorithm is supported.
+        let encryption_cipher = smb2_negotiate_response.get_encryption_cipher().unwrap();
+        if !crypto::ENCRYPTING_ALGOS.contains(&encryption_cipher) {
+            return Err(format!("Unsupported encryption algorithm {:?}", encryption_cipher).into());
+        }
 
-        let negotiate_state = SmbNegotiateState {
+        let compression: Option<CompressionCaps> =
+            match smb2_negotiate_response.get_compression() {
+                Some(compression) => Some(compression.clone()),
+                None => None,
+            };
+
+        let negotiate_state = NegotiateState {
             server_guid: smb2_negotiate_response.server_guid,
             max_transact_size: smb2_negotiate_response.max_transact_size,
             max_read_size: smb2_negotiate_response.max_read_size,
             max_write_size: smb2_negotiate_response.max_write_size,
-            gss_negotiate_token: smb2_negotiate_response.buffer,
+            gss_token: smb2_negotiate_response.buffer,
             selected_dialect: smb2_negotiate_response.dialect_revision.try_into()?,
-            signing_algo: selected_signing_algo,
-            compressor: Some(compressor),
-            decompressor: Some(decompressor),
+            signing_algo,
+            encryption_cipher,
+            compression,
         };
         log::trace!(
             "Negotiated SMB results: dialect={:?}, state={:?}",
@@ -165,8 +172,9 @@ impl Connection {
         Ok(())
     }
 
+    /// Multi-protocol negotiation.
     #[maybe_async]
-    pub async fn negotiate(&mut self) -> Result<(), Box<dyn Error>> {
+    async fn mprot_negotiate(&mut self) -> Result<(), Box<dyn Error>> {
         self.negotiate_smb1().await?;
         self.negotiate_smb2().await?;
         log::info!("Negotiation successful");
@@ -187,24 +195,47 @@ impl Connection {
     }
 }
 
+enum NegotiationMode {
+    Mprot(NetBiosClient),
+    Smb2Neg(ConnectionWorker),
+}
+
+impl NegotiationMode {
+    fn multi(&mut self) -> Result<&mut NetBiosClient, Box<dyn Error>> {
+        match self {
+            NegotiationMode::Mprot(client) => Ok(client),
+            _ => Err("Unexpected connection state".into()),
+        }
+    }
+
+    fn smb2(&mut self) -> Result<&mut ConnectionWorker, Box<dyn Error>> {
+        match self {
+            NegotiationMode::Smb2Neg(worker) => Ok(worker),
+            _ => Err("Unexpected connection state".into()),
+        }
+    }
+}
+
 /// This struct is the internal message handler for the SMB client.
 pub struct ClientMessageHandler {
     client_guid: Guid,
-    netbios_client: NetBiosClient,
+
+    neg_mode: NegotiationMode,
+
     current_message_id: u64,
     credits_balance: u16,
 
     preauth_hash: Option<PreauthHashState>,
 
     // Negotiation-related state.
-    negotiate_state: OnceCell<SmbNegotiateState>,
+    negotiate_state: OnceCell<NegotiateState>,
 }
 
 impl ClientMessageHandler {
     fn new() -> ClientMessageHandler {
         ClientMessageHandler {
             client_guid: Guid::gen(),
-            netbios_client: NetBiosClient::new(),
+            neg_mode: NegotiationMode::Mprot(NetBiosClient::new()),
             negotiate_state: OnceCell::new(),
             current_message_id: 0,
             credits_balance: 1,
@@ -232,111 +263,8 @@ impl ClientMessageHandler {
         }
     }
 
-    pub fn negotiate_state(&self) -> Option<&SmbNegotiateState> {
+    pub fn negotiate_state(&self) -> Option<&NegotiateState> {
         self.negotiate_state.get()
-    }
-
-    /// Gets an OutgoingMessage ready for sending, performs crypto operations, and returns the
-    /// final bytes to be sent.
-    fn tranform_outgoing(
-        &mut self,
-        mut msg: OutgoingMessage,
-    ) -> Result<NetBiosTcpMessage, Box<dyn Error>> {
-        let should_encrypt = msg.encryptor.is_some();
-        let should_sign = msg.signer.is_some() && !should_encrypt;
-        let is_signed_set = msg.message.header.flags.signed();
-        let set_session_id = msg.message.header.session_id;
-
-        // 1. Sign
-        let mut data = {
-            let mut data = Vec::new();
-            msg.message.write(&mut Cursor::new(&mut data))?;
-
-            // 0. Update preauth hash as needed.
-            self.step_preauth_hash(&data);
-            if should_sign {
-                debug_assert!(!should_encrypt && is_signed_set);
-                let mut header_copy = msg.message.header.clone();
-                if let Some(mut signer) = msg.signer.take() {
-                    signer.sign_message(&mut header_copy, &mut data)?;
-                };
-            };
-            data
-        };
-
-        // 2. Compress
-        data = {
-            if msg.compress && data.len() > 1024 {
-                if let Some(compressor) = self.negotiate_state().unwrap().compressor.as_ref() {
-                    let compressed = compressor.compress(&data)?;
-                    data.clear();
-                    let mut cursor = Cursor::new(&mut data);
-                    Message::Compressed(compressed).write(&mut cursor)?;
-                };
-            }
-            data
-        };
-
-        // 3. Encrypt
-        let data = {
-            if let Some(mut encryptor) = msg.encryptor.take() {
-                debug_assert!(should_encrypt && !should_sign);
-                let encrypted = encryptor.encrypt_message(data, set_session_id)?;
-                let mut cursor = Cursor::new(Vec::new());
-                Message::Encrypted(encrypted).write(&mut cursor)?;
-                cursor.into_inner()
-            } else {
-                data
-            }
-        };
-
-        Ok(NetBiosTcpMessage::from_content_bytes(data)?)
-    }
-
-    /// Given a NetBiosTcpMessage, decrypts (if necessary), decompresses (if necessary) and returns the plain SMB2 message.
-    fn transform_incoming(
-        &mut self,
-        netbios: NetBiosTcpMessage,
-        options: &mut ReceiveOptions,
-    ) -> Result<(PlainMessage, Vec<u8>, MessageForm), Box<dyn Error>> {
-        let message = match netbios.parse_content()? {
-            NetBiosMessageContent::SMB2Message(message) => Some(message),
-            _ => None,
-        }
-        .ok_or("Expected SMB2 message")?;
-
-        let mut form = MessageForm::default();
-
-        // 1. Decrpt
-        let (message, raw) = if let Message::Encrypted(encrypted_message) = &message {
-            form.encrypted = true;
-            match options.decryptor.take() {
-                Some(mut decryptor) => decryptor.decrypt_message(&encrypted_message)?,
-                None => return Err("Encrypted message received without decryptor".into()),
-            }
-        } else {
-            (message, netbios.content)
-        };
-
-        // 2. Decompress
-        debug_assert!(!matches!(message, Message::Encrypted(_)));
-        let (message, raw) = if let Message::Compressed(compressed_message) = &message {
-            form.compressed = true;
-            match self.negotiate_state().unwrap().decompressor.as_ref() {
-                Some(decompressor) => decompressor.decompress(compressed_message)?,
-                None => return Err("Compressed message received without decompressor!".into()),
-            }
-        } else {
-            (message, raw)
-        };
-
-        // unwrap Message::Plain from Message enum:
-        let message = match message {
-            Message::Plain(message) => message,
-            _ => panic!("Unexpected message type"),
-        };
-
-        Ok((message, raw, form))
     }
 }
 
@@ -361,8 +289,8 @@ impl MessageHandler for ClientMessageHandler {
         msg.message.header.credit_request = 1;
 
         let finalize_hash_required = msg.finalize_preauth_hash;
-        let final_message = self.tranform_outgoing(msg)?;
-        self.netbios_client.send_raw(final_message).await?;
+
+        self.neg_mode.smb2().unwrap().send(msg).await?;
 
         let hash = match finalize_hash_required {
             true => Some(self.finalize_preauth_hash()),

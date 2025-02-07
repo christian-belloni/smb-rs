@@ -1,8 +1,8 @@
 use crate::{path::*, Cli};
 use clap::Parser;
+use maybe_async::*;
 use smb::resource::Resource;
 use std::error::Error;
-use maybe_async::*;
 #[derive(Parser, Debug)]
 pub struct InfoCmd {
     pub path: UncPath,

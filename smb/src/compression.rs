@@ -7,11 +7,13 @@ use std::io::Cursor;
 
 /// Use this struct to decompress a compressed, received message.
 #[derive(Debug)]
-pub struct Decompressor {}
+pub struct Decompressor {
+    caps: CompressionCaps,
+}
 
 impl<'a> Decompressor {
-    pub fn new() -> Decompressor {
-        Decompressor {}
+    pub fn new(caps: CompressionCaps) -> Decompressor {
+        Decompressor { caps }
     }
 
     pub fn decompress(
@@ -20,7 +22,13 @@ impl<'a> Decompressor {
     ) -> Result<(Message, Vec<u8>), Box<dyn std::error::Error>> {
         let method: Box<dyn CompressionMethod> = match original {
             CompressedMessage::Unchained(_) => Box::new(UnchainedCompression),
-            CompressedMessage::Chained(_) => Box::new(ChainedCompression),
+            CompressedMessage::Chained(_) => {
+                if self.caps.flags.chained() {
+                    Box::new(ChainedCompression)
+                } else {
+                    Err("Chained compression is not supported")?
+                }
+            }
         };
         let bytes = method.decompress(original)?;
         let mut cursor = std::io::Cursor::new(&bytes);
@@ -30,16 +38,12 @@ impl<'a> Decompressor {
 
 #[derive(Debug)]
 pub struct Compressor {
-    algorithms: Vec<CompressionAlgorithm>,
-    _chained: bool,
+    caps: CompressionCaps,
 }
 
 impl Compressor {
-    pub fn new(algorithms: Vec<CompressionAlgorithm>, chained: bool) -> Compressor {
-        Compressor {
-            algorithms: algorithms.to_vec(),
-            _chained: chained,
-        }
+    pub fn new(caps: CompressionCaps) -> Compressor {
+        Compressor { caps }
     }
 
     pub fn compress(
@@ -47,7 +51,7 @@ impl Compressor {
         bytes: &Vec<u8>,
     ) -> Result<CompressedMessage, Box<dyn std::error::Error>> {
         // TODO: Chained.
-        UnchainedCompression.compress(bytes, &self.algorithms)
+        UnchainedCompression.compress(bytes, &self.caps.compression_algorithms)
     }
 }
 
@@ -347,7 +351,13 @@ mod tests {
             ],
         });
 
-        let decompressor = Decompressor::new();
+        let decompressor = Decompressor::new(CompressionCaps {
+            flags: CompressionCapsFlags::new().with_chained(true),
+            compression_algorithms: vec![
+                CompressionAlgorithm::None,
+                CompressionAlgorithm::PatternV1,
+            ],
+        });
         let (dmsg, draw) = decompressor.decompress(&parsed_message).unwrap();
         assert_eq!(
             draw[..80],

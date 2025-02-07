@@ -18,7 +18,7 @@ use super::netbios_client::NetBiosClient;
 /// This struct is responsible for handling the connection to the server,
 /// sending netbios messages from SMB2 messages, and redirecting correct messages when received,
 /// if using async, to the correct pending task.
-struct ConnectionWorker {
+pub struct ConnectionWorker {
     pending: Arc<Mutex<HashMap<u64, Sender<IncomingMessage>>>>,
     loop_handle: Mutex<Option<JoinHandle<()>>>,
     netbios_client: Mutex<NetBiosClient>,

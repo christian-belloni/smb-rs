@@ -4,8 +4,8 @@
 //! including encryption and signing of messages.
 
 use crate::{
-    connection::connection::ClientMessageHandler,
-    crypto,
+    connection::{connection::ClientMessageHandler, preauth_hash::PreauthHashValue},
+    crypto::{self, KeyToDerive},
     msg_handler::{
         HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, ReceiveOptions,
         SendMessageResult,
@@ -32,17 +32,16 @@ pub use signer::MessageSigner;
 pub use state::SessionState;
 
 pub struct Session {
-    is_set_up: bool,
     handler: HandlerReference<SessionMessageHandler>,
-    ses_state: Option<Arc<Mutex<SessionState>>>,
+    session_state: Arc<Mutex<SessionState>>,
 }
 
 impl Session {
     pub fn new(upstream: UpstreamHandlerRef) -> Session {
+        let session_state = Arc::new(Mutex::new(SessionState::default()));
         Session {
-            is_set_up: false,
-            handler: SessionMessageHandler::new(upstream),
-            state: None,
+            handler: SessionMessageHandler::new(upstream, session_state.clone()),
+            session_state: session_state,
         }
     }
 
@@ -62,7 +61,7 @@ impl Session {
                 username: Username::new(&user_name, Some("WORKGROUP"))?,
                 password: Secret::new(password),
             };
-            GssAuthenticator::build(negotate_state.get_gss_token(), identity)?
+            GssAuthenticator::build(negotate_state.gss_token(), identity)?
         };
 
         let request = OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
@@ -117,16 +116,16 @@ impl Session {
                     let mut request = OutgoingMessage::new(PlainMessage::new(
                         Content::SessionSetupRequest(SessionSetupRequest::new(next_buf)),
                     ));
-                    let is_about_to_finish = authenticator.keys_exchanged() && !self.is_set_up;
+                    let is_about_to_finish = authenticator.keys_exchanged()
+                        && !SessionState::is_set_up(&self.session_state).await;
                     request.finalize_preauth_hash = is_about_to_finish;
                     let result = self.handler.sendo(request).await?;
 
-                    // Keys exchanged? We can set-up the session!
+                    // If keys are exchanged, set them up, to enable validation of next response!
                     if is_about_to_finish {
-                        // Derive keys and set-up the final session.
-                        let ntlm_key = authenticator.session_key()?.to_vec();
-                        // Derive signing key, and set-up the session.
-                        self.key_setup(&ntlm_key, result.preauth_hash.unwrap())?;
+                        let ntlm_key: KeyToDerive = authenticator.session_key()?;
+                        self.key_setup(&ntlm_key, &result.preauth_hash.unwrap())
+                            .await?;
                     }
 
                     let expected_status = if is_about_to_finish {
@@ -144,62 +143,31 @@ impl Session {
             };
         }
         log::info!("Session setup complete.");
-        self.post_setup(flags)?;
-        Ok(())
-    }
 
-    fn post_setup(&mut self, flags: Option<SessionFlags>) -> Result<(), Box<dyn Error>> {
-        let flags = flags.unwrap();
-        self.handler.borrow_mut().session_flags = flags;
+        SessionState::set_flags(&mut self.session_state, flags.unwrap()).await;
         Ok(())
     }
 
     // #[maybe_async]
     pub async fn key_setup(
         &mut self,
-        exchanged_session_key: &Vec<u8>,
-        preauth_integrity_hash: [u8; 64],
+        exchanged_session_key: &KeyToDerive,
+        preauth_hash: &PreauthHashValue,
     ) -> Result<(), Box<dyn Error>> {
-        if let None = self.ses_state {
-            self.ses_state = Some(Arc::new(Mutex::new(SessionState::new())));
-        };
-        
-        // TODO: Prevenet parallel access to the state!
-        let signing_key = Some(Self::derive_signing_key(
+        let s = self.handler.borrow();
+        let s = s.upstream.borrow();
+        let state = s.negotiate_state().unwrap();
+
+        SessionState::set(
+            &mut self.session_state,
             exchanged_session_key,
-            preauth_integrity_hash,
-            b"SMBSigningKey\x00",
-        )?);
-        let s2c_decryption_key = Some(Self::derive_signing_key(
-            exchanged_session_key,
-            preauth_integrity_hash,
-            b"SMBS2CCipherKey\x00",
-        )?);
-        let c2s_encryption_key = Some(Self::derive_signing_key(
-            exchanged_session_key,
-            preauth_integrity_hash,
-            b"SMBC2SCipherKey\x00",
-        )?);
-        SessionState::set(self.ses_state, 
-        self.is_set_up = true;
+            preauth_hash,
+            state,
+        )
+        .await?;
+
         log::debug!("Session signing key set.");
         Ok(())
-    }
-
-    fn derive_signing_key(
-        exchanged_session_key: &Vec<u8>,
-        preauth_integrity_hash: [u8; 64],
-        label: &[u8],
-    ) -> Result<[u8; 16], Box<dyn Error>> {
-        assert_eq!(exchanged_session_key.len(), 16);
-
-        let mut session_key = [0; 16];
-        session_key.copy_from_slice(&exchanged_session_key[0..16]);
-        Ok(
-            crypto::kbkdf_hmacsha256::<16>(&session_key, label, &preauth_integrity_hash)?
-                .try_into()
-                .unwrap(),
-        )
     }
 
     pub fn signing_enabled(&self) -> bool {
@@ -224,8 +192,7 @@ impl Session {
 
         // Reset session ID and keys.
         self.handler.borrow_mut().session_id.take();
-        self.handler.borrow_mut().signing_key.take();
-        self.is_set_up = false;
+        SessionState::invalidate(&mut self.session_state).await;
 
         log::info!("Session logged off.");
 
@@ -239,7 +206,6 @@ impl Session {
             log::error!("Failed to logoff: {}", e);
         });
     }
-
 }
 
 #[cfg(not(feature = "async"))]
@@ -265,36 +231,34 @@ impl Drop for Session {
 pub struct SessionMessageHandler {
     session_id: OnceCell<u64>,
     upstream: UpstreamHandlerRef,
+
+    session_state: Arc<Mutex<SessionState>>,
 }
 
 impl SessionMessageHandler {
-    pub fn new(upstream: UpstreamHandlerRef) -> HandlerReference<SessionMessageHandler> {
-        let signing_algo = upstream
-            .handler
-            .borrow()
-            .negotiate_state()
-            .unwrap()
-            .get_signing_algo();
+    pub fn new(
+        upstream: UpstreamHandlerRef,
+        session_state: Arc<Mutex<SessionState>>,
+    ) -> HandlerReference<SessionMessageHandler> {
         HandlerReference::new(SessionMessageHandler {
             session_id: OnceCell::new(),
-            signing_key: None,
-            s2c_decryption_key: None,
-            c2s_encryption_key: None,
-            session_flags: SessionFlags::new(),
-            signing_algo,
             upstream,
+            session_state,
         })
     }
 
-    pub fn should_sign(&self) -> bool {
-        self.signing_key.is_some()
+    #[maybe_async]
+    pub async fn should_sign(&self) -> bool {
+        SessionState::signing_enabled(&self.session_state).await
     }
 
-    pub fn should_encrypt(&self) -> bool {
-        debug_assert!(self.s2c_decryption_key.is_some() == self.c2s_encryption_key.is_some());
-        self.s2c_decryption_key.is_some()
-            && self.c2s_encryption_key.is_some()
-            && self.session_flags.encrypt_data()
+    #[maybe_async]
+    pub async fn should_encrypt(&self) -> bool {
+        SessionState::encryption_enabled(&self.session_state).await
+    }
+
+    fn upstream(&self) -> &UpstreamHandlerRef {
+        &self.upstream
     }
 }
 
@@ -304,39 +268,30 @@ impl MessageHandler for SessionMessageHandler {
         &mut self,
         mut msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
-        // Set signing configuration. Upstream handler shall take care of the rest.
-        if self.should_sign() {
-            msg.message.header.flags.set_signed(true);
-            msg.signer = Some(self.make_signer()?);
+        // Encrypt?
+        if self.should_encrypt().await {
+            msg.encrypt = true;
         }
-        // Encryption
-        if self.should_encrypt() {
-            msg.encryptor = Some(self.make_encryptor()?);
+        // Sign instead?
+        else if self.should_sign().await {
+            msg.message.header.flags.set_signed(true);
         }
         msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
         self.upstream.borrow_mut().hsendo(msg).await
     }
 
-    #[maybe_async]
+    // #[maybe_async]
     async fn hrecvo(
         &mut self,
         mut options: crate::msg_handler::ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        // Decryption
-        if self.should_encrypt() {
-            options.decryptor = Some(self.make_decryptor()?);
-        }
-        let mut incoming = self.upstream.borrow_mut().hrecvo(options).await?;
-        // TODO: check whether this is the correct case to do such a thing.
-        if self.should_sign() && !incoming.form.encrypted {
-            // Skip authentication is message ID is -1 or status is pending.
-            if incoming.message.header.message_id != u64::MAX
-                && incoming.message.header.status != Status::Pending
-            {
-                self.make_signer()?
-                    .verify_signature(&mut incoming.message.header, &incoming.raw)?;
+        let incoming = self.upstream.borrow_mut().hrecvo(options).await?;
+        // Make sure that it's our session.
+        if incoming.message.header.session_id != 0 {
+            if incoming.message.header.session_id != *self.session_id.get().unwrap() {
+                return Err("Received message for different session.".into());
             }
-        };
+        }
         Ok(incoming)
     }
 }

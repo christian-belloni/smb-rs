@@ -1,7 +1,6 @@
 #[cfg(not(any(feature = "async", feature = "sync")))]
 compile_error!("You must enable at least one of the features: 'async' or 'sync.");
 
-
 pub mod compression;
 pub mod connection;
 pub mod crypto;

@@ -1,5 +1,6 @@
 //! Session state
 
+use std::error::Error;
 use std::sync::Arc;
 
 use maybe_async::*;
@@ -8,10 +9,14 @@ use std::sync::Mutex;
 #[cfg(feature = "async")]
 use tokio::sync::Mutex;
 
-use crate::packets::smb2::{SessionFlags, SigningAlgorithmId};
-use crate::crypto::{DerivedKey, KeyToDerive, kbkdf}
+use crate::connection::negotiation_state::NegotiateState;
+use crate::connection::preauth_hash::PreauthHashValue;
+use crate::crypto::{
+    kbkdf_hmacsha256, make_encrypting_algo, make_signing_algo, DerivedKey, KeyToDerive,
+};
+use crate::packets::smb2::{EncryptionCipher, SessionFlags, SigningAlgorithmId};
 
-use super::{MessageDecryptor, MessageSigner};
+use super::{MessageDecryptor, MessageEncryptor, MessageSigner};
 
 /// Holds the state of a session, to be used for actions requiring data from session,
 /// without accessing the entire session object.
@@ -21,68 +26,126 @@ pub struct SessionState {
 
     flags: SessionFlags,
 
-    signer: Option<Arc<Mutex<MessageSigner>>>,
-    decryptor: Option<Arc<Mutex<MessageDecryptor>>>,
+    signer: Option<MessageSigner>,
+    decryptor: Option<MessageDecryptor>,
+    encryptor: Option<MessageEncryptor>,
 }
 
 impl SessionState {
-    // #[maybe_async]
-    async fn set(
+    const SIGNING_KEY_LABEL: &[u8] = b"SMBSigningKey\x00";
+    const S2C_DECRYPTION_KEY_LABEL: &[u8] = b"SMBS2CCipherKey\x00";
+    const C2S_ENCRYPTION_KEY_LABEL: &[u8] = b"SMBC2SCipherKey\x00";
+
+    #[maybe_async]
+    pub async fn set(
         state: &mut Arc<Mutex<Self>>,
-        session_key: KeyToDerive
-    ) {
+        session_key: &KeyToDerive,
+        preauth_hash: &PreauthHashValue,
+        negotation_state: &NegotiateState,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let deriver = KeyDeriver::new(session_key, preauth_hash);
+        let signer = Self::make_signer(&deriver, negotation_state.signing_algo())?;
+        let decryptor = Self::make_decryptor(&deriver, negotation_state.cipher())?;
+        let encryptor = Self::make_encryptor(&deriver, negotation_state.cipher())?;
+
         let mut state = state.lock().await;
-        state.signer = signer;
-        state.decryptor = decryptor;
+        state.signer = Some(signer);
+        state.decryptor = Some(decryptor);
+        state.encryptor = Some(encryptor);
+
+        Ok(())
     }
 
-    fn make_signer(&self, signing_key: DerivedKey) -> Result<MessageSigner, Box<dyn Error>> {
-        if !self.should_sign() {
-            return Err("Signing key is not set -- you must succeed a setup() to continue.".into());
-        }
-
-        debug_assert!(self.signing_key.is_some());
-
+    fn make_signer(
+        deriver: &KeyDeriver,
+        signing_algo: SigningAlgorithmId,
+    ) -> Result<MessageSigner, Box<dyn Error>> {
+        let signing_key = deriver.derive(Self::SIGNING_KEY_LABEL)?;
         Ok(MessageSigner::new(
-            crypto::make_signing_algo(self.signing_algo, self.signing_key.as_ref().unwrap())
-                .unwrap(),
+            make_signing_algo(signing_algo, &signing_key).unwrap(),
         ))
     }
 
-    fn make_encryptor(&self) -> Result<MessageEncryptor, Box<dyn Error>> {
-        if !self.should_encrypt() {
-            return Err(
-                "Encrypting key is not set -- you must succeed a setup() to continue.".into(),
-            );
-        }
-
-        debug_assert!(self.c2s_encryption_key.is_some());
-
+    fn make_encryptor(
+        deriver: &KeyDeriver,
+        cipher: EncryptionCipher,
+    ) -> Result<MessageEncryptor, Box<dyn Error>> {
+        let c2s_encryption_key = deriver.derive(Self::C2S_ENCRYPTION_KEY_LABEL)?;
         Ok(MessageEncryptor::new(
-            crypto::make_encrypting_algo(
-                EncryptionCipher::Aes128Ccm,
-                self.c2s_encryption_key.as_ref().unwrap(),
-            )
-            .unwrap(),
+            make_encrypting_algo(cipher, &c2s_encryption_key).unwrap(),
         ))
     }
 
-    fn make_decryptor(&self) -> Result<MessageDecryptor, Box<dyn Error>> {
-        if !self.should_encrypt() {
-            return Err(
-                "Encrypting key is not set -- you must succeed a setup() to continue.".into(),
-            );
-        }
-
-        debug_assert!(self.s2c_decryption_key.is_some());
+    fn make_decryptor(
+        deriver: &KeyDeriver,
+        cipher: EncryptionCipher,
+    ) -> Result<MessageDecryptor, Box<dyn Error>> {
+        let s2c_decryption_key = deriver.derive(Self::S2C_DECRYPTION_KEY_LABEL)?;
 
         Ok(MessageDecryptor::new(
-            crypto::make_encrypting_algo(
-                EncryptionCipher::Aes128Ccm,
-                self.s2c_decryption_key.as_ref().unwrap(),
-            )
-            .unwrap(),
+            make_encrypting_algo(cipher, &s2c_decryption_key).unwrap(),
         ))
+    }
+
+    #[maybe_async]
+    pub async fn set_flags(state: &mut Arc<Mutex<Self>>, flags: SessionFlags) {
+        state.lock().await.flags = flags;
+    }
+
+    #[maybe_async]
+    pub async fn invalidate(state: &mut Arc<Mutex<Self>>) {
+        let mut state = state.lock().await;
+        state.signer = None;
+        state.decryptor = None;
+        state.encryptor = None;
+    }
+
+    #[maybe_async]
+    pub async fn signing_enabled(state: &Arc<Mutex<Self>>) -> bool {
+        state.lock().await.signer.is_some()
+    }
+
+    #[maybe_async]
+    pub async fn encryption_enabled(state: &Arc<Mutex<Self>>) -> bool {
+        state.lock().await.encryptor.is_some() && state.lock().await.decryptor.is_some()
+    }
+
+    #[maybe_async]
+    pub async fn is_set_up(state: &Arc<Mutex<Self>>) -> bool {
+        Self::encryption_enabled(state).await || Self::signing_enabled(state).await
+    }
+
+    pub fn decryptor(&mut self) -> Option<&mut MessageDecryptor> {
+        self.decryptor.as_mut()
+    }
+
+    pub fn encryptor(&mut self) -> Option<&mut MessageEncryptor> {
+        self.encryptor.as_mut()
+    }
+
+    pub fn signer(&mut self) -> Option<&mut MessageSigner> {
+        self.signer.as_mut()
+    }
+}
+
+/// A helper struct for deriving SMB2 keys from a session key and preauth hash.
+struct KeyDeriver<'a> {
+    session_key: &'a KeyToDerive,
+    preauth_hash: &'a PreauthHashValue,
+}
+
+impl<'a> KeyDeriver<'a> {
+    #[inline]
+    pub fn new(session_key: &'a KeyToDerive, preauth_hash: &'a PreauthHashValue) -> Self {
+        Self {
+            session_key,
+            preauth_hash,
+        }
+    }
+
+    #[inline]
+    pub fn derive(&self, label: &[u8]) -> Result<DerivedKey, Box<dyn Error>> {
+        kbkdf_hmacsha256::<16>(self.session_key, label, self.preauth_hash)
     }
 }
 
@@ -93,6 +156,7 @@ impl Default for SessionState {
             flags: SessionFlags::new(),
             signer: Default::default(),
             decryptor: Default::default(),
+            encryptor: Default::default(),
         }
     }
 }

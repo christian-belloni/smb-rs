@@ -1,8 +1,4 @@
-use crate::{
-    connection::preauth_hash::PreauthHashValue,
-    packets::smb2::*,
-    session::{MessageDecryptor, MessageEncryptor, MessageSigner},
-};
+use crate::{connection::preauth_hash::PreauthHashValue, packets::smb2::*};
 use maybe_async::*;
 use std::{cell::RefCell, rc::Rc};
 
@@ -10,26 +6,24 @@ use std::{cell::RefCell, rc::Rc};
 pub struct OutgoingMessage {
     pub message: PlainMessage,
 
-    // signing and encryption information
-    pub signer: Option<MessageSigner>,
-    pub encryptor: Option<MessageEncryptor>,
-
     /// Whether to finalize the preauth hash after sending this message.
     /// If this is set to true twice per connection, an error will be thrown.
     pub finalize_preauth_hash: bool,
 
     /// Ask the sender to compress the message before sending, if possible.
     pub compress: bool,
+    /// Ask the sender to encrypt the message before sending, if possible.
+    pub encrypt: bool,
+    // Signing is set through message/header/flags/signed.
 }
 
 impl OutgoingMessage {
     pub fn new(message: PlainMessage) -> OutgoingMessage {
         OutgoingMessage {
             message,
-            signer: None,
-            encryptor: None,
             finalize_preauth_hash: false,
             compress: true,
+            encrypt: false,
         }
     }
 }
@@ -82,8 +76,9 @@ pub struct ReceiveOptions {
     /// If set, this command will be checked against the received command.
     pub cmd: Option<Command>,
 
-    // If decryption is required, this will be set.
-    pub decryptor: Option<MessageDecryptor>,
+    /// When receiving a message, only messages with this msgid will be returned.
+    /// This is mostly used for async message handling, where the client is waiting for a specific message.
+    pub msgid_filter: u64
 }
 
 impl ReceiveOptions {
@@ -107,7 +102,6 @@ impl Default for ReceiveOptions {
         ReceiveOptions {
             status: Status::Success,
             cmd: None,
-            decryptor: None,
         }
     }
 }
