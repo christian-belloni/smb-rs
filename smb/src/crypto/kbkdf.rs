@@ -9,13 +9,17 @@ use rust_kbkdf::{
 use sha2::Sha256;
 type HmacSha256 = Hmac<Sha256>;
 
+/// The type of derived keys for SMB2, outputting from kbkdf.
+pub type DerivedKey = [u8; 16];
+pub type KeyToDerive = [u8; 16];
+
 /// Key-based key derivation function using HMAC-SHA256.
 /// SP108-800-CTR-HMAC-SHA256; L*8 bits; 32-bit counter.
 ///
 /// # Arguments
 /// * `L` - The length of the output key, IN BYTES.
 pub fn kbkdf_hmacsha256<const L: usize>(
-    key: &[u8; 16],
+    key: &KeyToDerive,
     label: &[u8],
     context: &[u8],
 ) -> Result<[u8; L], Box<dyn Error>> {
@@ -35,11 +39,11 @@ pub fn kbkdf_hmacsha256<const L: usize>(
 }
 
 struct HmacSha256KeyHandle {
-    key: [u8; 16],
+    key: KeyToDerive,
 }
 
 impl PseudoRandomFunctionKey for HmacSha256KeyHandle {
-    type KeyHandle = [u8; 16];
+    type KeyHandle = KeyToDerive;
 
     fn key_handle(&self) -> &Self::KeyHandle {
         &self.key
@@ -52,7 +56,7 @@ struct HmacSha256Prf {
 }
 
 impl PseudoRandomFunction<'_> for HmacSha256Prf {
-    type KeyHandle = [u8; 16];
+    type KeyHandle = KeyToDerive;
 
     type PrfOutputSize = typenum::U32;
 

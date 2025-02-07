@@ -16,7 +16,10 @@ pub struct CopyCmd {
 }
 
 #[sync_impl]
-fn do_copy(from: &mut File, to: &mut fs::File) -> Result<(), Box<dyn Error>> {
+fn do_copy(
+    from: Box<dyn std::io::Read>,
+    to: &mut Box<dyn std::io::Write>,
+) -> Result<(), Box<dyn Error>> {
     let mut buffered_reader = io::BufReader::with_capacity(32768, from);
     io::copy(&mut buffered_reader, to)?;
 
@@ -37,27 +40,35 @@ async fn do_copy(from: &mut File, to: &mut fs::File) -> Result<(), Box<dyn Error
     Ok(())
 }
 
-#[maybe_async]
-pub async fn copy(copy: &CopyCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
-    // unwrap from as remote and to as local:
-    let from = match &copy.from {
-        Path::Remote(remote) => remote,
-        _ => return Err("Source path must be remote".into()),
+#[cfg(feature = "sync")]
+pub fn copy(cmd: &CopyCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
+    let from: Box<dyn std::io::Read> = match &cmd.from {
+        Path::Local(path_buf) => Box::new(std::fs::File::create(path_buf)?),
+        Path::Remote(unc_path) => {
+            let (_client, _session, _tree, mut resource) = unc_path.connect_and_open(cli)?;
+            Box::new(
+                resource
+                    .take()
+                    .ok_or("Source file not found")?
+                    .unwrap_file(),
+            )
+        }
     };
-    let to = match &copy.to {
-        Path::Local(local) => local,
-        _ => return Err("Destination path must be local".into()),
+
+    let mut to: Box<dyn std::io::Write> = match &cmd.to {
+        Path::Local(path_buf) => Box::new(std::fs::File::create(path_buf)?),
+        Path::Remote(unc_path) => {
+            let (_client, _session, _tree, mut resource) = unc_path.connect_and_open(cli)?;
+            Box::new(
+                resource
+                    .take()
+                    .ok_or("Source file not found")?
+                    .unwrap_file(),
+            )
+        }
     };
 
-    let (_client, _session, _tree, mut resource) = from.connect_and_open(cli).await?;
-    let mut file = resource
-        .take()
-        .ok_or("Source file not found")?
-        .unwrap_file();
-
-    let mut local_file = fs::File::create(to).await?;
-
-    do_copy(&mut file, &mut local_file).await?;
+    do_copy(from, &mut to)?;
 
     Ok(())
 }

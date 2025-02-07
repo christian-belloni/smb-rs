@@ -16,22 +16,25 @@ use crate::{
 use binrw::prelude::*;
 use maybe_async::*;
 use sspi::{AuthIdentity, Secret, Username};
-use std::{cell::OnceCell, error::Error};
+use std::{cell::OnceCell, error::Error, sync::Arc};
+use tokio::sync::Mutex;
 
-type DerivedKeyValue = [u8; 16];
 type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
 
 mod authenticator;
 mod encryptor_decryptor;
 mod signer;
+mod state;
 
 use authenticator::GssAuthenticator;
 pub use encryptor_decryptor::{MessageDecryptor, MessageEncryptor};
 pub use signer::MessageSigner;
+pub use state::SessionState;
 
 pub struct Session {
     is_set_up: bool,
     handler: HandlerReference<SessionMessageHandler>,
+    ses_state: Option<Arc<Mutex<SessionState>>>,
 }
 
 impl Session {
@@ -39,6 +42,7 @@ impl Session {
         Session {
             is_set_up: false,
             handler: SessionMessageHandler::new(upstream),
+            state: None,
         }
     }
 
@@ -140,30 +144,43 @@ impl Session {
             };
         }
         log::info!("Session setup complete.");
-        self.handler.borrow_mut().session_flags = flags.unwrap();
+        self.post_setup(flags)?;
         Ok(())
     }
 
-    pub fn key_setup(
+    fn post_setup(&mut self, flags: Option<SessionFlags>) -> Result<(), Box<dyn Error>> {
+        let flags = flags.unwrap();
+        self.handler.borrow_mut().session_flags = flags;
+        Ok(())
+    }
+
+    // #[maybe_async]
+    pub async fn key_setup(
         &mut self,
         exchanged_session_key: &Vec<u8>,
         preauth_integrity_hash: [u8; 64],
     ) -> Result<(), Box<dyn Error>> {
-        self.handler.borrow_mut().signing_key = Some(Self::derive_signing_key(
+        if let None = self.ses_state {
+            self.ses_state = Some(Arc::new(Mutex::new(SessionState::new())));
+        };
+        
+        // TODO: Prevenet parallel access to the state!
+        let signing_key = Some(Self::derive_signing_key(
             exchanged_session_key,
             preauth_integrity_hash,
             b"SMBSigningKey\x00",
         )?);
-        self.handler.borrow_mut().s2c_decryption_key = Some(Self::derive_signing_key(
+        let s2c_decryption_key = Some(Self::derive_signing_key(
             exchanged_session_key,
             preauth_integrity_hash,
             b"SMBS2CCipherKey\x00",
         )?);
-        self.handler.borrow_mut().c2s_encryption_key = Some(Self::derive_signing_key(
+        let c2s_encryption_key = Some(Self::derive_signing_key(
             exchanged_session_key,
             preauth_integrity_hash,
             b"SMBC2SCipherKey\x00",
         )?);
+        SessionState::set(self.ses_state, 
         self.is_set_up = true;
         log::debug!("Session signing key set.");
         Ok(())
@@ -222,6 +239,7 @@ impl Session {
             log::error!("Failed to logoff: {}", e);
         });
     }
+
 }
 
 #[cfg(not(feature = "async"))]
@@ -246,12 +264,6 @@ impl Drop for Session {
 
 pub struct SessionMessageHandler {
     session_id: OnceCell<u64>,
-    signing_key: Option<DerivedKeyValue>,
-    s2c_decryption_key: Option<DerivedKeyValue>,
-    c2s_encryption_key: Option<DerivedKeyValue>,
-    signing_algo: SigningAlgorithmId,
-    session_flags: SessionFlags,
-
     upstream: UpstreamHandlerRef,
 }
 
@@ -283,55 +295,6 @@ impl SessionMessageHandler {
         self.s2c_decryption_key.is_some()
             && self.c2s_encryption_key.is_some()
             && self.session_flags.encrypt_data()
-    }
-
-    fn make_signer(&self) -> Result<MessageSigner, Box<dyn Error>> {
-        if !self.should_sign() {
-            return Err("Signing key is not set -- you must succeed a setup() to continue.".into());
-        }
-
-        debug_assert!(self.signing_key.is_some());
-
-        Ok(MessageSigner::new(
-            crypto::make_signing_algo(self.signing_algo, self.signing_key.as_ref().unwrap())
-                .unwrap(),
-        ))
-    }
-
-    fn make_encryptor(&self) -> Result<MessageEncryptor, Box<dyn Error>> {
-        if !self.should_encrypt() {
-            return Err(
-                "Encrypting key is not set -- you must succeed a setup() to continue.".into(),
-            );
-        }
-
-        debug_assert!(self.c2s_encryption_key.is_some());
-
-        Ok(MessageEncryptor::new(
-            crypto::make_encrypting_algo(
-                EncryptionCipher::Aes128Ccm,
-                self.c2s_encryption_key.as_ref().unwrap(),
-            )
-            .unwrap(),
-        ))
-    }
-
-    fn make_decryptor(&self) -> Result<MessageDecryptor, Box<dyn Error>> {
-        if !self.should_encrypt() {
-            return Err(
-                "Encrypting key is not set -- you must succeed a setup() to continue.".into(),
-            );
-        }
-
-        debug_assert!(self.s2c_decryption_key.is_some());
-
-        Ok(MessageDecryptor::new(
-            crypto::make_encrypting_algo(
-                EncryptionCipher::Aes128Ccm,
-                self.s2c_decryption_key.as_ref().unwrap(),
-            )
-            .unwrap(),
-        ))
     }
 }
 

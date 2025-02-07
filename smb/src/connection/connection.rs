@@ -17,7 +17,11 @@ use crate::{
 use binrw::prelude::*;
 use core::panic;
 use maybe_async::*;
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::{cell::OnceCell, error::Error, fmt::Display, io::Cursor};
+use tokio::sync::{oneshot, Mutex};
+use tokio::task::JoinHandle;
 
 pub struct Connection {
     handler: HandlerReference<ClientMessageHandler>,
