@@ -18,7 +18,7 @@ log = "0.4.22"
 time = {version = "0.3.37", features = ["macros"]}
 
 # APIs
-sspi = { version = "0.15.0", git = "https://github.com/Devolutions/sspi-rs.git", rev = "1984ebf1917989c4756f76656021c04706455243" }
+sspi = { version = "0.15.1" }
 gss-api = {version = "0.1.0", features = []}
 
 # Crypto
