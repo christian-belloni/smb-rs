@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "smb-lib",
+    "smb",
     "smb-cli"
 ]
 resolver = "2"

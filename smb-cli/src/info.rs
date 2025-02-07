@@ -1,6 +1,6 @@
 use crate::{path::*, Cli};
 use clap::Parser;
-use smb_lib::resource::Resource;
+use smb::resource::Resource;
 use std::error::Error;
 
 #[derive(Parser, Debug)]

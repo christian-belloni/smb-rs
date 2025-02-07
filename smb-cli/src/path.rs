@@ -1,5 +1,5 @@
 use crate::cli::Cli;
-use smb_lib::{
+use smb::{
     connection::Connection, packets::smb2::*, resource::Resource, session::Session, tree::Tree,
 };
 use std::{error::Error, str::FromStr};

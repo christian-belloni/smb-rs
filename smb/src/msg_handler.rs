@@ -66,8 +66,8 @@ pub struct MessageForm {
 ///
 /// Use a builder pattern to set the options:
 /// ```
-/// use smb_lib::packets::smb2::*;
-/// use smb_lib::msg_handler::ReceiveOptions;
+/// use smb::packets::smb2::*;
+/// use smb::msg_handler::ReceiveOptions;
 ///
 /// let options = ReceiveOptions::new()
 ///    .status(Status::Success)
