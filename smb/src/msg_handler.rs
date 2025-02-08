@@ -102,6 +102,7 @@ impl Default for ReceiveOptions {
         ReceiveOptions {
             status: Status::Success,
             cmd: None,
+            msgid_filter: 0,
         }
     }
 }

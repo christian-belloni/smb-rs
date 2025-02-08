@@ -9,7 +9,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::{msg_handler::IncomingMessage, packets::netbios};
+use crate::msg_handler::IncomingMessage;
 
 use super::netbios_client::NetBiosClient;
 
@@ -31,10 +31,10 @@ impl ConnectionWorker {
         netbios_client: NetBiosClient,
     ) -> Result<Arc<Self>, Box<dyn std::error::Error>> {
         // Build the worker
-        let mut worker = Arc::new(ConnectionWorker {
+        let worker = Arc::new(ConnectionWorker {
             pending: Arc::new(Mutex::new(HashMap::new())),
             loop_handle: Mutex::new(None),
-            netbios_client,
+            netbios_client: Mutex::new(netbios_client),
         });
 
         // Start the worker loop.

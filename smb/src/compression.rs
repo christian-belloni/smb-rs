@@ -12,8 +12,8 @@ pub struct Decompressor {
 }
 
 impl<'a> Decompressor {
-    pub fn new(caps: CompressionCaps) -> Decompressor {
-        Decompressor { caps }
+    pub fn new(caps: &CompressionCaps) -> Decompressor {
+        Decompressor { caps:caps.clone() }
     }
 
     pub fn decompress(
@@ -42,8 +42,8 @@ pub struct Compressor {
 }
 
 impl Compressor {
-    pub fn new(caps: CompressionCaps) -> Compressor {
-        Compressor { caps }
+    pub fn new(caps: &CompressionCaps) -> Compressor {
+        Compressor { caps:caps.clone() }
     }
 
     pub fn compress(
@@ -351,7 +351,7 @@ mod tests {
             ],
         });
 
-        let decompressor = Decompressor::new(CompressionCaps {
+        let decompressor = Decompressor::new(&CompressionCaps {
             flags: CompressionCapsFlags::new().with_chained(true),
             compression_algorithms: vec![
                 CompressionAlgorithm::None,

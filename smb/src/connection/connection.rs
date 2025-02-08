@@ -305,7 +305,7 @@ impl MessageHandler for ClientMessageHandler {
         &mut self,
         mut options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        let netbios = self.netbios_client.recieve_bytes().await?;
+        self.neg_mode.smb2().unwrap().receive(options).await?;
 
         self.step_preauth_hash(&netbios.content);
 

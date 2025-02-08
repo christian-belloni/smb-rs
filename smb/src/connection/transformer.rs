@@ -19,27 +19,31 @@ use super::negotiation_state::NegotiateState;
 /// This struct is tranforming messages to plain, parsed SMB2,
 /// including (en|de)cryption, (de)compression, and signing/verifying.
 struct Transformer {
+    /// Sessions opened from this connection.
     sessions: Mutex<HashMap<u64, Arc<Mutex<SessionState>>>>,
+
+    /// Compressors for this connection.
+    compress: Option<(Compressor, Decompressor)>,
 }
 
 impl Transformer {
     pub fn new(neg_state: &NegotiateState) -> Transformer {
-        let compressor = match neg_state.compression {
-            Some(compression) => Some(Compressor::new(
-                compression.compression_algorithms.clone(),
-                compression.flags.chained(),
-            )),
+        let compress = match &neg_state.compression {
+            Some(compression) => {
+                Some((Compressor::new(compression), Decompressor::new(compression)))
+            }
             None => None,
         };
-        let decompressor = Decompressor::new();
 
         Transformer {
             sessions: Mutex::new(HashMap::new()),
+            compress,
         }
     }
 
     /// Gets an OutgoingMessage ready for sending, performs crypto operations, and returns the
     /// final bytes to be sent.
+    #[maybe_async]
     pub async fn tranform_outgoing(
         &mut self,
         mut msg: OutgoingMessage,
@@ -78,8 +82,8 @@ impl Transformer {
         // 2. Compress
         data = {
             if msg.compress && data.len() > 1024 {
-                if let Some(compressor) = &self.compressor {
-                    let compressed = compressor.compress(&data)?;
+                if let Some(compress) = &self.compress {
+                    let compressed = compress.0.compress(&data)?;
                     data.clear();
                     let mut cursor = Cursor::new(&mut data);
                     Message::Compressed(compressed).write(&mut cursor)?;
@@ -90,12 +94,20 @@ impl Transformer {
 
         // 3. Encrypt
         let data = {
-            if let Some(mut encryptor) = msg.encryptor.take() {
-                debug_assert!(should_encrypt && !should_sign);
-                let encrypted = encryptor.encrypt_message(data, set_session_id)?;
-                let mut cursor = Cursor::new(Vec::new());
-                Message::Encrypted(encrypted).write(&mut cursor)?;
-                cursor.into_inner()
+            if msg.encrypt {
+                let session = self
+                    .session_state(set_session_id)
+                    .await
+                    .ok_or("Session not found!")?;
+                if let Some(mut encryptor) = session.lock().await.encryptor() {
+                    debug_assert!(should_encrypt && !should_sign);
+                    let encrypted = encryptor.encrypt_message(data, set_session_id)?;
+                    let mut cursor = Cursor::new(Vec::new());
+                    Message::Encrypted(encrypted).write(&mut cursor)?;
+                    cursor.into_inner()
+                } else {
+                    return Err("Encryptor not found!".into());
+                }
             } else {
                 data
             }
@@ -127,12 +139,13 @@ impl Transformer {
         // 1. Decrpt
         let (message, raw) = if let Message::Encrypted(encrypted_message) = &message {
             form.encrypted = true;
-            let session = self
+            let mut session = self
                 .session_state(encrypted_message.header.session_id)
                 .await
                 .ok_or("Session not found")?;
-            match session.lock().await.decryptor() {
-                Some(mut decryptor) => decryptor.decrypt_message(&encrypted_message)?,
+            let mut session = session.lock().await;
+            match session.decryptor() {
+                Some(decryptor) => decryptor.decrypt_message(&encrypted_message)?,
                 None => return Err("Encrypted message received without decryptor".into()),
             }
         } else {
@@ -143,8 +156,8 @@ impl Transformer {
         debug_assert!(!matches!(message, Message::Encrypted(_)));
         let (message, raw) = if let Message::Compressed(compressed_message) = &message {
             form.compressed = true;
-            match &self.decompressor {
-                Some(decompressor) => decompressor.decompress(compressed_message)?,
+            match &self.compress {
+                Some(compress) => compress.1.decompress(compressed_message)?,
                 None => return Err("Compressed message received without decompressor!".into()),
             }
         } else {
