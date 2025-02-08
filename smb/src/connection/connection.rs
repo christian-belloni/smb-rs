@@ -1,4 +1,3 @@
-use crate::compression::{Compressor, Decompressor};
 
 use super::negotiation_state::NegotiateState;
 use super::netbios_client::NetBiosClient;
@@ -9,9 +8,9 @@ use crate::{
     crypto,
     msg_handler::*,
     packets::{
-        netbios::{NetBiosMessageContent, NetBiosTcpMessage},
+        netbios::NetBiosMessageContent,
         smb1::SMB1NegotiateMessage,
-        smb2::{header::*, message::*, negotiate::*, plain::*},
+        smb2::{header::*, negotiate::*, plain::*},
     },
     session::Session,
 };
@@ -91,9 +90,6 @@ impl Connection {
     #[maybe_async]
     async fn negotiate_smb2(&mut self) -> Result<(), Box<dyn Error>> {
         log::debug!("Negotiating SMB2");
-        // Start preauth hash.
-        self.handler.borrow_mut().preauth_hash = Some(PreauthHashState::default());
-
         // Send SMB2 negotiate request
         let client_guid = self.handler.borrow().client_guid;
         let response = self
@@ -140,11 +136,10 @@ impl Connection {
             return Err(format!("Unsupported encryption algorithm {:?}", encryption_cipher).into());
         }
 
-        let compression: Option<CompressionCaps> =
-            match smb2_negotiate_response.get_compression() {
-                Some(compression) => Some(compression.clone()),
-                None => None,
-            };
+        let compression: Option<CompressionCaps> = match smb2_negotiate_response.get_compression() {
+            Some(compression) => Some(compression.clone()),
+            None => None,
+        };
 
         let negotiate_state = NegotiateState {
             server_guid: smb2_negotiate_response.server_guid,
@@ -175,8 +170,25 @@ impl Connection {
     /// Multi-protocol negotiation.
     #[maybe_async]
     async fn mprot_negotiate(&mut self) -> Result<(), Box<dyn Error>> {
+        // Negotiate SMB1, Switch to SMB2
         self.negotiate_smb1().await?;
+
+        // Upgrade connection backend to SMB2 worker
+        {
+            let handler = &mut self.handler.borrow_mut();
+            // do ConnectionWorker::start() on Mprot/NetBiosClient and set to NegotiationMode::Smb2Neg
+            let worker = ConnectionWorker::start(handler.neg_mode.take_multi().unwrap()).await?;
+            handler.neg_mode = NegotiationMode::Smb2Neg(worker);
+        }
+        // Negotiate SMB2
         self.negotiate_smb2().await?;
+        self.handler
+            .borrow_mut()
+            .neg_mode
+            .smb2()
+            .unwrap()
+            .negotaite_complete(&self.handler.borrow().negotiate_state().unwrap())
+            .await;
         log::info!("Negotiation successful");
         Ok(())
     }
@@ -196,19 +208,36 @@ impl Connection {
 }
 
 enum NegotiationMode {
-    Mprot(NetBiosClient),
-    Smb2Neg(ConnectionWorker),
+    Mprot(Option<NetBiosClient>),
+    Smb2Neg(Arc<ConnectionWorker>),
 }
 
 impl NegotiationMode {
     fn multi(&mut self) -> Result<&mut NetBiosClient, Box<dyn Error>> {
         match self {
-            NegotiationMode::Mprot(client) => Ok(client),
+            NegotiationMode::Mprot(client) => match client {
+                Some(client) => Ok(client),
+                None => {
+                    return Err("Unexpected connection state".into());
+                }
+            },
             _ => Err("Unexpected connection state".into()),
         }
     }
 
-    fn smb2(&mut self) -> Result<&mut ConnectionWorker, Box<dyn Error>> {
+    fn take_multi(&mut self) -> Result<NetBiosClient, Box<dyn Error>> {
+        match self {
+            NegotiationMode::Mprot(client) => match client.take() {
+                Some(client) => Ok(client),
+                None => {
+                    return Err("Unexpected connection state".into());
+                }
+            },
+            _ => Err("Unexpected connection state".into()),
+        }
+    }
+
+    fn smb2(&mut self) -> Result<&mut Arc<ConnectionWorker>, Box<dyn Error>> {
         match self {
             NegotiationMode::Smb2Neg(worker) => Ok(worker),
             _ => Err("Unexpected connection state".into()),
@@ -225,8 +254,6 @@ pub struct ClientMessageHandler {
     current_message_id: u64,
     credits_balance: u16,
 
-    preauth_hash: Option<PreauthHashState>,
-
     // Negotiation-related state.
     negotiate_state: OnceCell<NegotiateState>,
 }
@@ -235,33 +262,13 @@ impl ClientMessageHandler {
     fn new() -> ClientMessageHandler {
         ClientMessageHandler {
             client_guid: Guid::gen(),
-            neg_mode: NegotiationMode::Mprot(NetBiosClient::new()),
+            neg_mode: NegotiationMode::Mprot(Some(NetBiosClient::new())),
             negotiate_state: OnceCell::new(),
             current_message_id: 0,
             credits_balance: 1,
-            preauth_hash: None,
         }
     }
 
-    /// Calculate preauth integrity hash value, if required.
-    fn step_preauth_hash(&mut self, raw: &Vec<u8>) {
-        if let Some(preauth_hash) = self.preauth_hash.take() {
-            // If already finished -- do nothing.
-            if let PreauthHashState::Finished(_) = preauth_hash {
-                return;
-            }
-            // Otherwise, update the hash!
-            self.preauth_hash = Some(preauth_hash.next(&raw));
-        }
-    }
-
-    pub fn finalize_preauth_hash(&mut self) -> PreauthHashValue {
-        self.preauth_hash = Some(self.preauth_hash.take().unwrap().finish());
-        match self.preauth_hash.take().unwrap() {
-            PreauthHashState::Finished(hash) => hash,
-            _ => panic!("Preauth hash not finished"),
-        }
-    }
 
     pub fn negotiate_state(&self) -> Option<&NegotiateState> {
         self.negotiate_state.get()
@@ -288,55 +295,49 @@ impl MessageHandler for ClientMessageHandler {
         msg.message.header.credit_charge = 1;
         msg.message.header.credit_request = 1;
 
-        let finalize_hash_required = msg.finalize_preauth_hash;
-
-        self.neg_mode.smb2().unwrap().send(msg).await?;
-
-        let hash = match finalize_hash_required {
-            true => Some(self.finalize_preauth_hash()),
-            false => None,
-        };
-
-        Ok(SendMessageResult::new(hash.clone()))
+        Ok(self.neg_mode.smb2().unwrap().send(msg).await?)
     }
 
     #[maybe_async]
     async fn hrecvo(
         &mut self,
-        mut options: ReceiveOptions,
+        options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        self.neg_mode.smb2().unwrap().receive(options).await?;
-
-        self.step_preauth_hash(&netbios.content);
-
-        let (message, raw, form) = self.transform_incoming(netbios, &mut options)?;
+        let msg = self
+            .neg_mode
+            .smb2()
+            .unwrap()
+            .receive(options.msgid_filter)
+            .await?;
 
         // Command matching (if needed).
         if let Some(cmd) = options.cmd {
-            if message.header.command != cmd {
+            if msg.message.header.command != cmd {
                 return Err("Unexpected SMB2 command".into());
             }
         }
 
         // Direction matching.
-        if !message.header.flags.server_to_redir() {
+        if !msg.message.header.flags.server_to_redir() {
             return Err("Unexpected SMB2 message direction (Not a response)".into());
         }
 
         // Expected status matching.
-        if message.header.status != options.status {
-            if let Content::ErrorResponse(msg) = &message.content {
-                return Err(
-                    format!("SMB2 error response {:?}: {:?}", message.header.status, msg).into(),
-                );
+        if msg.message.header.status != options.status {
+            if let Content::ErrorResponse(error_res) = &msg.message.content {
+                return Err(format!(
+                    "SMB2 error response {:?}: {:?}",
+                    msg.message.header.status, error_res.error_data
+                )
+                .into());
             }
-            return Err(format!("Unexpected SMB2 status: {:?}", message.header.status).into());
+            return Err(format!("Unexpected SMB2 status: {:?}", msg.message.header.status).into());
         }
 
         // Credits handling. TODO: validate.
-        self.credits_balance -= message.header.credit_charge;
-        self.credits_balance += message.header.credit_request;
+        self.credits_balance -= msg.message.header.credit_charge;
+        self.credits_balance += msg.message.header.credit_request;
 
-        Ok(IncomingMessage { message, raw, form })
+        Ok(msg)
     }
 }

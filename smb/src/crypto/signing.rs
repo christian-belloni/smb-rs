@@ -28,7 +28,7 @@ pub const SIGNING_ALGOS: &[SigningAlgorithmId] = &[
 ];
 
 /// A trait for SMB signing algorithms.
-pub trait SigningAlgo: Debug {
+pub trait SigningAlgo: Debug + Send {
     /// Start a new signing session. This is called before any data is passed to the signer,
     /// and [SigningAlgo::update] must feed the header data to the signer, in addition to this call.
     ///

@@ -18,27 +18,73 @@ use super::negotiation_state::NegotiateState;
 
 /// This struct is tranforming messages to plain, parsed SMB2,
 /// including (en|de)cryption, (de)compression, and signing/verifying.
-struct Transformer {
+pub struct Transformer {
     /// Sessions opened from this connection.
     sessions: Mutex<HashMap<u64, Arc<Mutex<SessionState>>>>,
 
     /// Compressors for this connection.
     compress: Option<(Compressor, Decompressor)>,
+
+    negotiated: bool,
 }
 
 impl Transformer {
-    pub fn new(neg_state: &NegotiateState) -> Transformer {
+    /// Creates a new Transformer.
+    pub fn new() -> Transformer {
+        Transformer {
+            sessions: Mutex::new(HashMap::new()),
+            compress: None,
+            negotiated: false,
+        }
+    }
+
+    /// When the connection is negotiated, this function is called to set up additional transformers,
+    /// according to the allowed in the negotiation state.
+    pub fn negotiated(&mut self, neg_state: &NegotiateState) -> Result<(), Box<dyn Error>> {
+        if self.negotiated {
+            return Err("Already negotiated!".into());
+        }
+
         let compress = match &neg_state.compression {
             Some(compression) => {
                 Some((Compressor::new(compression), Decompressor::new(compression)))
             }
             None => None,
         };
+        self.compress = compress;
+        self.negotiated = true;
 
-        Transformer {
-            sessions: Mutex::new(HashMap::new()),
-            compress,
+        Ok(())
+    }
+
+    /// Adds the session to the list of active sessions.
+    #[maybe_async]
+    pub async fn session_started(
+        &self,
+        session: Arc<Mutex<SessionState>>,
+    ) -> Result<(), Box<dyn Error>> {
+        if !self.negotiated {
+            return Err("Negotiation not completed!".into());
         }
+
+        let session_id = session.lock().await.session_id;
+        self.sessions
+            .lock()
+            .await
+            .insert(session_id, session.clone());
+
+        Ok(())
+    }
+
+    #[maybe_async]
+    pub async fn session_ended(&self, session_id: u64) {
+        self.sessions.lock().await.remove(&session_id);
+    }
+
+    #[maybe_async]
+    #[inline]
+    pub async fn session_state(&self, session_id: u64) -> Option<Arc<Mutex<SessionState>>> {
+        self.sessions.lock().await.get(&session_id).cloned()
     }
 
     /// Gets an OutgoingMessage ready for sending, performs crypto operations, and returns the
@@ -116,18 +162,11 @@ impl Transformer {
         Ok(NetBiosTcpMessage::from_content_bytes(data)?)
     }
 
-    #[maybe_async]
-    #[inline]
-    pub async fn session_state(&self, session_id: u64) -> Option<Arc<Mutex<SessionState>>> {
-        self.sessions.lock().await.get(&session_id).cloned()
-    }
-
     /// Given a NetBiosTcpMessage, decrypts (if necessary), decompresses (if necessary) and returns the plain SMB2 message.
     pub async fn transform_incoming(
         &mut self,
         netbios: NetBiosTcpMessage,
-        options: &mut ReceiveOptions,
-    ) -> Result<(PlainMessage, Vec<u8>, MessageForm), Box<dyn Error>> {
+    ) -> Result<IncomingMessage, Box<dyn Error>> {
         let message = match netbios.parse_content()? {
             NetBiosMessageContent::SMB2Message(message) => Some(message),
             _ => None,
@@ -170,6 +209,6 @@ impl Transformer {
             _ => panic!("Unexpected message type"),
         };
 
-        Ok((message, raw, form))
+        Ok(IncomingMessage { message, raw, form })
     }
 }

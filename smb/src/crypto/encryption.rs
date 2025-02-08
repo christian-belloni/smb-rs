@@ -18,7 +18,7 @@ pub struct EncryptionResult {
     pub signature: u128,
 }
 
-pub trait EncryptingAlgo: Debug {
+pub trait EncryptingAlgo: Debug + Send {
     /// Algo-specific encryption function.
     fn encrypt(
         &mut self,
@@ -86,7 +86,7 @@ where
 #[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 impl<C> CcmEncryptor<C>
 where
-    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + KeyInit + 'static,
+    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + KeyInit + Send + 'static,
 {
     fn build(
         encrypting_key: &GenericArray<u8, <C as KeySizeUser>::KeySize>,
@@ -100,7 +100,7 @@ where
 #[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 impl<C> EncryptingAlgo for CcmEncryptor<C>
 where
-    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt,
+    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + Send,
 {
     fn encrypt(
         &mut self,

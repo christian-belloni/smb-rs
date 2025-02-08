@@ -22,7 +22,7 @@ use super::{MessageDecryptor, MessageEncryptor, MessageSigner};
 /// without accessing the entire session object.
 /// This struct should be single-per-session, and wrapped in a shared pointer.
 pub struct SessionState {
-    session_id: u64,
+    pub session_id: u64,
 
     flags: SessionFlags,
 

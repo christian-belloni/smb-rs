@@ -15,6 +15,10 @@ pub struct OutgoingMessage {
     /// Ask the sender to encrypt the message before sending, if possible.
     pub encrypt: bool,
     // Signing is set through message/header/flags/signed.
+
+    /// Whether this request also expects a response.
+    /// This value defaults to true.
+    pub has_response: bool,
 }
 
 impl OutgoingMessage {
@@ -24,6 +28,7 @@ impl OutgoingMessage {
             finalize_preauth_hash: false,
             compress: true,
             encrypt: false,
+            has_response: true,
         }
     }
 }
