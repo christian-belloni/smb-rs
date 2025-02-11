@@ -3,8 +3,7 @@ use tokio::select;
 
 #[cfg(not(feature = "async"))]
 use std::cell::OnceCell;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 #[cfg(feature = "async")]
 use tokio::{
     sync::{mpsc, oneshot, Mutex},
@@ -26,17 +25,18 @@ use super::{
 /// This struct is responsible for handling the connection to the server,
 /// sending netbios messages from SMB2 messages, and redirecting correct messages when received,
 /// if using async, to the correct pending task.
+/// One-per connection, hence takes ownership of [NetBiosClient] on [ConnectionWorker::start].
 pub struct ConnectionWorker {
     state: Mutex<WorkerAwaitState>,
 
     /// The loop handle for the worker.
     loop_handle: Mutex<Option<JoinHandle<()>>>,
 
-    tranformer: Mutex<Transformer>,
+    tranformer: Transformer,
     /// A channel to send messages to the worker.
     sender: mpsc::Sender<NetBiosTcpMessage>,
 
-    preauth_hash: Option<PreauthHashState>,
+    preauth_hash: Mutex<Option<PreauthHashState>>,
 }
 
 /// Holds state for the worker, regarding messages to be received.
@@ -59,7 +59,7 @@ impl ConnectionWorker {
         let worker = Arc::new(ConnectionWorker {
             state: Mutex::new(WorkerAwaitState::default()),
             loop_handle: Mutex::new(None),
-            tranformer: Mutex::new(Transformer::new()),
+            tranformer: Transformer::default(),
             sender: tx,
             preauth_hash: Default::default(),
         });
@@ -74,22 +74,28 @@ impl ConnectionWorker {
 
     #[maybe_async]
     pub async fn negotaite_complete(&self, neg_state: &NegotiateState) {
-        self.tranformer.lock().await.negotiated(neg_state).unwrap();
+        self.tranformer.negotiated(neg_state).unwrap();
     }
 
     /// Calculate preauth integrity hash value, if required.
-    fn step_preauth_hash(&mut self, raw: &Vec<u8>) {
+    #[maybe_async]
+    async fn step_preauth_hash(&self, raw: &Vec<u8>) {
+        let mut pa_hash = self.preauth_hash.lock().await;
         // If already finished -- do nothing.
-        if matches!(self.preauth_hash, Some(PreauthHashState::Finished(_))) {
+        if matches!(*pa_hash, Some(PreauthHashState::Finished(_))) {
             return;
         }
         // Otherwise, update the hash!
-        self.preauth_hash = self.preauth_hash.take().unwrap().next(&raw).into();
+        *pa_hash = pa_hash.take().unwrap().next(&raw).into();
     }
 
-    pub fn finalize_preauth_hash(&mut self) -> PreauthHashValue {
-        self.preauth_hash = self.preauth_hash.take().unwrap().finish().into();
-        match self.preauth_hash.as_ref() {
+    /// If the preauth hash has finished, returns a copy of it's final value.
+    /// Otherwise, panics.
+    #[maybe_async]
+    pub async fn finalize_preauth_hash(&self) -> PreauthHashValue {
+        // TODO: Move into preauth hash structure.
+        let pa_hash = self.preauth_hash.lock().await;
+        match *pa_hash {
             Some(PreauthHashState::Finished(hash)) => hash.clone(),
             _ => panic!("Preauth hash not finished"),
         }
@@ -97,14 +103,14 @@ impl ConnectionWorker {
 
     #[maybe_async]
     pub async fn send(
-        self: &mut Arc<Self>,
+        self: &Self,
         msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
         let finalize_preauth_hash = msg.finalize_preauth_hash;
         let message = { self.tranformer.lock().await.tranform_outgoing(msg).await? };
 
         let hash = match finalize_preauth_hash {
-            true => Some(self.finalize_preauth_hash()),
+            true => Some(self.finalize_preauth_hash().await),
             false => None,
         };
 
@@ -117,7 +123,7 @@ impl ConnectionWorker {
     /// This is a user function that will wait for the message to be received.
     #[maybe_async]
     pub async fn receive(
-        self: &mut Arc<Self>,
+        self: &Self,
         msg_id: u64,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         // 1. Insert channel to wait for the message, or return the message if already received.
@@ -137,12 +143,13 @@ impl ConnectionWorker {
 
     /// Internal message loop handler.
     async fn loop_fn(
-        self: &mut Arc<Self>,
+        self: Arc<Self>,
         mut netbios_client: NetBiosClient,
         mut rx: mpsc::Receiver<NetBiosTcpMessage>,
     ) {
+        let self_ref = self.as_ref();
         loop {
-            if let Err(e) = self.handle_next_msg(&mut netbios_client, &mut rx).await {
+            if let Err(e) = self_ref.handle_next_msg(&mut netbios_client, &mut rx).await {
                 log::error!("Error in connection worker loop: {}", e);
             }
         }
@@ -153,7 +160,7 @@ impl ConnectionWorker {
     /// - sends a message to the server.
     #[maybe_async]
     async fn handle_next_msg(
-        self: &mut Arc<Self>,
+        self: &Self,
         netbios_client: &mut NetBiosClient,
         send_channel: &mut mpsc::Receiver<NetBiosTcpMessage>,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -173,7 +180,7 @@ impl ConnectionWorker {
 
     #[maybe_async]
     async fn loop_handle_incoming(
-        self: &mut Arc<Self>,
+        self: &Self,
         message: Result<NetBiosTcpMessage, Box<dyn std::error::Error>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let message = { message? };

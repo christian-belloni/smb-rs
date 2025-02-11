@@ -5,7 +5,7 @@ use maybe_async::*;
 #[cfg(not(feature = "async"))]
 use std::sync::Mutex;
 #[cfg(feature = "async")]
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::{
     compression::*,
@@ -18,10 +18,16 @@ use super::negotiation_state::NegotiateState;
 
 /// This struct is tranforming messages to plain, parsed SMB2,
 /// including (en|de)cryption, (de)compression, and signing/verifying.
+#[derive(Default)]
 pub struct Transformer {
     /// Sessions opened from this connection.
     sessions: Mutex<HashMap<u64, Arc<Mutex<SessionState>>>>,
 
+    config: RwLock<TranformerConfig>
+}
+
+#[derive(Default)]
+struct TranformerConfig {
     /// Compressors for this connection.
     compress: Option<(Compressor, Decompressor)>,
 
@@ -29,21 +35,18 @@ pub struct Transformer {
 }
 
 impl Transformer {
-    /// Creates a new Transformer.
-    pub fn new() -> Transformer {
-        Transformer {
-            sessions: Mutex::new(HashMap::new()),
-            compress: None,
-            negotiated: false,
-        }
-    }
-
     /// When the connection is negotiated, this function is called to set up additional transformers,
     /// according to the allowed in the negotiation state.
-    pub fn negotiated(&mut self, neg_state: &NegotiateState) -> Result<(), Box<dyn Error>> {
-        if self.negotiated {
-            return Err("Already negotiated!".into());
+    #[maybe_async]
+    pub async fn negotiated(&self, neg_state: &NegotiateState) -> Result<(), Box<dyn Error>> {
+        {
+            let config = self.config.read().await;
+            if config.negotiated {
+                return Err("Already negotiated!".into());
+            }
         }
+
+        let mut config = self.config.write().await;
 
         let compress = match &neg_state.compression {
             Some(compression) => {
@@ -51,8 +54,8 @@ impl Transformer {
             }
             None => None,
         };
-        self.compress = compress;
-        self.negotiated = true;
+        config.compress = compress;
+        config.negotiated = true;
 
         Ok(())
     }
@@ -63,7 +66,8 @@ impl Transformer {
         &self,
         session: Arc<Mutex<SessionState>>,
     ) -> Result<(), Box<dyn Error>> {
-        if !self.negotiated {
+        let rconfig = self.config.read().await;
+        if !rconfig.negotiated {
             return Err("Negotiation not completed!".into());
         }
 
@@ -91,7 +95,7 @@ impl Transformer {
     /// final bytes to be sent.
     #[maybe_async]
     pub async fn tranform_outgoing(
-        &mut self,
+        &self,
         mut msg: OutgoingMessage,
     ) -> Result<NetBiosTcpMessage, Box<dyn Error>> {
         let should_encrypt = msg.encrypt;
@@ -128,7 +132,8 @@ impl Transformer {
         // 2. Compress
         data = {
             if msg.compress && data.len() > 1024 {
-                if let Some(compress) = &self.compress {
+                let rconfig = self.config.read().await;
+                if let Some(compress) = &rconfig.compress {
                     let compressed = compress.0.compress(&data)?;
                     data.clear();
                     let mut cursor = Cursor::new(&mut data);
@@ -164,7 +169,7 @@ impl Transformer {
 
     /// Given a NetBiosTcpMessage, decrypts (if necessary), decompresses (if necessary) and returns the plain SMB2 message.
     pub async fn transform_incoming(
-        &mut self,
+        &self,
         netbios: NetBiosTcpMessage,
     ) -> Result<IncomingMessage, Box<dyn Error>> {
         let message = match netbios.parse_content()? {
@@ -195,7 +200,8 @@ impl Transformer {
         debug_assert!(!matches!(message, Message::Encrypted(_)));
         let (message, raw) = if let Message::Compressed(compressed_message) = &message {
             form.compressed = true;
-            match &self.compress {
+            let rconfig = self.config.read().await;
+            match &rconfig.compress {
                 Some(compress) => compress.1.decompress(compressed_message)?,
                 None => return Err("Compressed message received without decompressor!".into()),
             }
