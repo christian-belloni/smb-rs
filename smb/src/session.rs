@@ -265,7 +265,7 @@ impl SessionMessageHandler {
 impl MessageHandler for SessionMessageHandler {
     #[maybe_async]
     async fn hsendo(
-        &mut self,
+        &self,
         mut msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
         // Encrypt?
@@ -277,15 +277,15 @@ impl MessageHandler for SessionMessageHandler {
             msg.message.header.flags.set_signed(true);
         }
         msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
-        self.upstream.borrow_mut().hsendo(msg).await
+        self.upstream.hsendo(msg).await
     }
 
     // #[maybe_async]
     async fn hrecvo(
-        &mut self,
+        &self,
         mut options: crate::msg_handler::ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        let incoming = self.upstream.borrow_mut().hrecvo(options).await?;
+        let incoming = self.upstream.hrecvo(options).await?;
         // Make sure that it's our session.
         if incoming.message.header.session_id != 0 {
             if incoming.message.header.session_id != *self.session_id.get().unwrap() {

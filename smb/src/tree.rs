@@ -158,21 +158,21 @@ impl TreeMessageHandler {
 impl MessageHandler for TreeMessageHandler {
     #[maybe_async]
     async fn hsendo(
-        &mut self,
+        &self,
         mut msg: crate::msg_handler::OutgoingMessage,
     ) -> Result<crate::msg_handler::SendMessageResult, Box<dyn std::error::Error>> {
         msg.message.header.tree_id = match self.connect_info.get() {
             Some(info) => info.tree_id,
             None => 0,
         };
-        self.upstream.borrow_mut().hsendo(msg).await
+        self.upstream.hsendo(msg).await
     }
 
     #[maybe_async]
     async fn hrecvo(
-        &mut self,
+        &self,
         options: crate::msg_handler::ReceiveOptions,
     ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
-        self.upstream.borrow_mut().hrecvo(options).await
+        self.upstream.hrecvo(options).await
     }
 }

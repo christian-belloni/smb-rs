@@ -1,6 +1,6 @@
 use crate::{connection::preauth_hash::PreauthHashValue, packets::smb2::*};
 use maybe_async::*;
-use std::{cell::RefCell, rc::Rc};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct OutgoingMessage {
@@ -15,7 +15,6 @@ pub struct OutgoingMessage {
     /// Ask the sender to encrypt the message before sending, if possible.
     pub encrypt: bool,
     // Signing is set through message/header/flags/signed.
-
     /// Whether this request also expects a response.
     /// This value defaults to true.
     pub has_response: bool,
@@ -83,7 +82,7 @@ pub struct ReceiveOptions {
 
     /// When receiving a message, only messages with this msgid will be returned.
     /// This is mostly used for async message handling, where the client is waiting for a specific message.
-    pub msgid_filter: u64
+    pub msgid_filter: u64,
 }
 
 impl ReceiveOptions {
@@ -121,7 +120,7 @@ pub trait MessageHandler {
     /// This must be implemented. Each handler in the chain must call the next handler,
     /// after possibly modifying the message.
     async fn hsendo(
-        &mut self,
+        &self,
         msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>>;
 
@@ -129,7 +128,7 @@ pub trait MessageHandler {
     /// This must be implemented, and must call the next handler in the chain,
     /// if there is one, using the provided `ReceiveOptions`.
     async fn hrecvo(
-        &mut self,
+        &self,
         options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>>;
 }
@@ -145,27 +144,27 @@ pub trait MessageHandler {
 ///     - `sendo`: Send a message with custom, low-level handler options.
 ///     - `recvo`: Receive a message with custom, low-level handler options.
 pub struct HandlerReference<T: MessageHandler + ?Sized> {
-    pub handler: Rc<RefCell<T>>,
+    pub handler: Arc<T>,
 }
 
 impl<T: MessageHandler> HandlerReference<T> {
     pub fn new(handler: T) -> HandlerReference<T> {
         HandlerReference {
-            handler: Rc::new(RefCell::new(handler)),
+            handler: Arc::new(handler),
         }
     }
 
     #[maybe_async]
     pub async fn sendo(
-        &mut self,
+        &self,
         msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
-        self.handler.borrow_mut().hsendo(msg).await
+        self.handler.hsendo(msg).await
     }
 
     #[maybe_async]
     pub async fn send(
-        &mut self,
+        &self,
         msg: Content,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
         self.sendo(OutgoingMessage::new(PlainMessage::new(msg)))
@@ -174,10 +173,10 @@ impl<T: MessageHandler> HandlerReference<T> {
 
     #[maybe_async]
     pub async fn recvo(
-        &mut self,
+        &self,
         options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        self.handler.borrow_mut().hrecvo(options).await
+        self.handler.hrecvo(options).await
     }
 
     #[maybe_async]
@@ -210,7 +209,7 @@ impl<T: MessageHandler> HandlerReference<T> {
 
     #[maybe_async]
     pub async fn send_recv(
-        &mut self,
+        &self,
         msg: Content,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         let cmd = msg.associated_cmd();
@@ -219,9 +218,9 @@ impl<T: MessageHandler> HandlerReference<T> {
     }
 }
 
-// Implement deref that returns the content of Rc<..> above (RefCell<T>)
+// Implement deref that returns the content of Arc<T> above (T)
 impl<T: MessageHandler> std::ops::Deref for HandlerReference<T> {
-    type Target = RefCell<T>;
+    type Target = T;
 
     fn deref(&self) -> &Self::Target {
         &self.handler

@@ -65,7 +65,7 @@ impl ConnectionWorker {
         });
 
         // Start the worker loop.
-        let mut worker_clone = worker.clone();
+        let worker_clone = worker.clone();
         let handle = tokio::spawn(async move { worker_clone.loop_fn(netbios_client, rx).await });
         worker.loop_handle.lock().await.replace(handle);
 
@@ -74,7 +74,7 @@ impl ConnectionWorker {
 
     #[maybe_async]
     pub async fn negotaite_complete(&self, neg_state: &NegotiateState) {
-        self.tranformer.negotiated(neg_state).unwrap();
+        self.tranformer.negotiated(neg_state).await.unwrap();
     }
 
     /// Calculate preauth integrity hash value, if required.
@@ -107,7 +107,7 @@ impl ConnectionWorker {
         msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
         let finalize_preauth_hash = msg.finalize_preauth_hash;
-        let message = { self.tranformer.lock().await.tranform_outgoing(msg).await? };
+        let message = { self.tranformer.tranform_outgoing(msg).await? };
 
         let hash = match finalize_preauth_hash {
             true => Some(self.finalize_preauth_hash().await),
@@ -186,8 +186,6 @@ impl ConnectionWorker {
         let message = { message? };
         let msg = self
             .tranformer
-            .lock()
-            .await
             .transform_incoming(message)
             .await?;
 

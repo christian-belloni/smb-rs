@@ -23,7 +23,7 @@ impl File {
     }
 
     #[maybe_async]
-    pub async fn query_info(&mut self) -> Result<FileBasicInformation, Box<dyn std::error::Error>> {
+    pub async fn query_info(&self) -> Result<FileBasicInformation, Box<dyn std::error::Error>> {
         let response = self
             .handle
             .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
@@ -52,10 +52,9 @@ impl File {
         Ok(result)
     }
 
+    /// Reads up to `buf.len()` bytes from the file into `buf`, beginning in offset `pos`.
     #[maybe_async]
-    /// Reads up to `buf.len()` bytes from the file into `buf`.
-    /// This is the same as `std::io::Read::read`, but async when enabled.
-    pub async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    pub async fn read_block(&self, buf: &mut [u8], pos: u64) -> std::io::Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -68,14 +67,14 @@ impl File {
         }
 
         // EOF
-        if self.pos >= self.end_of_file {
+        if pos >= self.end_of_file {
             return Ok(0);
         }
 
         log::debug!(
             "Reading up to {} bytes at offset {} from {}",
             buf.len(),
-            self.pos,
+            pos,
             self.handle.name()
         );
         let response = self
@@ -84,7 +83,7 @@ impl File {
                 padding: 0,
                 flags: ReadFlags::new().with_read_compressed(true),
                 length: buf.len() as u32,
-                offset: self.pos,
+                offset: pos,
                 file_id: self.handle.file_id(),
                 minimum_count: 1,
             }))
@@ -95,7 +94,6 @@ impl File {
             _ => panic!("Unexpected response"),
         };
         let actual_read_length = content.buffer.len();
-        self.pos += actual_read_length as u64;
         log::debug!(
             "Read {} bytes from {}.",
             actual_read_length,
@@ -215,7 +213,8 @@ impl Seek for File {
 #[sync_impl]
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        File::read(self, buf)
+        let read_length = File::read(self, buf, self.pos);
+        self.pos += read_length as u64;
     }
 }
 

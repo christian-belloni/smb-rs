@@ -278,7 +278,7 @@ impl ClientMessageHandler {
 impl MessageHandler for ClientMessageHandler {
     #[maybe_async]
     async fn hsendo(
-        &mut self,
+        &self,
         mut msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
         self.current_message_id += 1;
@@ -300,7 +300,7 @@ impl MessageHandler for ClientMessageHandler {
 
     #[maybe_async]
     async fn hrecvo(
-        &mut self,
+        &self,
         options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         let msg = self

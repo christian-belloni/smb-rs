@@ -188,7 +188,7 @@ impl ResourceHandle {
     #[maybe_async]
     #[inline]
     pub async fn send_receive(
-        &mut self,
+        &self,
         msg: Content,
     ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
         self.handler.send_recv(msg).await
@@ -243,18 +243,18 @@ impl MessageHandler for MessageHandleHandler {
     #[maybe_async]
     #[inline]
     async fn hsendo(
-        &mut self,
+        &self,
         msg: crate::msg_handler::OutgoingMessage,
     ) -> Result<crate::msg_handler::SendMessageResult, Box<dyn std::error::Error>> {
-        self.upstream.borrow_mut().hsendo(msg).await
+        self.upstream.hsendo(msg).await
     }
 
     #[maybe_async]
     #[inline]
     async fn hrecvo(
-        &mut self,
+        &self,
         options: crate::msg_handler::ReceiveOptions,
     ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
-        self.upstream.borrow_mut().hrecvo(options).await
+        self.upstream.hrecvo(options).await
     }
 }
