@@ -14,4 +14,4 @@ pub mod tree;
 pub use connection::Connection;
 pub use error::Error;
 
-type Result = std::result::Result<(), crate::Error>;
+type Result<T> = std::result::Result<T, crate::Error>;

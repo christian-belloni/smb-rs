@@ -5,9 +5,9 @@ The send message flow on the sync and async case should be quite similar, becaus
 title: Send flow
 ---
 flowchart TD
-A[File::hsendo] --> B[Tree::hsendo]
-B --> C[Session::hsendo]
-C --> D[Connection::hsendo]
+A[File::sendo] --> B[Tree::sendo]
+B --> C[Session::sendo]
+C --> D[Connection::sendo]
 D --> E[Netbios::send]
 E --> F[TcpStream::send]
 ```

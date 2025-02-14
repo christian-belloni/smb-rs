@@ -24,7 +24,6 @@ use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::Arc;
 #[cfg(not(feature = "async"))]
 use std::{cell::OnceCell, sync::Mutex};
-use thiserror::Error;
 #[cfg(feature = "async")]
 use tokio::sync::OnceCell;
 pub use transformer::TransformError;
@@ -42,7 +41,7 @@ impl Connection {
     }
 
     #[maybe_async]
-    pub async fn connect(&mut self, address: &str) -> Result<(), Error> {
+    pub async fn connect(&mut self, address: &str) -> crate::Result<()> {
         let mut netbios_client = NetBiosClient::new();
 
         log::debug!("Connecting to {}, multi-protocol negotiation.", address);
@@ -59,7 +58,7 @@ impl Connection {
         &mut self,
         mut netbios_client: NetBiosClient,
         negotiate_smb1: bool,
-    ) -> Result<Arc<ConnectionWorker>, Error> {
+    ) -> crate::Result<Arc<ConnectionWorker>> {
         // Multi-protocol negotiation.
         if negotiate_smb1 {
             log::debug!("Negotiating multi-protocol");
@@ -95,7 +94,7 @@ impl Connection {
     }
 
     #[maybe_async]
-    async fn negotiate_smb2(&mut self) -> Result<(), Error> {
+    async fn negotiate_smb2(&mut self) -> crate::Result<()> {
         // Confirm that we're not already negotiated.
         if self.handler.negotiate_state().is_some() {
             return Err(Error::InvalidState("Already negotiated".into()));
@@ -193,7 +192,7 @@ impl Connection {
         &mut self,
         netbios_client: NetBiosClient,
         multi_protocol: bool,
-    ) -> Result<(), Error> {
+    ) -> crate::Result<()> {
         if self.handler.negotiate_state().is_some() {
             return Err(Error::InvalidState("Already negotiated".into()));
         }
@@ -223,7 +222,7 @@ impl Connection {
         self: &mut Connection,
         user_name: String,
         password: String,
-    ) -> Result<Session, Error> {
+    ) -> crate::Result<Session> {
         let mut session = Session::new(self.handler.clone());
 
         session.setup(user_name, password).await?;
@@ -263,7 +262,7 @@ impl ClientMessageHandler {
 
 impl MessageHandler for ClientMessageHandler {
     #[maybe_async]
-    async fn hsendo(&self, mut msg: OutgoingMessage) -> Result<SendMessageResult, Error> {
+    async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         // message id += 1, atomic.
         msg.message.header.message_id = self.current_message_id.fetch_add(1, Ordering::Relaxed);
         // TODO: Add assertion in the struct regarding the selected dialect!
@@ -287,7 +286,7 @@ impl MessageHandler for ClientMessageHandler {
     }
 
     #[maybe_async]
-    async fn hrecvo(&self, options: ReceiveOptions) -> Result<IncomingMessage, Error> {
+    async fn recvo(&self, options: ReceiveOptions) -> crate::Result<IncomingMessage> {
         let msg = self
             .worker
             .get()

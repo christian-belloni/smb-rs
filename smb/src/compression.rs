@@ -27,13 +27,16 @@ impl<'a> Decompressor {
                 if self.caps.flags.chained() {
                     Box::new(ChainedCompression)
                 } else {
-                    Err("Chained compression is not supported")?
+                    return Err(CompressionError::UnsupportedCompressionMethod);
                 }
             }
         };
         let bytes = method.decompress(original)?;
         let mut cursor = std::io::Cursor::new(&bytes);
-        Ok((Message::read(&mut cursor)?, bytes))
+        Ok((
+            Message::read(&mut cursor).map_err(|_| CompressionError::InvalidDecompressedMessage)?,
+            bytes,
+        ))
     }
 }
 
@@ -47,9 +50,9 @@ impl Compressor {
         Compressor { caps: caps.clone() }
     }
 
-    pub fn compress(&self, bytes: &Vec<u8>) -> Result<CompressedMessage, CompressionError> {
-        // TODO: Chained.
-        UnchainedCompression.compress(bytes, &self.caps.compression_algorithms)
+    pub fn compress(&self, bytes: &Vec<u8>) -> crate::Result<CompressedMessage> {
+        // TODO: Add Chained.
+        Ok(UnchainedCompression.compress(bytes, &self.caps.compression_algorithms)?)
     }
 }
 
@@ -70,14 +73,14 @@ trait CompressionMethod {
     fn get_compression_algorithm(
         &self,
         algo: CompressionAlgorithm,
-    ) -> Result<Box<dyn CompressionAlgorithmImpl>, &'static str> {
+    ) -> Result<Box<dyn CompressionAlgorithmImpl>, CompressionError> {
         Ok(match algo {
             CompressionAlgorithm::None => Box::new(NoneCompression),
             #[cfg(feature = "compress_pattern_v1")]
             CompressionAlgorithm::PatternV1 => Box::new(PatternV1Compression),
             #[cfg(feature = "compress_lz4")]
             CompressionAlgorithm::LZ4 => Box::new(Lz4Compression),
-            _ => Err("Unsupported compression algorithm")?,
+            _ => Err(CompressionError::UnsupportedAlgorithm(algo))?,
         })
     }
 }
@@ -92,7 +95,7 @@ impl CompressionMethod for UnchainedCompression {
     fn decompress(&self, compressed: &CompressedMessage) -> Result<Vec<u8>, CompressionError> {
         let compressed = match compressed {
             CompressedMessage::Unchained(c) => c,
-            _ => Err("Expected Unchained message")?,
+            _ => panic!("Expected Unchained message"),
         };
         let mut data: Vec<u8> = Vec::<u8>::with_capacity(compressed.original_size as usize);
         self.get_compression_algorithm(compressed.compression_algorithm)?
@@ -103,11 +106,11 @@ impl CompressionMethod for UnchainedCompression {
     fn compress(
         &self,
         data: &Vec<u8>,
-        algorithms: &[CompressionAlgorithm],
+        allowed_algorithms: &[CompressionAlgorithm],
     ) -> Result<CompressedMessage, CompressionError> {
         // Check what algos are supported.
         for algo in Self::ALGORITHM_PRIORITY.iter() {
-            if !algorithms.contains(algo) {
+            if !allowed_algorithms.contains(algo) {
                 continue;
             }
 
@@ -120,7 +123,7 @@ impl CompressionMethod for UnchainedCompression {
             }));
         }
 
-        Err("No supported compression algorithm found")?
+        Err(CompressionError::NoSupportedCompressionAlgorithm)
     }
 }
 
@@ -130,11 +133,11 @@ impl CompressionMethod for ChainedCompression {
     fn decompress(&self, compressed: &CompressedMessage) -> Result<Vec<u8>, CompressionError> {
         let compressed = match compressed {
             CompressedMessage::Chained(c) => c,
-            _ => Err("Expected Chained message")?,
+            _ => panic!("Expected Chained message"),
         };
 
         if compressed.original_size < Header::STRUCT_SIZE as u32 {
-            Err("Original size must be greater than 0")?;
+            Err(CompressionError::InvalidCompressedMessage)?;
         }
 
         // TODO: There should be a safer way to implement an append-only,
@@ -147,17 +150,23 @@ impl CompressionMethod for ChainedCompression {
                 .decompress(&item.payload_data, item.original_size, &mut data)?;
             let len_after = data.len();
             if len_after > compressed.original_size as usize {
-                return Err("Decompressed size exceeds the expected size")?;
+                return Err(CompressionError::ChainedCompressionFailed(
+                    "Decompressed size exceeds the expected size".to_string(),
+                ))?;
             }
             if let Some(original_size) = item.original_size {
                 if len_after - len_before != original_size as usize {
-                    Err("Decompressed size does not match the item expected size")?;
+                    Err(CompressionError::ChainedCompressionFailed(
+                        "Decompressed size does not match the item expected size".to_string(),
+                    ))?;
                 }
             }
         }
 
         if data.len() != compressed.original_size as usize {
-            Err("Decompressed size does not match the expected size")?;
+            Err(CompressionError::ChainedCompressionFailed(
+                "Decompressed size does not match the expected size".to_string(),
+            ))?;
         }
 
         Ok(data)
@@ -247,7 +256,10 @@ impl CompressionAlgorithmImpl for PatternV1Compression {
         assert!(compressed.len() == 8);
         let mut cursor = Cursor::new(&compressed);
 
-        let parsed_payload = PatternV1Payload::read(&mut cursor)?;
+        let parsed_payload = match PatternV1Payload::read(&mut cursor) {
+            Ok(p) => p,
+            Err(e) => return Err(CompressionError::PatternV1InvalidPayload(e)),
+        };
         out.extend(
             std::iter::repeat(parsed_payload.pattern).take(parsed_payload.repetitions as usize),
         );
@@ -277,7 +289,7 @@ impl CompressionAlgorithmImpl for Lz4Compression {
         let size = lz4_flex::decompress_into(compressed, &mut out[start_index..])?;
 
         if size != original_size.unwrap() as usize {
-            Err("Decompressed size does not match the expected size")?;
+            Err(CompressionError::PatternV1InvalidDecompressedSize)?;
         }
         Ok(())
     }
@@ -289,8 +301,35 @@ impl CompressionAlgorithmImpl for Lz4Compression {
 
 #[derive(Error, Debug)]
 pub enum CompressionError {
+    // --- General
     #[error("Unsupported compression algorithm {0}")]
     UnsupportedAlgorithm(CompressionAlgorithm),
+    #[error("Decompressed message is invalid")]
+    InvalidDecompressedMessage,
+    #[error("Invalid compressed message")]
+    InvalidCompressedMessage,
+    #[error("Chained compression error: {0}")]
+    ChainedCompressionFailed(String),
+    #[error("Unsupported compression method for message.")]
+    UnsupportedCompressionMethod,
+    #[error("There is no supported compression algorithm available.")]
+    NoSupportedCompressionAlgorithm,
+
+    // --- LZ4
+    #[cfg(feature = "compress_lz4")]
+    #[error("LZ4 compression error: {0}")]
+    Lz4CompressError(#[from] lz4_flex::block::CompressError),
+    #[cfg(feature = "compress_lz4")]
+    #[error("LZ4 decompression error: {0}")]
+    Lz4DecompressError(#[from] lz4_flex::block::DecompressError),
+
+    // --- PatternV1
+    #[cfg(feature = "compress_pattern_v1")]
+    #[error("PatternV1 invalid compressed payload")]
+    PatternV1InvalidPayload(binrw::Error),
+    #[cfg(feature = "compress_pattern_v1")]
+    #[error("PatternV1 invalid decompressed size")]
+    PatternV1InvalidDecompressedSize,
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ use crate::{
     msg_handler::{HandlerReference, MessageHandler},
     packets::{guid::Guid, smb2::*},
     tree::TreeMessageHandler,
+    Error,
 };
 
 pub mod directory;
@@ -28,7 +29,7 @@ impl Resource {
         upstream: Upstream,
         create_disposition: CreateDisposition,
         desired_access: FileAccessMask,
-    ) -> Result<Resource, Error> {
+    ) -> crate::Result<Resource> {
         let response = upstream
             .send_recv(Content::CreateRequest(CreateRequest {
                 requested_oplock_level: OplockLevel::None,
@@ -68,7 +69,7 @@ impl Resource {
         // Get maximal access
         let access = match content.maximal_access_context() {
             Some(response) => response.maximal_access,
-            _ => return Err("MxAc response not found".into()),
+            _ => return Err(Error::InvalidMessage("No maximal access context".into())),
         };
 
         // Common information is held in the handle object.
@@ -158,9 +159,9 @@ impl ResourceHandle {
 
     /// Close the handle.
     #[maybe_async]
-    async fn close(&mut self) -> Result<(), Error> {
+    async fn close(&mut self) -> crate::Result<()> {
         if !self.is_valid() {
-            return Err("File ID invalid -- Is this an already closed handle?!".into());
+            return Err(Error::InvalidState("Handle is not valid".into()));
         }
 
         log::debug!("Closing handle for {} ({})", self.name, self.file_id);
@@ -189,7 +190,7 @@ impl ResourceHandle {
     pub async fn send_receive(
         &self,
         msg: Content,
-    ) -> Result<crate::msg_handler::IncomingMessage, Error> {
+    ) -> crate::Result<crate::msg_handler::IncomingMessage> {
         self.handler.send_recv(msg).await
     }
 
@@ -241,19 +242,19 @@ impl MessageHandleHandler {
 impl MessageHandler for MessageHandleHandler {
     #[maybe_async]
     #[inline]
-    async fn hsendo(
+    async fn sendo(
         &self,
         msg: crate::msg_handler::OutgoingMessage,
-    ) -> Result<crate::msg_handler::SendMessageResult, Error> {
-        self.upstream.hsendo(msg).await
+    ) -> crate::Result<crate::msg_handler::SendMessageResult> {
+        self.upstream.sendo(msg).await
     }
 
     #[maybe_async]
     #[inline]
-    async fn hrecvo(
+    async fn recvo(
         &self,
         options: crate::msg_handler::ReceiveOptions,
-    ) -> Result<crate::msg_handler::IncomingMessage, Error> {
-        self.upstream.hrecvo(options).await
+    ) -> crate::Result<crate::msg_handler::IncomingMessage> {
+        self.upstream.recvo(options).await
     }
 }

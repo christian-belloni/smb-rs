@@ -1,4 +1,3 @@
-use super::Error;
 use binrw::prelude::*;
 use maybe_async::*;
 #[cfg(not(feature = "async"))]
@@ -14,7 +13,10 @@ use crate::{
     session::SessionState,
 };
 
-use super::negotiation_state::NegotiateState;
+use super::{
+    negotiation_state::NegotiateState,
+    preauth_hash::{PreauthHashState, PreauthHashValue},
+};
 
 /// This struct is tranforming messages to plain, parsed SMB2,
 /// including (en|de)cryption, (de)compression, and signing/verifying.
@@ -24,6 +26,8 @@ pub struct Transformer {
     sessions: Mutex<HashMap<u64, Arc<Mutex<SessionState>>>>,
 
     config: RwLock<TranformerConfig>,
+
+    preauth_hash: Mutex<Option<PreauthHashState>>,
 }
 
 #[derive(Default, Debug)]
@@ -95,12 +99,36 @@ impl Transformer {
         self.sessions.lock().await.get(&session_id).cloned()
     }
 
+    /// Calculate preauth integrity hash value, if required.
+    #[maybe_async]
+    async fn step_preauth_hash(&self, raw: &Vec<u8>) {
+        let mut pa_hash = self.preauth_hash.lock().await;
+        // If already finished -- do nothing.
+        if matches!(*pa_hash, Some(PreauthHashState::Finished(_))) {
+            return;
+        }
+        // Otherwise, update the hash!
+        *pa_hash = pa_hash.take().unwrap().next(&raw).into();
+    }
+
+    /// If the preauth hash has finished, returns a copy of it's final value.
+    /// Otherwise, panics.
+    #[maybe_async]
+    pub async fn finalize_preauth_hash(&self) -> PreauthHashValue {
+        // TODO: Move into preauth hash structure.
+        let pa_hash = self.preauth_hash.lock().await;
+        match *pa_hash {
+            Some(PreauthHashState::Finished(hash)) => hash.clone(),
+            _ => panic!("Preauth hash not finished"),
+        }
+    }
+
     /// Gets an OutgoingMessage ready for sending, performs crypto operations, and returns the
     /// final bytes to be sent.
     #[maybe_async]
     pub async fn tranform_outgoing(
         &self,
-        mut msg: OutgoingMessage,
+        msg: OutgoingMessage,
     ) -> Result<NetBiosTcpMessage, crate::Error> {
         let should_encrypt = msg.encrypt;
         let should_sign = msg.message.header.flags.signed();
@@ -112,26 +140,24 @@ impl Transformer {
             msg.message.write(&mut Cursor::new(&mut data))?;
 
             // 0. Update preauth hash as needed.
-            self.step_preauth_hash(&data);
+            self.step_preauth_hash(&data).await;
             if should_sign {
                 debug_assert!(
                     !should_encrypt,
                     "Should not sign and encrypt at the same time!"
                 );
                 let mut header_copy = msg.message.header.clone();
-                if let Some(mut signer) = self
-                    .session_state(set_session_id)
-                    .await
-                    .ok_or(crate::Error::TranformFailed(TransformError {
-                        outgoing: true,
-                        phase: TranformPhase::SignVerify,
-                        session_id: Some(set_session_id),
-                        why: "Session not found for message!",
-                    }))?
-                    .lock()
-                    .await
-                    .signer()
-                {
+
+                let signer = {
+                    self.session_state(set_session_id)
+                        .await
+                        .ok_or(crate::Error::InvalidState("Session not found!".to_string()))?
+                        .lock()
+                        .await
+                        .signer()
+                        .cloned()
+                };
+                if let Some(mut signer) = signer {
                     signer.sign_message(&mut header_copy, &mut data)?;
                 };
             };
@@ -155,24 +181,24 @@ impl Transformer {
         // 3. Encrypt
         let data = {
             if msg.encrypt {
-                let session = self.session_state(set_session_id).await.ok_or(
-                    crate::Error::InvalidState("Session not found!".to_string()),
-                )?;
-                if let Some(mut encryptor) = session.lock().await.encryptor() {
+                let session = self
+                    .session_state(set_session_id)
+                    .await
+                    .ok_or(crate::Error::InvalidState("Session not found!".to_string()))?;
+                let encryptor = { session.lock().await.encryptor().cloned() };
+                if let Some(mut encryptor) = encryptor {
                     debug_assert!(should_encrypt && !should_sign);
                     let encrypted = encryptor.encrypt_message(data, set_session_id)?;
                     let mut cursor = Cursor::new(Vec::new());
                     Message::Encrypted(encrypted).write(&mut cursor)?;
                     cursor.into_inner()
                 } else {
-                    return Err(crate::Error::TranformFailed(
-                        TransformError {
-                            outgoing: true,
-                            phase: TranformPhase::EncryptDecrypt,
-                            session_id: Some(set_session_id),
-                            why: "Message is encrypted, but no encryptor is set up!",
-                        },
-                    ));
+                    return Err(crate::Error::TranformFailed(TransformError {
+                        outgoing: true,
+                        phase: TranformPhase::EncryptDecrypt,
+                        session_id: Some(set_session_id),
+                        why: "Message is encrypted, but no encryptor is set up!",
+                    }));
                 }
             } else {
                 data
@@ -200,7 +226,7 @@ impl Transformer {
 
         let mut form = MessageForm::default();
 
-        // 1. Decrpt
+        // 3. Decrpt
         let (message, raw) = if let Message::Encrypted(encrypted_message) = &message {
             form.encrypted = true;
             let session = self
@@ -212,9 +238,9 @@ impl Transformer {
                     session_id: Some(encrypted_message.header.session_id),
                     why: "Session not found for message!",
                 }))?;
-            let mut session = session.lock().await;
-            match session.decryptor() {
-                Some(decryptor) => decryptor.decrypt_message(&encrypted_message)?,
+            let decryptor = { session.lock().await.decryptor().cloned() };
+            match decryptor {
+                Some(mut decryptor) => decryptor.decrypt_message(&encrypted_message)?,
                 None => {
                     return Err(crate::Error::TranformFailed(TransformError {
                         outgoing: false,
@@ -248,11 +274,38 @@ impl Transformer {
             (message, raw)
         };
 
-        // unwrap Message::Plain from Message enum:
-        let message = match message {
+        let mut message = match message {
             Message::Plain(message) => message,
             _ => panic!("Unexpected message type"),
         };
+
+        // 1. Verify signature (if required, according to the spec)
+        if form.encrypted
+            || message.header.message_id == u64::MAX
+            || message.header.status == Status::Pending
+        {
+            let session_id = message.header.session_id;
+            let session =
+                self.session_state(session_id)
+                    .await
+                    .ok_or(crate::Error::TranformFailed(TransformError {
+                        outgoing: false,
+                        phase: TranformPhase::SignVerify,
+                        session_id: Some(session_id),
+                        why: "Session not found for message!",
+                    }))?;
+            let verifier = { session.lock().await.signer().cloned() };
+            if let Some(mut verifier) = verifier {
+                verifier.verify_signature(&mut message.header, &raw)?;
+            } else {
+                return Err(crate::Error::TranformFailed(TransformError {
+                    outgoing: false,
+                    phase: TranformPhase::SignVerify,
+                    session_id: Some(session_id),
+                    why: "Message is signed, but no verifier is set up!",
+                }));
+            }
+        }
 
         Ok(IncomingMessage { message, raw, form })
     }

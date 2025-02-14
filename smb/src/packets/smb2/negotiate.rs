@@ -435,6 +435,20 @@ impl CompressionAlgorithm {
     }
 }
 
+impl std::fmt::Display for CompressionAlgorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message_as_string = match self {
+            CompressionAlgorithm::None => "None",
+            CompressionAlgorithm::LZNT1 => "LZNT1",
+            CompressionAlgorithm::LZ77 => "LZ77",
+            CompressionAlgorithm::LZ77Huffman => "LZ77+Huffman",
+            CompressionAlgorithm::PatternV1 => "PatternV1",
+            CompressionAlgorithm::LZ4 => "LZ4",
+        };
+        write!(f, "{} ({:#x})", message_as_string, *self as u16)
+    }
+}
+
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]

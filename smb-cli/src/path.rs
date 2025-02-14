@@ -21,7 +21,6 @@ impl UncPath {
         let mut smb = Connection::new();
         smb.connect(format!("{}:{}", self.server, cli.port).as_str())
             .await?;
-        smb.negotiate().await?;
         let mut session = smb
             .authenticate(cli.username.clone(), cli.password.clone())
             .await?;

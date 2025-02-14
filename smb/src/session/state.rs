@@ -14,7 +14,6 @@ use crate::crypto::{
     kbkdf_hmacsha256, make_encrypting_algo, make_signing_algo, CryptoError, DerivedKey, KeyToDerive,
 };
 use crate::packets::smb2::{EncryptionCipher, SessionFlags, SigningAlgorithmId};
-use crate::Error;
 
 use super::{MessageDecryptor, MessageEncryptor, MessageSigner};
 
@@ -43,7 +42,7 @@ impl SessionState {
         session_key: &KeyToDerive,
         preauth_hash: &PreauthHashValue,
         negotation_state: &NegotiateState,
-    ) -> Result<(), Error> {
+    ) -> crate::Result<()> {
         let deriver = KeyDeriver::new(session_key, preauth_hash);
         let signer = Self::make_signer(&deriver, negotation_state.signing_algo())?;
         let decryptor = Self::make_decryptor(&deriver, negotation_state.cipher())?;
@@ -97,7 +96,7 @@ impl SessionState {
     }
 
     #[maybe_async]
-    pub async fn invalidate(state: &mut Arc<Mutex<Self>>) {
+    pub async fn invalidate(state: &Arc<Mutex<Self>>) {
         let mut state = state.lock().await;
         state.signer = None;
         state.decryptor = None;

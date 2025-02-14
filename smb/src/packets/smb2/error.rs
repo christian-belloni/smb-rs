@@ -67,6 +67,6 @@ mod tests {
             Content::ErrorResponse(msg) => msg,
             _ => panic!("Unexpected response"),
         };
-        assert_eq!(msg, crate::ErrorResponse { error_data: vec![] })
+        assert_eq!(msg, ErrorResponse { error_data: vec![] })
     }
 }

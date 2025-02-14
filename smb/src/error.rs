@@ -37,4 +37,18 @@ pub enum Error {
     RecievedErrorMessage(ErrorResponse),
     #[error("Unexpected command: {0}")]
     UnexpectedCommand(Command),
+    #[error("Missing permissions to perform {0}")]
+    MissingPermissions(String),
+    #[error("Sspi error: {0}")]
+    SspiError(#[from] sspi::Error),
+    #[error("DER error: {0}")]
+    DerError(#[from] der::Error),
+    #[error("Unsupported authentication mechanism: {0}")]
+    UnsupportedAuthenticationMechanism(String),
+    #[error("Compression error: {0}")]
+    CompressionError(#[from] crate::compression::CompressionError),
+    #[error("Username error: {0}")]
+    UsernameError(String),
+    #[error("Message processing failed. {0}")]
+    MessageProcessingError(String)
 }

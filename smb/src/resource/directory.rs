@@ -18,9 +18,9 @@ impl Directory {
     pub async fn query(
         &mut self,
         pattern: &str,
-    ) -> Result<Vec<BothDirectoryInformationItem>, Error> {
+    ) -> crate::Result<Vec<BothDirectoryInformationItem>> {
         if !self.access.file_list_directory() {
-            return Err("No directory list permission".into());
+            return Err(Error::MissingPermissions("file_list_directory".to_string()));
         }
 
         log::debug!("Querying directory {}", self.handle.name());

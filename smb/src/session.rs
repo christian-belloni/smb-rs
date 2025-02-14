@@ -4,7 +4,7 @@
 //! including encryption and signing of messages.
 
 use crate::{
-    connection::{connection::ClientMessageHandler, preauth_hash::PreauthHashValue},
+    connection::{preauth_hash::PreauthHashValue, ClientMessageHandler},
     crypto::KeyToDerive,
     msg_handler::{
         HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, ReceiveOptions,
@@ -12,15 +12,16 @@ use crate::{
     },
     packets::smb2::*,
     tree::Tree,
+    Error,
 };
 use binrw::prelude::*;
 use maybe_async::*;
 use sspi::{AuthIdentity, Secret, Username};
-#[cfg(not(feature = "async"))]
-use std::cell::OnceCell;
 use std::sync::Arc;
+#[cfg(not(feature = "async"))]
+use std::sync::RwLock;
 #[cfg(feature = "async")]
-use tokio::sync::{Mutex, OnceCell};
+use tokio::sync::{Mutex, RwLock};
 
 type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
 
@@ -48,18 +49,24 @@ impl Session {
         }
     }
 
+    /// Sets up the session with the specified username and password.
     #[maybe_async]
-    pub async fn setup(
-        &mut self,
-        user_name: String,
-        password: String,
-    ) -> Result<(), Error> {
+    pub async fn setup(&mut self, user_name: String, password: String) -> crate::Result<()> {
+        if *self.handler.session_id.read().await != 0 {
+            return Err(Error::InvalidState("Session already set up!".to_string()));
+        }
+
         log::debug!("Setting up session for user {}.", user_name);
+
+        let username = Username::new(&user_name, Some("WORKGROUP")).map_err(|e| {
+            Error::UsernameError(format!("Failed to create username: {}", e.to_string()))
+        })?;
+
         // Build the authenticator.
         let (mut authenticator, next_buf) = {
             let negotate_state = self.handler.upstream().negotiate_state().unwrap();
             let identity = AuthIdentity {
-                username: Username::new(&user_name, Some("WORKGROUP"))?,
+                username,
                 password: Secret::new(password),
             };
             GssAuthenticator::build(negotate_state.gss_token(), identity)?
@@ -79,10 +86,7 @@ impl Session {
             .await?;
 
         // Set session id.
-        self.handler
-            .session_id
-            .set(response.message.header.session_id)
-            .map_err(|_| "Session ID already set!")?;
+        *self.handler.session_id.write().await = response.message.header.session_id;
 
         let mut response = Some(response);
         let mut flags = None;
@@ -148,12 +152,13 @@ impl Session {
         Ok(())
     }
 
-    // #[maybe_async]
-    pub async fn key_setup(
+    /// Sets up the session signing/encription keys.
+    #[maybe_async]
+    async fn key_setup(
         &mut self,
         exchanged_session_key: &KeyToDerive,
         preauth_hash: &PreauthHashValue,
-    ) -> Result<(), Error> {
+    ) -> crate::Result<()> {
         let state = self.handler.upstream().negotiate_state().unwrap();
 
         SessionState::set(
@@ -168,46 +173,17 @@ impl Session {
         Ok(())
     }
 
-    pub fn signing_enabled(&self) -> bool {
-        true
-    }
-
+    /// Connects to the specified tree using the current session.
     #[maybe_async]
-    pub async fn tree_connect(&mut self, name: String) -> Result<Tree, Error> {
+    pub async fn tree_connect(&mut self, name: String) -> crate::Result<Tree> {
         let mut tree = Tree::new(name, self.handler.clone());
         tree.connect().await?;
         Ok(tree)
     }
-
-    #[maybe_async]
-    async fn logoff(&mut self) -> Result<(), Error> {
-        log::debug!("Logging off session.");
-
-        let _response = self
-            .handler
-            .send_recv(Content::LogoffRequest(Default::default()))
-            .await?;
-
-        // Reset session ID and keys.
-        self.handler.session_id.take();
-        SessionState::invalidate(&mut self.session_state).await;
-
-        log::info!("Session logged off.");
-
-        Ok(())
-    }
-
-    #[cfg(feature = "async")]
-    #[maybe_async]
-    pub async fn logoff_async(&mut self) {
-        self.logoff().await.unwrap_or_else(|e| {
-            log::error!("Failed to logoff: {}", e);
-        });
-    }
 }
 
 #[cfg(not(feature = "async"))]
-impl Drop for Session {
+impl Drop for SessionMessageHandler {
     fn drop(&mut self) {
         self.logoff().unwrap_or_else(|e| {
             log::error!("Failed to logoff: {}", e);
@@ -216,7 +192,7 @@ impl Drop for Session {
 }
 
 #[cfg(feature = "async")]
-impl Drop for Session {
+impl Drop for SessionMessageHandler {
     fn drop(&mut self) {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
@@ -227,7 +203,7 @@ impl Drop for Session {
 }
 
 pub struct SessionMessageHandler {
-    session_id: OnceCell<u64>,
+    session_id: RwLock<u64>,
     upstream: UpstreamHandlerRef,
 
     session_state: Arc<Mutex<SessionState>>,
@@ -239,7 +215,7 @@ impl SessionMessageHandler {
         session_state: Arc<Mutex<SessionState>>,
     ) -> HandlerReference<SessionMessageHandler> {
         HandlerReference::new(SessionMessageHandler {
-            session_id: OnceCell::new(),
+            session_id: RwLock::new(0),
             upstream,
             session_state,
         })
@@ -258,14 +234,42 @@ impl SessionMessageHandler {
     fn upstream(&self) -> &UpstreamHandlerRef {
         &self.upstream
     }
+
+    #[maybe_async]
+    async fn logoff(&self) -> crate::Result<()> {
+        log::debug!("Logging off session.");
+
+        let _response = self
+            .send_recv(Content::LogoffRequest(Default::default()))
+            .await?;
+
+        // Reset session ID and keys.
+        SessionState::invalidate(&self.session_state).await;
+        *self.session_id.write().await = 0;
+
+        log::info!("Session logged off.");
+
+        Ok(())
+    }
+
+    #[cfg(feature = "async")]
+    #[maybe_async]
+    pub async fn logoff_async(&mut self) {
+        self.logoff().await.unwrap_or_else(|e| {
+            log::error!("Failed to logoff: {}", e);
+        });
+    }
 }
 
 impl MessageHandler for SessionMessageHandler {
     #[maybe_async]
-    async fn hsendo(
-        &self,
-        mut msg: OutgoingMessage,
-    ) -> Result<SendMessageResult, Error> {
+    async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
+        if *self.session_id.read().await == 0 {
+            return Err(
+                Error::InvalidState("Session is invalid or not set up!".to_string()).into(),
+            );
+        }
+
         // Encrypt?
         if self.should_encrypt().await {
             msg.encrypt = true;
@@ -274,20 +278,26 @@ impl MessageHandler for SessionMessageHandler {
         else if self.should_sign().await {
             msg.message.header.flags.set_signed(true);
         }
-        msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
-        self.upstream.hsendo(msg).await
+        msg.message.header.session_id = *self.session_id.read().await;
+        self.upstream.sendo(msg).await
     }
 
-    // #[maybe_async]
-    async fn hrecvo(
+    #[maybe_async]
+    async fn recvo(
         &self,
         options: crate::msg_handler::ReceiveOptions,
-    ) -> Result<IncomingMessage, Error> {
-        let incoming = self.upstream.hrecvo(options).await?;
+    ) -> crate::Result<IncomingMessage> {
+        if *self.session_id.read().await == 0 {
+            return Err(Error::InvalidState(
+                "Session is invalid or not set up!".to_string(),
+            ));
+        }
+
+        let incoming = self.upstream.recvo(options).await?;
         // Make sure that it's our session.
         if incoming.message.header.session_id != 0 {
-            if incoming.message.header.session_id != *self.session_id.get().unwrap() {
-                return Err("Received message for different session.".into());
+            if incoming.message.header.session_id != *self.session_id.read().await {
+                panic!("Received message for different session!");
             }
         }
         Ok(incoming)

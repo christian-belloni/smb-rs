@@ -5,6 +5,9 @@ use std::io::Cursor;
 
 use crate::{crypto, packets::smb2::header::Header, Error};
 
+/// A struct for writing and verifying SMB message signatures.
+/// 
+/// This struct is NOT thread-safe, use clones for concurrent access.
 #[derive(Debug)]
 pub struct MessageSigner {
     signing_algo: Box<dyn crypto::SigningAlgo>,
@@ -15,11 +18,8 @@ impl MessageSigner {
         MessageSigner { signing_algo }
     }
 
-    pub fn verify_signature(
-        &mut self,
-        header: &mut Header,
-        raw_data: &Vec<u8>,
-    ) -> Result<(), Error> {
+    /// Verifies the signature of a message.
+    pub fn verify_signature(&mut self, header: &mut Header, raw_data: &Vec<u8>) -> crate::Result<()> {
         let calculated_signature = self.calculate_signature(header, raw_data)?;
         if calculated_signature != header.signature {
             return Err(Error::SignatureVerificationFailed);
@@ -31,11 +31,8 @@ impl MessageSigner {
         Ok(())
     }
 
-    pub fn sign_message(
-        &mut self,
-        header: &mut Header,
-        raw_data: &mut Vec<u8>,
-    ) -> Result<(), Error> {
+    /// Signs a message.
+    pub fn sign_message(&mut self, header: &mut Header, raw_data: &mut Vec<u8>) -> crate::Result<()> {
         debug_assert!(raw_data.len() >= Header::STRUCT_SIZE);
 
         header.signature = self.calculate_signature(header, raw_data)?;
@@ -51,18 +48,19 @@ impl MessageSigner {
         Ok(())
     }
 
-    /// internal
     fn calculate_signature(
         &mut self,
         header: &mut Header,
         raw_data: &Vec<u8>,
-    ) -> Result<u128, Error> {
-        // Write header.
+    ) -> crate::Result<u128> {
+        // Write header with signature set to 0.
         let signture_backup = header.signature;
         header.signature = 0;
         let mut header_bytes = Cursor::new([0; Header::STRUCT_SIZE]);
         header.write(&mut header_bytes)?;
         header.signature = signture_backup;
+
+        // Start signing session with the header.
         self.signing_algo.start(&header);
         self.signing_algo.update(&header_bytes.into_inner());
 
@@ -72,4 +70,17 @@ impl MessageSigner {
 
         Ok(self.signing_algo.finalize())
     }
+}
+
+impl Clone for MessageSigner {
+    fn clone(&self) -> Self {
+        MessageSigner {
+            signing_algo: self.signing_algo.clone_box(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // TODO: Add tests.
 }

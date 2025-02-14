@@ -16,8 +16,6 @@ use binrw::prelude::*;
 
 use crate::packets::netbios::{NetBiosMessageContent, NetBiosTcpMessage, NetBiosTcpMessageHeader};
 
-use super::Error;
-
 /// A (very) simple NETBIOS client.
 ///
 /// This client is NOT thread-safe, and should only be used for SMB wraaping.

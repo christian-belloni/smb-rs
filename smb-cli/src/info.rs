@@ -13,7 +13,7 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
     let (_client, _session, _tree, mut resource) = info.path.connect_and_open(cli).await?;
     let resource = resource.take().ok_or("Resource not found")?;
     match resource {
-        Resource::File(mut file) => {
+        Resource::File(file) => {
             let info = file.query_info().await?;
             log::info!("File info: {:?}", info);
         }

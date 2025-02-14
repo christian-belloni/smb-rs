@@ -23,7 +23,7 @@ impl GssAuthenticator {
     pub fn build(
         token: &[u8],
         identity: AuthIdentity,
-    ) -> Result<(GssAuthenticator, Vec<u8>), Error> {
+    ) -> crate::Result<(GssAuthenticator, Vec<u8>)> {
         let mut auth_session = Self::parse_inital_context_token(token, identity)?;
         let next_buffer = auth_session.next(None)?;
 
@@ -56,24 +56,30 @@ impl GssAuthenticator {
     fn parse_inital_context_token<'a>(
         token: &'a [u8],
         identity: AuthIdentity,
-    ) -> Result<Box<dyn GssAuthTokenHandler>, Error> {
+    ) -> crate::Result<Box<dyn GssAuthTokenHandler>> {
         let token = InitialContextToken::from_der(&token)?;
         if token.this_mech != SPENGO_OID {
-            return Err("Unexpected mechanism".into());
+            return Err(Error::UnsupportedAuthenticationMechanism(
+                token.this_mech.to_string(),
+            ));
         }
         let der_of_inner = token.inner_context_token.to_der()?;
         let inner_spengo_val = NegotiationToken::from_der(&der_of_inner)?;
         let inner_spengo = match inner_spengo_val {
             NegotiationToken::NegTokenInit2(inner_spengo) => inner_spengo,
-            _ => return Err("Unexpected token".into()),
+            _ => return Err(Error::InvalidMessage("Unexpected negotiation token".into())),
         };
         if inner_spengo
             .mech_types
-            .ok_or("No mech types")?
+            .ok_or(Error::InvalidMessage(
+                "No mech types in negotiation token!".into(),
+            ))?
             .iter()
             .all(|oid| oid != &NTLM_MECH_TYPE_OID)
         {
-            return Err("NTLM not in mech types".into());
+            return Err(Error::UnsupportedAuthenticationMechanism(
+                "No NTLM mech type in negotiation token!".into(),
+            ));
         };
 
         Ok(Box::new(NtlmGssAuthSession::new(
@@ -82,7 +88,7 @@ impl GssAuthenticator {
         )?))
     }
 
-    pub fn next(&mut self, next_token: &Vec<u8>) -> Result<Option<Vec<u8>>, Error> {
+    pub fn next(&mut self, next_token: &Vec<u8>) -> crate::Result<Option<Vec<u8>>> {
         match self.auth_session.is_complete()? {
             true => {
                 let mut mic_to_validate = Self::get_mic_from_complete(next_token)?;
@@ -110,53 +116,55 @@ impl GssAuthenticator {
         }
     }
 
-    pub fn is_authenticated(&self) -> Result<bool, Error> {
+    pub fn is_authenticated(&self) -> crate::Result<bool> {
         return Ok(self.auth_session.is_complete()? && self.server_accepted_auth_valid);
     }
 
-    fn parse_response(token: &[u8]) -> Result<NegTokenResp, Error> {
+    fn parse_response(token: &[u8]) -> crate::Result<NegTokenResp> {
         let token = NegotiationToken::from_der(token)?;
         match token {
             NegotiationToken::NegTokenResp(token) => Ok(token),
-            _ => Err("Unexpected token".into()),
+            _ => Err(Error::InvalidMessage("Unexpected negotiation token".into())),
         }
     }
 
-    fn get_token_from_incomplete(token: &[u8]) -> Result<Vec<u8>, Error> {
+    fn get_token_from_incomplete(token: &[u8]) -> crate::Result<Vec<u8>> {
         let token = Self::parse_response(&token)?;
 
         if token.neg_state != Some(NegState::AcceptIncomplete) {
-            return Err("Unexpected neg state".into());
+            return Err(Error::InvalidMessage(
+                "Unexpected neg state in response!".into(),
+            ));
         }
-        if token.response_token.is_none() {
-            return Err("No token value in response!".into());
-        }
+
         let response_data = token
             .response_token
-            .ok_or("No response in token buffer!")?
+            .ok_or(Error::InvalidMessage(
+                "No response in negotiation token!".into(),
+            ))?
             .as_bytes()
             .to_vec();
         Ok(response_data)
     }
 
-    fn get_mic_from_complete(token: &[u8]) -> Result<Vec<u8>, Error> {
+    fn get_mic_from_complete(token: &[u8]) -> crate::Result<Vec<u8>> {
         let token = Self::parse_response(&token)?;
 
         if token.neg_state != Some(NegState::AcceptCompleted) {
-            return Err("Unexpected neg state".into());
+            return Err(Error::InvalidMessage(
+                "Unexpected neg state in response!".into(),
+            ));
         }
-        if token.mech_list_mic.is_none() {
-            return Err("No MIC in response!".into());
-        }
+
         let mic_data = token
             .mech_list_mic
-            .ok_or("No MIC in token buffer!")?
+            .ok_or(Error::InvalidMessage("No MIC in response!".into()))?
             .as_bytes()
             .to_vec();
         Ok(mic_data)
     }
 
-    pub fn session_key(&self) -> Result<[u8; 16], Error> {
+    pub fn session_key(&self) -> crate::Result<[u8; 16]> {
         self.auth_session.session_key()
     }
 
@@ -166,15 +174,11 @@ impl GssAuthenticator {
 }
 
 pub trait GssAuthTokenHandler {
-    fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> Result<Vec<u8>, Error>;
-    fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> Result<Vec<u8>, Error>;
-    fn gss_validatemic(
-        &mut self,
-        buffer: &mut Vec<u8>,
-        signature: &mut [u8],
-    ) -> Result<(), Error>;
-    fn is_complete(&self) -> Result<bool, Error>;
-    fn session_key(&self) -> Result<[u8; 16], Error>;
+    fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> crate::Result<Vec<u8>>;
+    fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> crate::Result<Vec<u8>>;
+    fn gss_validatemic(&mut self, buffer: &mut Vec<u8>, signature: &mut [u8]) -> crate::Result<()>;
+    fn is_complete(&self) -> crate::Result<bool>;
+    fn session_key(&self) -> crate::Result<[u8; 16]>;
 }
 
 struct NtlmGssAuthSession {
@@ -186,7 +190,7 @@ struct NtlmGssAuthSession {
 }
 
 impl NtlmGssAuthSession {
-    pub fn new(ntlm_config: NtlmConfig, identity: AuthIdentity) -> Result<Self, Error> {
+    pub fn new(ntlm_config: NtlmConfig, identity: AuthIdentity) -> crate::Result<Self> {
         let mut ntlm = Ntlm::with_config(ntlm_config);
         let acq_cred_result = ntlm
             .acquire_credentials_handle()
@@ -205,15 +209,13 @@ impl NtlmGssAuthSession {
 
 impl GssAuthTokenHandler for NtlmGssAuthSession {
     /// Process the next NTLM token from the server, and return the next token to send to the server.
-    fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> Result<Vec<u8>, Error> {
+    fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> crate::Result<Vec<u8>> {
         if self.current_state.is_some()
             && self.current_state.as_ref().unwrap().status != sspi::SecurityStatus::ContinueNeeded
         {
-            return Err(format!(
-                "Unexpected state {:?} -- not ContinueNeeded!",
-                self.current_state
-            )
-            .into());
+            return Err(Error::InvalidState(
+                "NTLM GSS session is not in a state to process next token.".into(),
+            ));
         }
 
         let mut output_buffer = vec![OwnedSecurityBuffer::new(
@@ -253,16 +255,16 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
         return Ok(output_buffer.pop().unwrap().buffer);
     }
 
-    fn is_complete(&self) -> Result<bool, Error> {
+    fn is_complete(&self) -> crate::Result<bool> {
         Ok(self
             .current_state
             .as_ref()
-            .ok_or("No last state set! Call next() to initialize properly.")?
+            .ok_or(Error::InvalidState("No current state is set!".into()))?
             .status
             == sspi::SecurityStatus::Ok)
     }
 
-    fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> Result<Vec<u8>, Error> {
+    fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> crate::Result<Vec<u8>> {
         let data_buffer = SecurityBuffer::with_security_buffer_type(SecurityBufferType::Data)?
             .with_data(buffer)?;
         let mut token_dest = vec![0; 16];
@@ -274,11 +276,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
         Ok(token_dest)
     }
 
-    fn gss_validatemic(
-        &mut self,
-        buffer: &mut Vec<u8>,
-        signature: &mut [u8],
-    ) -> Result<(), Error> {
+    fn gss_validatemic(&mut self, buffer: &mut Vec<u8>, signature: &mut [u8]) -> crate::Result<()> {
         let mut ntlm_copy = self.ntlm.clone();
         let data_buffer = SecurityBuffer::with_security_buffer_type(SecurityBufferType::Data)?
             .with_data(buffer)?;
@@ -290,9 +288,9 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
         Ok(())
     }
 
-    fn session_key(&self) -> Result<[u8; 16], Error> {
+    fn session_key(&self) -> crate::Result<[u8; 16]> {
         self.ntlm
             .session_key()
-            .ok_or("No session key for NTLM.".into())
+            .ok_or(Error::InvalidState("No session key is set!".into()))
     }
 }

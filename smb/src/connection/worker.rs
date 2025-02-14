@@ -13,11 +13,12 @@ use tokio::{
 use crate::{
     msg_handler::{IncomingMessage, OutgoingMessage, SendMessageResult},
     packets::netbios::NetBiosTcpMessage,
+    Error,
 };
 
 use super::{
-    negotiation_state::NegotiateState, netbios_client::NetBiosClient, preauth_hash::*,
-    transformer::Transformer, crate::Error,
+    negotiation_state::NegotiateState, netbios_client::NetBiosClient,
+    transformer::Transformer,
 };
 
 /// SMB2 connection worker.
@@ -33,11 +34,9 @@ pub struct ConnectionWorker {
     /// The loop handle for the worker.
     loop_handle: Mutex<Option<JoinHandle<()>>>,
 
-    tranformer: Transformer,
+    transformer: Transformer,
     /// A channel to send messages to the worker.
     sender: mpsc::Sender<NetBiosTcpMessage>,
-
-    preauth_hash: Mutex<Option<PreauthHashState>>,
 }
 
 /// Holds state for the worker, regarding messages to be received.
@@ -52,15 +51,14 @@ struct WorkerAwaitState {
 impl ConnectionWorker {
     /// Instantiates a new connection worker.
     #[maybe_async]
-    pub async fn start(netbios_client: NetBiosClient) -> Result<Arc<Self>, crate::Error> {
+    pub async fn start(netbios_client: NetBiosClient) -> crate::Result<Arc<Self>> {
         // Build the worker
         let (tx, rx) = mpsc::channel(32);
         let worker = Arc::new(ConnectionWorker {
             state: Mutex::new(WorkerAwaitState::default()),
             loop_handle: Mutex::new(None),
-            tranformer: Transformer::default(),
+            transformer: Transformer::default(),
             sender: tx,
-            preauth_hash: Default::default(),
         });
 
         // Start the worker loop.
@@ -73,44 +71,22 @@ impl ConnectionWorker {
 
     #[maybe_async]
     pub async fn negotaite_complete(&self, neg_state: &NegotiateState) {
-        self.tranformer.negotiated(neg_state).await.unwrap();
-    }
-
-    /// Calculate preauth integrity hash value, if required.
-    #[maybe_async]
-    async fn step_preauth_hash(&self, raw: &Vec<u8>) {
-        let mut pa_hash = self.preauth_hash.lock().await;
-        // If already finished -- do nothing.
-        if matches!(*pa_hash, Some(PreauthHashState::Finished(_))) {
-            return;
-        }
-        // Otherwise, update the hash!
-        *pa_hash = pa_hash.take().unwrap().next(&raw).into();
-    }
-
-    /// If the preauth hash has finished, returns a copy of it's final value.
-    /// Otherwise, panics.
-    #[maybe_async]
-    pub async fn finalize_preauth_hash(&self) -> PreauthHashValue {
-        // TODO: Move into preauth hash structure.
-        let pa_hash = self.preauth_hash.lock().await;
-        match *pa_hash {
-            Some(PreauthHashState::Finished(hash)) => hash.clone(),
-            _ => panic!("Preauth hash not finished"),
-        }
+        self.transformer.negotiated(neg_state).await.unwrap();
     }
 
     #[maybe_async]
-    pub async fn send(self: &Self, msg: OutgoingMessage) -> Result<SendMessageResult, crate::Error> {
+    pub async fn send(self: &Self, msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         let finalize_preauth_hash = msg.finalize_preauth_hash;
-        let message = { self.tranformer.tranform_outgoing(msg).await? };
+        let message = { self.transformer.tranform_outgoing(msg).await? };
 
         let hash = match finalize_preauth_hash {
-            true => Some(self.finalize_preauth_hash().await),
+            true => Some(self.transformer.finalize_preauth_hash().await),
             false => None,
         };
 
-        self.sender.send(message).await?;
+        self.sender.send(message).await.map_err(|_| {
+            Error::MessageProcessingError("Failed to send message to worker!".to_string())
+        })?;
 
         Ok(SendMessageResult::new(hash.clone()))
     }
@@ -118,7 +94,7 @@ impl ConnectionWorker {
     /// Receive a message from the server.
     /// This is a user function that will wait for the message to be received.
     #[maybe_async]
-    pub async fn receive(self: &Self, msg_id: u64) -> Result<IncomingMessage, crate::Error> {
+    pub async fn receive(self: &Self, msg_id: u64) -> crate::Result<IncomingMessage> {
         // 1. Insert channel to wait for the message, or return the message if already received.
         let wait_for_receive = {
             let mut state = self.state.lock().await;
@@ -131,7 +107,9 @@ impl ConnectionWorker {
         };
 
         // Wait for the message to be received.
-        Ok(wait_for_receive.await?)
+        Ok(wait_for_receive.await.map_err(|_| {
+            Error::MessageProcessingError("Failed to receive message from worker!".to_string())
+        })?)
     }
 
     /// Internal message loop handler.
@@ -156,7 +134,7 @@ impl ConnectionWorker {
         self: &Self,
         netbios_client: &mut NetBiosClient,
         send_channel: &mut mpsc::Receiver<NetBiosTcpMessage>,
-    ) -> Result<(), crate::Error> {
+    ) -> crate::Result<()> {
         select! {
             // Receive a message from the server.
             message = netbios_client.recieve_bytes() => {
@@ -164,7 +142,10 @@ impl ConnectionWorker {
             }
             // Send a message to the server.
             message = send_channel.recv() => {
-                let message = { message.ok_or("Failed to receive message from channel.")? };
+                let message = {
+                    message.ok_or("Failed to receive message from channel.")
+                    .map_err(|e| Error::MessageProcessingError(e.to_string()))?
+                };
                 netbios_client.send_raw(message).await?;
             }
         }
@@ -174,10 +155,10 @@ impl ConnectionWorker {
     #[maybe_async]
     async fn loop_handle_incoming(
         self: &Self,
-        message: Result<NetBiosTcpMessage, crate::Error>,
-    ) -> Result<(), crate::Error> {
+        message: crate::Result<NetBiosTcpMessage>,
+    ) -> crate::Result<()> {
         let message = { message? };
-        let msg = self.tranformer.transform_incoming(message).await?;
+        let msg = self.transformer.transform_incoming(message).await?;
 
         // 2. Handle the message.
         let msg_id = msg.message.header.message_id;
@@ -185,8 +166,11 @@ impl ConnectionWorker {
         // Update the state: If awaited, wake up the task. Else, store it.
         let mut state = self.state.lock().await;
         if let Some(tx) = state.awaiting.remove(&msg_id) {
-            tx.send(msg)
-                .map_err(|_| "Failed to send message to awaiting task.")?;
+            tx.send(msg).map_err(|_| {
+                Error::MessageProcessingError(
+                    "Failed to send message to awaiting task.".to_string(),
+                )
+            })?;
         } else {
             state.pending.insert(msg_id, msg);
         }

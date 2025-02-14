@@ -48,6 +48,13 @@ pub trait EncryptingAlgo: Debug + Send {
         debug_assert!(nonce[self.nonce_size()..].iter().all(|&x| x == 0));
         &nonce[..self.nonce_size()]
     }
+
+    /// Clone the algo into a boxed trait object.
+    /// 
+    /// This method is added to allow cloning the trait object, and allow cloning it's users,
+    /// to enable multi-threaded access to the same encryption algorithm:
+    /// Some of the algorithms are only mutable, and can't be shared between threads.
+    fn clone_box(&self) -> Box<dyn EncryptingAlgo>;
 }
 
 pub const ENCRYPTING_ALGOS: &[EncryptionCipher] = &[
@@ -74,6 +81,7 @@ pub fn make_encrypting_algo(
 }
 
 #[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
+#[derive(Clone)]
 pub struct CcmEncryptor<C>
 where
     C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt,
@@ -84,7 +92,13 @@ where
 #[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 impl<C> CcmEncryptor<C>
 where
-    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + KeyInit + Send + 'static,
+    C: BlockCipher
+        + BlockSizeUser<BlockSize = U16>
+        + BlockEncrypt
+        + KeyInit
+        + Send
+        + Clone
+        + 'static,
 {
     fn build(
         encrypting_key: &GenericArray<u8, <C as KeySizeUser>::KeySize>,
@@ -98,7 +112,7 @@ where
 #[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 impl<C> EncryptingAlgo for CcmEncryptor<C>
 where
-    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + Send,
+    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + Send + Clone + 'static,
 {
     fn encrypt(
         &mut self,
@@ -136,6 +150,10 @@ where
 
     fn nonce_size(&self) -> usize {
         11
+    }
+
+    fn clone_box(&self) -> Box<dyn EncryptingAlgo> {
+        Box::new(self.clone())
     }
 }
 

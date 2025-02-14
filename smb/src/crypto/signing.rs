@@ -46,6 +46,10 @@ pub trait SigningAlgo: std::fmt::Debug + Send {
     ///
     /// This function must be called once per signing session.
     fn finalize(&mut self) -> u128;
+
+    /// Clone the algo into a boxed trait object.
+    /// See [EncryptionAlgo::clone_box](super::encryption::EncryptingAlgo::clone_box) for more information.
+    fn clone_box(&self) -> Box<dyn SigningAlgo>;
 }
 
 #[cfg(feature = "sign_cmac")]
@@ -55,7 +59,7 @@ mod cmac_signer {
     use cmac::Cmac;
     use hmac::Mac;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Cmac128Signer {
         cmac: Option<Cmac<Aes128>>,
     }
@@ -75,6 +79,10 @@ mod cmac_signer {
 
         fn finalize(&mut self) -> u128 {
             u128::from_le_bytes(self.cmac.take().unwrap().finalize().into_bytes().into())
+        }
+
+        fn clone_box(&self) -> Box<dyn SigningAlgo> {
+            Box::new(self.clone())
         }
     }
 }
@@ -96,6 +104,7 @@ mod gmac_signer {
 
     type Gmac128Nonce = [u8; 12];
 
+    #[derive(Clone)]
     pub struct Gmac128Signer {
         gmac: Aes128Gcm,
         nonce: OnceCell<Gmac128Nonce>,
@@ -164,6 +173,10 @@ mod gmac_signer {
                 )
                 .unwrap();
             u128::from_le_bytes(result.into())
+        }
+
+        fn clone_box(&self) -> Box<dyn SigningAlgo> {
+            Box::new(self.clone())
         }
     }
 
