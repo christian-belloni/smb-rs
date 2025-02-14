@@ -1,14 +1,15 @@
 use maybe_async::*;
-use tokio::select;
-
 #[cfg(not(feature = "async"))]
 use std::cell::OnceCell;
 use std::{collections::HashMap, sync::Arc};
 #[cfg(feature = "async")]
 use tokio::{
+    select,
     sync::{mpsc, oneshot, Mutex},
     task::JoinHandle,
 };
+#[cfg(feature = "async")]
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     msg_handler::{IncomingMessage, OutgoingMessage, SendMessageResult},
@@ -37,6 +38,8 @@ pub struct ConnectionWorker {
     transformer: Transformer,
     /// A channel to send messages to the worker.
     sender: mpsc::Sender<NetBiosTcpMessage>,
+
+    token: CancellationToken,
 }
 
 /// Holds state for the worker, regarding messages to be received.
@@ -46,9 +49,6 @@ struct WorkerAwaitState {
     awaiting: HashMap<u64, oneshot::Sender<crate::Result<IncomingMessage>>>,
     /// Stores the pending messages, waiting to be receive()-d.
     pending: HashMap<u64, IncomingMessage>,
-
-    /// Whether worker has stopped, and no more messages will be received.
-    stopped: bool,
 }
 
 impl ConnectionWorker {
@@ -62,6 +62,7 @@ impl ConnectionWorker {
             loop_handle: Mutex::new(None),
             transformer: Transformer::default(),
             sender: tx,
+            token: CancellationToken::new(),
         });
 
         // Start the worker loop.
@@ -70,6 +71,14 @@ impl ConnectionWorker {
         worker.loop_handle.lock().await.replace(handle);
 
         Ok(worker)
+    }
+
+    #[maybe_async]
+    pub async fn stop(&self) {
+        self.token.cancel();
+        if let Some(handle) = self.loop_handle.lock().await.take() {
+            handle.await.unwrap();
+        }
     }
 
     #[maybe_async]
@@ -113,7 +122,7 @@ impl ConnectionWorker {
         let wait_for_receive = {
             let mut state = self.state.lock().await;
 
-            if state.stopped {
+            if self.token.is_cancelled() {
                 return Err(Error::NotConnected);
             }
             if state.pending.contains_key(&msg_id) {
@@ -142,7 +151,11 @@ impl ConnectionWorker {
             match self_ref.handle_next_msg(&mut netbios_client, &mut rx).await {
                 Ok(_) => {}
                 Err(Error::NotConnected) => {
-                    log::error!("Connection closed.");
+                    if self.token.is_cancelled() {
+                        log::info!("Connection closed.");
+                    } else {
+                        log::error!("Connection closed.");
+                    }
                     break;
                 }
                 Err(e) => {
@@ -151,6 +164,8 @@ impl ConnectionWorker {
             }
         }
 
+        // Cleanup
+        // TODO: Handle cleanup recursively.
         rx.close();
         for (_, tx) in self_ref.state.lock().await.awaiting.drain() {
             tx.send(Err(Error::NotConnected)).unwrap();
@@ -179,6 +194,10 @@ impl ConnectionWorker {
                     .map_err(|e| Error::MessageProcessingError(e.to_string()))?
                 };
                 netbios_client.send_raw(message).await?;
+            },
+            // Cancel the loop.
+            _ = self.token.cancelled() => {
+                return Err(Error::NotConnected);
             }
         }
         Ok(())

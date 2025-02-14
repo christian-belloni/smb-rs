@@ -17,6 +17,7 @@ der = {version = "0.7.9", features = ["std", "alloc"]}
 
 # Async
 tokio = { version = "1.43", optional = true, features = ["full"] }
+tokio-util = { version = "0.7", optional = true }
 maybe-async = "0.2"
 
 # General utils
@@ -47,7 +48,7 @@ lz4_flex = { version = "0.11", default-features = false, features = ["std"], opt
 default = ["sign", "encrypt", "compress"]
 
 # Async
-async = ["dep:tokio"]
+async = ["dep:tokio", "dep:tokio-util"]
 sync = ["maybe-async/is_sync"]
 
 # Compression

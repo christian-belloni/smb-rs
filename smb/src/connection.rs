@@ -40,7 +40,6 @@ impl Connection {
             handler: HandlerReference::new(ClientMessageHandler::new()),
         }
     }
-
     #[maybe_async]
     pub async fn connect(&mut self, address: &str) -> crate::Result<()> {
         let mut netbios_client = NetBiosClient::new();
@@ -53,6 +52,15 @@ impl Connection {
 
         Ok(())
     }
+
+    #[maybe_async]
+    pub async fn close(&self) {
+        match self.handler.worker().take() {
+            Some(c) => c.stop().await,
+            None => {}
+        }
+    }
+
 
     #[maybe_async]
     async fn negotiate_switch_to_smb2(

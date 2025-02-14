@@ -43,14 +43,17 @@ async fn do_copy(from: File, mut to: fs::File) -> Result<(), Box<dyn Error>> {
 
 #[maybe_async]
 pub async fn copy(cmd: &CopyCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
-    let from: File = match &cmd.from {
+    let (from, client) = match &cmd.from {
         Path::Local(_) => panic!("Local to local copy not supported"),
         Path::Remote(unc_path) => {
-            let (_client, _session, _tree, mut resource) = unc_path.connect_and_open(cli).await?;
-            resource
-                .take()
-                .ok_or("Source file not found")?
-                .unwrap_file()
+            let (client, _session, _tree, mut resource) = unc_path.connect_and_open(cli).await?;
+            (
+                resource
+                    .take()
+                    .ok_or("Source file not found")?
+                    .unwrap_file(),
+                client,
+            )
         }
     };
 
@@ -60,6 +63,8 @@ pub async fn copy(cmd: &CopyCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
     };
 
     do_copy(from, to).await?;
+
+    client.close().await;
 
     Ok(())
 }
