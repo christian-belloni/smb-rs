@@ -1,12 +1,12 @@
-use std::error::Error;
-
-use aes::cipher::typenum;
+use aes::cipher::{typenum, InvalidLength};
 use hmac::{Hmac, Mac};
 use rust_kbkdf::{
     kbkdf, CounterMode, InputType, KDFMode, PseudoRandomFunction, PseudoRandomFunctionKey,
     SpecifiedInput,
 };
 use sha2::Sha256;
+
+use super::CryptoError;
 type HmacSha256 = Hmac<Sha256>;
 
 /// The type of derived keys for SMB2, outputting from kbkdf.
@@ -22,7 +22,7 @@ pub fn kbkdf_hmacsha256<const L: usize>(
     key: &KeyToDerive,
     label: &[u8],
     context: &[u8],
-) -> Result<[u8; L], Box<dyn Error>> {
+) -> Result<[u8; L], CryptoError> {
     assert!(L % 8 == 0);
 
     let key = HmacSha256KeyHandle { key: key.clone() };
@@ -60,14 +60,14 @@ impl PseudoRandomFunction<'_> for HmacSha256Prf {
 
     type PrfOutputSize = typenum::U32;
 
-    type Error = String;
+    type Error = InvalidLength;
 
     fn init(
         &mut self,
         key: &'_ dyn PseudoRandomFunctionKey<KeyHandle = Self::KeyHandle>,
     ) -> Result<(), Self::Error> {
         assert!(self.hmac.is_none());
-        self.hmac = Some(HmacSha256::new_from_slice(key.key_handle()).unwrap());
+        self.hmac = Some(HmacSha256::new_from_slice(key.key_handle())?);
         Ok(())
     }
 

@@ -1,22 +1,22 @@
-use std::{error::Error, fmt::Debug};
-
 use crate::packets::smb2::*;
+
+use super::CryptoError;
 
 type SigningKey = [u8; 16];
 
 pub fn make_signing_algo(
     signing_algorithm: SigningAlgorithmId,
     signing_key: &SigningKey,
-) -> Result<Box<dyn SigningAlgo>, Box<dyn Error>> {
+) -> Result<Box<dyn SigningAlgo>, CryptoError> {
     if !SIGNING_ALGOS.contains(&signing_algorithm) {
-        return Err(format!("Unsupported signing algorithm {:?}", signing_algorithm).into());
+        return Err(CryptoError::UnsupportedAlgorithm);
     }
     match signing_algorithm {
         #[cfg(feature = "sign_cmac")]
         SigningAlgorithmId::AesCmac => Ok(cmac_signer::Cmac128Signer::build(signing_key)?),
         #[cfg(feature = "sign_gmac")]
         SigningAlgorithmId::AesGmac => Ok(gmac_signer::Gmac128Signer::new(signing_key)),
-        _ => Err("Unsupported signing algorithm".into()),
+        _ => Err(CryptoError::UnsupportedAlgorithm),
     }
 }
 
@@ -28,7 +28,7 @@ pub const SIGNING_ALGOS: &[SigningAlgorithmId] = &[
 ];
 
 /// A trait for SMB signing algorithms.
-pub trait SigningAlgo: Debug + Send {
+pub trait SigningAlgo: std::fmt::Debug + Send {
     /// Start a new signing session. This is called before any data is passed to the signer,
     /// and [SigningAlgo::update] must feed the header data to the signer, in addition to this call.
     ///
@@ -61,7 +61,7 @@ mod cmac_signer {
     }
 
     impl Cmac128Signer {
-        pub fn build(signing_key: &SigningKey) -> Result<Box<dyn SigningAlgo>, Box<dyn Error>> {
+        pub fn build(signing_key: &SigningKey) -> Result<Box<dyn SigningAlgo>, CryptoError> {
             Ok(Box::new(Cmac128Signer {
                 cmac: Some(Cmac::new_from_slice(signing_key)?),
             }))
@@ -167,7 +167,7 @@ mod gmac_signer {
         }
     }
 
-    impl Debug for Gmac128Signer {
+    impl std::fmt::Debug for Gmac128Signer {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("Gmac128Signer").finish()
         }

@@ -1,9 +1,9 @@
-use std::{collections::HashMap, error::Error, io::Cursor, sync::Arc};
-
+use super::Error;
 use binrw::prelude::*;
 use maybe_async::*;
 #[cfg(not(feature = "async"))]
 use std::sync::Mutex;
+use std::{collections::HashMap, io::Cursor, sync::Arc};
 #[cfg(feature = "async")]
 use tokio::sync::{Mutex, RwLock};
 
@@ -23,7 +23,7 @@ pub struct Transformer {
     /// Sessions opened from this connection.
     sessions: Mutex<HashMap<u64, Arc<Mutex<SessionState>>>>,
 
-    config: RwLock<TranformerConfig>
+    config: RwLock<TranformerConfig>,
 }
 
 #[derive(Default, Debug)]
@@ -38,11 +38,13 @@ impl Transformer {
     /// When the connection is negotiated, this function is called to set up additional transformers,
     /// according to the allowed in the negotiation state.
     #[maybe_async]
-    pub async fn negotiated(&self, neg_state: &NegotiateState) -> Result<(), Box<dyn Error>> {
+    pub async fn negotiated(&self, neg_state: &NegotiateState) -> Result<(), crate::Error> {
         {
             let config = self.config.read().await;
             if config.negotiated {
-                return Err("Already negotiated!".into());
+                return Err(crate::Error::InvalidStateError(
+                    "Connection is already negotiated!".into(),
+                ));
             }
         }
 
@@ -65,10 +67,12 @@ impl Transformer {
     pub async fn session_started(
         &self,
         session: Arc<Mutex<SessionState>>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), crate::Error> {
         let rconfig = self.config.read().await;
         if !rconfig.negotiated {
-            return Err("Negotiation not completed!".into());
+            return Err(crate::Error::InvalidStateError(
+                "Connection is not negotiated yet!".to_string(),
+            ));
         }
 
         let session_id = session.lock().await.session_id;
@@ -97,7 +101,7 @@ impl Transformer {
     pub async fn tranform_outgoing(
         &self,
         mut msg: OutgoingMessage,
-    ) -> Result<NetBiosTcpMessage, Box<dyn Error>> {
+    ) -> Result<NetBiosTcpMessage, crate::Error> {
         let should_encrypt = msg.encrypt;
         let should_sign = msg.message.header.flags.signed();
         let set_session_id = msg.message.header.session_id;
@@ -118,7 +122,12 @@ impl Transformer {
                 if let Some(mut signer) = self
                     .session_state(set_session_id)
                     .await
-                    .ok_or("Session not found!")?
+                    .ok_or(crate::Error::TranformFailedError(TransformError {
+                        outgoing: true,
+                        phase: TranformPhase::SignVerify,
+                        session_id: Some(set_session_id),
+                        why: "Session not found for message!",
+                    }))?
                     .lock()
                     .await
                     .signer()
@@ -146,10 +155,9 @@ impl Transformer {
         // 3. Encrypt
         let data = {
             if msg.encrypt {
-                let session = self
-                    .session_state(set_session_id)
-                    .await
-                    .ok_or("Session not found!")?;
+                let session = self.session_state(set_session_id).await.ok_or(
+                    crate::Error::InvalidStateError("Session not found!".to_string()),
+                )?;
                 if let Some(mut encryptor) = session.lock().await.encryptor() {
                     debug_assert!(should_encrypt && !should_sign);
                     let encrypted = encryptor.encrypt_message(data, set_session_id)?;
@@ -157,26 +165,38 @@ impl Transformer {
                     Message::Encrypted(encrypted).write(&mut cursor)?;
                     cursor.into_inner()
                 } else {
-                    return Err("Encryptor not found!".into());
+                    return Err(crate::Error::TranformFailedError(
+                        TransformError {
+                            outgoing: true,
+                            phase: TranformPhase::EncryptDecrypt,
+                            session_id: Some(set_session_id),
+                            why: "Message is encrypted, but no encryptor is set up!",
+                        },
+                    ));
                 }
             } else {
                 data
             }
         };
 
-        Ok(NetBiosTcpMessage::from_content_bytes(data)?)
+        Ok(NetBiosTcpMessage::from_content_bytes(data))
     }
 
     /// Given a NetBiosTcpMessage, decrypts (if necessary), decompresses (if necessary) and returns the plain SMB2 message.
     pub async fn transform_incoming(
         &self,
         netbios: NetBiosTcpMessage,
-    ) -> Result<IncomingMessage, Box<dyn Error>> {
+    ) -> Result<IncomingMessage, crate::Error> {
         let message = match netbios.parse_content()? {
             NetBiosMessageContent::SMB2Message(message) => Some(message),
             _ => None,
         }
-        .ok_or("Expected SMB2 message")?;
+        .ok_or(crate::Error::TranformFailedError(TransformError {
+            outgoing: false,
+            phase: TranformPhase::EncodeDecode,
+            session_id: None,
+            why: "Message is not an SMB2 message!",
+        }))?;
 
         let mut form = MessageForm::default();
 
@@ -186,11 +206,23 @@ impl Transformer {
             let session = self
                 .session_state(encrypted_message.header.session_id)
                 .await
-                .ok_or("Session not found")?;
+                .ok_or(crate::Error::TranformFailedError(TransformError {
+                    outgoing: false,
+                    phase: TranformPhase::EncryptDecrypt,
+                    session_id: Some(encrypted_message.header.session_id),
+                    why: "Session not found for message!",
+                }))?;
             let mut session = session.lock().await;
             match session.decryptor() {
                 Some(decryptor) => decryptor.decrypt_message(&encrypted_message)?,
-                None => return Err("Encrypted message received without decryptor".into()),
+                None => {
+                    return Err(crate::Error::TranformFailedError(TransformError {
+                        outgoing: false,
+                        phase: TranformPhase::EncryptDecrypt,
+                        session_id: Some(encrypted_message.header.session_id),
+                        why: "Message is encrypted, but no decryptor is set up!",
+                    }))
+                }
             }
         } else {
             (message, netbios.content)
@@ -203,7 +235,14 @@ impl Transformer {
             let rconfig = self.config.read().await;
             match &rconfig.compress {
                 Some(compress) => compress.1.decompress(compressed_message)?,
-                None => return Err("Compressed message received without decompressor!".into()),
+                None => {
+                    return Err(crate::Error::TranformFailedError(TransformError {
+                        outgoing: false,
+                        phase: TranformPhase::CompressDecompress,
+                        session_id: None,
+                        why: "Compression is requested, but no decompressor is set up!",
+                    }))
+                }
             }
         } else {
             (message, raw)
@@ -217,4 +256,38 @@ impl Transformer {
 
         Ok(IncomingMessage { message, raw, form })
     }
+}
+
+#[derive(Debug)]
+pub struct TransformError {
+    outgoing: bool,
+    phase: TranformPhase,
+    session_id: Option<u64>,
+    why: &'static str,
+}
+
+impl std::fmt::Display for TransformError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.outgoing {
+            write!(
+                f,
+                "Failed to transform outgoing message: {:?} (session_id: {:?}) - {}",
+                self.phase, self.session_id, self.why
+            )
+        } else {
+            write!(
+                f,
+                "Failed to transform incoming message: {:?} (session_id: {:?}) - {}",
+                self.phase, self.session_id, self.why
+            )
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum TranformPhase {
+    EncodeDecode,
+    SignVerify,
+    CompressDecompress,
+    EncryptDecrypt,
 }

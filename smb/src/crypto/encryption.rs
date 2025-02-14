@@ -10,9 +10,11 @@ use ccm::{
     consts::{U11, U16},
     Ccm, KeyInit, KeySizeUser,
 };
-use std::{error::Error, fmt::Debug};
+use std::fmt::Debug;
 
 use crate::packets::smb2::*;
+
+use super::CryptoError;
 
 pub struct EncryptionResult {
     pub signature: u128,
@@ -25,7 +27,7 @@ pub trait EncryptingAlgo: Debug + Send {
         payload: &mut [u8],
         header_data: &[u8],
         nonce: &EncryptionNonce,
-    ) -> Result<EncryptionResult, Box<dyn Error>>;
+    ) -> Result<EncryptionResult, CryptoError>;
 
     /// Algo-specific decryption function.
     fn decrypt(
@@ -34,7 +36,7 @@ pub trait EncryptingAlgo: Debug + Send {
         header_data: &[u8],
         nonce: &EncryptionNonce,
         signature: u128,
-    ) -> Result<(), Box<dyn Error>>;
+    ) -> Result<(), CryptoError>;
 
     /// Returns the size of the nonce required by the encryption algorithm.
     fn nonce_size(&self) -> usize;
@@ -58,20 +60,16 @@ pub const ENCRYPTING_ALGOS: &[EncryptionCipher] = &[
 pub fn make_encrypting_algo(
     encrypting_algorithm: EncryptionCipher,
     encrypting_key: &[u8],
-) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
+) -> Result<Box<dyn EncryptingAlgo>, CryptoError> {
     if !ENCRYPTING_ALGOS.contains(&encrypting_algorithm) {
-        return Err(format!(
-            "Unsupported encrypting algorithm {:?}",
-            encrypting_algorithm
-        )
-        .into());
+        return Err(CryptoError::UnsupportedAlgorithm);
     }
     match encrypting_algorithm {
         #[cfg(feature = "encrypt_aes128ccm")]
         EncryptionCipher::Aes128Ccm => Ok(CcmEncryptor::<Aes128>::build(encrypting_key.into())?),
         #[cfg(feature = "encrypt_aes256ccm")]
         EncryptionCipher::Aes256Ccm => Ok(CcmEncryptor::<Aes256>::build(encrypting_key.into())?),
-        _ => Err("Unsupported encrypting algorithm".into()),
+        _ => Err(CryptoError::UnsupportedAlgorithm),
     }
 }
 
@@ -90,7 +88,7 @@ where
 {
     fn build(
         encrypting_key: &GenericArray<u8, <C as KeySizeUser>::KeySize>,
-    ) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
+    ) -> Result<Box<dyn EncryptingAlgo>, CryptoError> {
         Ok(Box::new(Self {
             cipher: Ccm::<C, U16, U11>::new_from_slice(encrypting_key)?,
         }))
@@ -107,7 +105,7 @@ where
         payload: &mut [u8],
         header_data: &[u8],
         nonce: &EncryptionNonce,
-    ) -> Result<EncryptionResult, Box<dyn Error>> {
+    ) -> Result<EncryptionResult, CryptoError> {
         let nonce = GenericArray::from_slice(self.trim_nonce(nonce));
         let signature = self
             .cipher
@@ -124,7 +122,7 @@ where
         header_data: &[u8],
         nonce: &EncryptionNonce,
         signature: u128,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), CryptoError> {
         let nonce = GenericArray::from_slice(self.trim_nonce(nonce));
         self.cipher.decrypt_in_place_detached(
             nonce,

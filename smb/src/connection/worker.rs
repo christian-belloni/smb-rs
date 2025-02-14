@@ -17,7 +17,7 @@ use crate::{
 
 use super::{
     negotiation_state::NegotiateState, netbios_client::NetBiosClient, preauth_hash::*,
-    transformer::Transformer,
+    transformer::Transformer, crate::Error,
 };
 
 /// SMB2 connection worker.
@@ -52,9 +52,7 @@ struct WorkerAwaitState {
 impl ConnectionWorker {
     /// Instantiates a new connection worker.
     #[maybe_async]
-    pub async fn start(
-        netbios_client: NetBiosClient,
-    ) -> Result<Arc<Self>, Box<dyn std::error::Error>> {
+    pub async fn start(netbios_client: NetBiosClient) -> Result<Arc<Self>, crate::Error> {
         // Build the worker
         let (tx, rx) = mpsc::channel(32);
         let worker = Arc::new(ConnectionWorker {
@@ -103,10 +101,7 @@ impl ConnectionWorker {
     }
 
     #[maybe_async]
-    pub async fn send(
-        self: &Self,
-        msg: OutgoingMessage,
-    ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
+    pub async fn send(self: &Self, msg: OutgoingMessage) -> Result<SendMessageResult, crate::Error> {
         let finalize_preauth_hash = msg.finalize_preauth_hash;
         let message = { self.tranformer.tranform_outgoing(msg).await? };
 
@@ -123,10 +118,7 @@ impl ConnectionWorker {
     /// Receive a message from the server.
     /// This is a user function that will wait for the message to be received.
     #[maybe_async]
-    pub async fn receive(
-        self: &Self,
-        msg_id: u64,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+    pub async fn receive(self: &Self, msg_id: u64) -> Result<IncomingMessage, crate::Error> {
         // 1. Insert channel to wait for the message, or return the message if already received.
         let wait_for_receive = {
             let mut state = self.state.lock().await;
@@ -164,7 +156,7 @@ impl ConnectionWorker {
         self: &Self,
         netbios_client: &mut NetBiosClient,
         send_channel: &mut mpsc::Receiver<NetBiosTcpMessage>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), crate::Error> {
         select! {
             // Receive a message from the server.
             message = netbios_client.recieve_bytes() => {
@@ -182,13 +174,10 @@ impl ConnectionWorker {
     #[maybe_async]
     async fn loop_handle_incoming(
         self: &Self,
-        message: Result<NetBiosTcpMessage, Box<dyn std::error::Error>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+        message: Result<NetBiosTcpMessage, crate::Error>,
+    ) -> Result<(), crate::Error> {
         let message = { message? };
-        let msg = self
-            .tranformer
-            .transform_incoming(message)
-            .await?;
+        let msg = self.tranformer.transform_incoming(message).await?;
 
         // 2. Handle the message.
         let msg_id = msg.message.header.message_id;

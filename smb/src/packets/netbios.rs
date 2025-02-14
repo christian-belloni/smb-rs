@@ -38,22 +38,20 @@ impl Default for NetBiosTcpMessageHeader {
 }
 
 impl NetBiosTcpMessage {
-    pub fn parse_content(&self) -> Result<NetBiosMessageContent, Box<dyn std::error::Error>> {
+    pub fn parse_content(&self) -> Result<NetBiosMessageContent, binrw::Error> {
         Ok(NetBiosMessageContent::try_from(self.content.as_slice())?)
     }
 
     pub fn from_content(
         content: &NetBiosMessageContent,
-    ) -> Result<NetBiosTcpMessage, Box<dyn std::error::Error>> {
+    ) -> Result<NetBiosTcpMessage, binrw::Error> {
         let mut content_writer = Cursor::new(vec![]);
         content.write(&mut content_writer)?;
-        Self::from_content_bytes(content_writer.into_inner())
+        Ok(Self::from_content_bytes(content_writer.into_inner()))
     }
 
-    pub fn from_content_bytes(
-        content: Vec<u8>,
-    ) -> Result<NetBiosTcpMessage, Box<dyn std::error::Error>> {
-        Ok(NetBiosTcpMessage { content })
+    pub fn from_content_bytes(content: Vec<u8>) -> NetBiosTcpMessage {
+        NetBiosTcpMessage { content }
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, binrw::Error> {
