@@ -26,6 +26,7 @@ use super::{
 /// sending netbios messages from SMB2 messages, and redirecting correct messages when received,
 /// if using async, to the correct pending task.
 /// One-per connection, hence takes ownership of [NetBiosClient] on [ConnectionWorker::start].
+#[derive(Debug)]
 pub struct ConnectionWorker {
     state: Mutex<WorkerAwaitState>,
 

@@ -1,5 +1,3 @@
-use crate::compression::{Compressor, Decompressor};
-
 use crate::packets::guid::Guid;
 use crate::packets::smb2::*;
 use binrw::prelude::*;

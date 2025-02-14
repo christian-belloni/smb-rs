@@ -21,6 +21,7 @@ use super::{MessageDecryptor, MessageEncryptor, MessageSigner};
 /// Holds the state of a session, to be used for actions requiring data from session,
 /// without accessing the entire session object.
 /// This struct should be single-per-session, and wrapped in a shared pointer.
+#[derive(Debug)]
 pub struct SessionState {
     pub session_id: u64,
 

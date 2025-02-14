@@ -16,6 +16,12 @@ use binrw::prelude::*;
 
 use crate::packets::netbios::{NetBiosMessageContent, NetBiosTcpMessage, NetBiosTcpMessageHeader};
 
+/// A (very) simple NETBIOS client.
+///
+/// This client is NOT thread-safe, and should only be used for SMB wraaping.
+/// 
+/// Use [connect](NetBiosClient::connect), [send](NetBiosClient::send), 
+/// and [receive_bytes](NetBiosClient::recieve_bytes) to interact with a server.
 pub struct NetBiosClient {
     connection: Option<TcpStream>,
 }
@@ -25,15 +31,15 @@ impl NetBiosClient {
         NetBiosClient { connection: None }
     }
 
-    #[maybe_async]
     /// Connects to a NetBios server in the specified address.
+    #[maybe_async]
     pub async fn connect(&mut self, address: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.connection = Some(TcpStream::connect(address).await?);
         Ok(())
     }
 
-    #[maybe_async]
     /// Sends a NetBios message.
+    #[maybe_async]
     pub async fn send(
         &mut self,
         data: NetBiosMessageContent,
@@ -42,8 +48,8 @@ impl NetBiosClient {
         self.send_raw(raw_message).await
     }
 
-    #[maybe_async]
     /// Sends a raw byte array of a NetBios message.
+    #[maybe_async]
     pub async fn send_raw(
         &mut self,
         data: NetBiosTcpMessage,
@@ -58,8 +64,8 @@ impl NetBiosClient {
         Ok(())
     }
 
-    #[maybe_async]
     // Recieves and parses a NetBios message header, without parsing the message data.
+    #[maybe_async]
     pub async fn recieve_bytes(&mut self) -> Result<NetBiosTcpMessage, Box<dyn std::error::Error>> {
         let tcp = self
             .connection

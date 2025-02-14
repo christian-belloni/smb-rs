@@ -1,7 +1,5 @@
-
 use super::negotiation_state::NegotiateState;
 use super::netbios_client::NetBiosClient;
-use super::preauth_hash::*;
 use super::worker::ConnectionWorker;
 use crate::packets::guid::Guid;
 use crate::{
@@ -15,13 +13,14 @@ use crate::{
     session::Session,
 };
 use binrw::prelude::*;
-use core::panic;
 use maybe_async::*;
-use std::collections::HashMap;
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::{cell::OnceCell, error::Error, fmt::Display, io::Cursor};
-use tokio::sync::{oneshot, Mutex};
-use tokio::task::JoinHandle;
+#[cfg(not(feature = "async"))]
+use std::{cell::OnceCell, sync::Mutex};
+use std::{error::Error, fmt::Display};
+#[cfg(feature = "async")]
+use tokio::sync::OnceCell;
 
 pub struct Connection {
     handler: HandlerReference<ClientMessageHandler>,
@@ -47,51 +46,58 @@ impl Connection {
 
     #[maybe_async]
     pub async fn connect(&mut self, address: &str) -> Result<(), Box<dyn Error>> {
+        let mut netbios_client = NetBiosClient::new();
+
         log::debug!("Connecting to {}, multi-protocol negotiation.", address);
-        self.handler
-            .borrow_mut()
-            .neg_mode
-            .multi()?
-            .connect(address)
-            .await?;
-        log::info!("Connected to {}.", address);
-        self.mprot_negotiate().await?;
+        netbios_client.connect(address).await?;
+
+        log::info!("Connected to {}. Negotiating.", address);
+        self.negotiate(netbios_client, true).await?;
+
         Ok(())
     }
 
     #[maybe_async]
-    async fn negotiate_smb1(&mut self) -> Result<(), Box<dyn Error>> {
-        log::debug!("Negotiating SMB1");
-        // 1. Send SMB1 negotiate request
-        self.handler
-            .borrow_mut()
-            .neg_mode
-            .multi()?
-            .send(NetBiosMessageContent::SMB1Message(
-                SMB1NegotiateMessage::new(),
-            ))
-            .await?;
+    async fn negotiate_switch_to_smb2(
+        &mut self,
+        mut netbios_client: NetBiosClient,
+        negotiate_smb1: bool,
+    ) -> Result<Arc<ConnectionWorker>, Box<dyn Error>> {
+        // Multi-protocol negotiation.
+        if negotiate_smb1 {
+            log::debug!("Negotiating multi-protocol");
+            // 1. Send SMB1 negotiate request
+            netbios_client
+                .send(NetBiosMessageContent::SMB1Message(
+                    SMB1NegotiateMessage::new(),
+                ))
+                .await?;
 
-        // 2. Expect SMB2 negotiate response
-        let smb2_response = self.handler.recv(Command::Negotiate).await?;
-        let smb2_negotiate_response = match smb2_response.message.content {
-            Content::NegotiateResponse(response) => Some(response),
-            _ => None,
-        }
-        .unwrap();
+            // 2. Expect SMB2 negotiate response
+            let smb2_response = self.handler.recv(Command::Negotiate).await?;
+            let smb2_negotiate_response = match smb2_response.message.content {
+                Content::NegotiateResponse(response) => Some(response),
+                _ => None,
+            }
+            .ok_or("Unexpected SMB2 negotiate response")?;
 
-        // 3. Make sure dialect is smb2*
-        if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb02Wildcard {
-            return Err("Unexpected SMB2 dialect revision".into());
+            // 3. Make sure dialect is smb2*, message ID is 0.
+            if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb02Wildcard {
+                return Err("Unexpected SMB2 dialect revision".into());
+            }
+            if smb2_response.message.header.message_id != 0 {
+                return Err("Unexpected SMB2 initial message ID".into());
+            }
         }
-        Ok(())
+
+        Ok(ConnectionWorker::start(netbios_client).await?)
     }
 
     #[maybe_async]
     async fn negotiate_smb2(&mut self) -> Result<(), Box<dyn Error>> {
         log::debug!("Negotiating SMB2");
         // Send SMB2 negotiate request
-        let client_guid = self.handler.borrow().client_guid;
+        let client_guid = self.handler.client_guid;
         let response = self
             .handler
             .send_recv(Content::NegotiateRequest(NegotiateRequest::new(
@@ -106,7 +112,7 @@ impl Connection {
             Content::NegotiateResponse(response) => Some(response),
             _ => None,
         }
-        .unwrap();
+        .ok_or("Unexpected SMB2 negotiate response")?;
 
         // well, only 3.1 is supported for starters.
         if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb0311 {
@@ -159,7 +165,6 @@ impl Connection {
         );
 
         self.handler
-            .borrow_mut()
             .negotiate_state
             .set(negotiate_state)
             .map_err(|_| "Negotiate state already set")?;
@@ -167,27 +172,28 @@ impl Connection {
         Ok(())
     }
 
-    /// Multi-protocol negotiation.
+    /// Send negotiate messages, potentially
     #[maybe_async]
-    async fn mprot_negotiate(&mut self) -> Result<(), Box<dyn Error>> {
+    async fn negotiate(
+        &mut self,
+        netbios_client: NetBiosClient,
+        multi_protocol: bool,
+    ) -> Result<(), Box<dyn Error>> {
         // Negotiate SMB1, Switch to SMB2
-        self.negotiate_smb1().await?;
+        let worker = self
+            .negotiate_switch_to_smb2(netbios_client, multi_protocol)
+            .await?;
 
-        // Upgrade connection backend to SMB2 worker
-        {
-            let handler = &mut self.handler.borrow_mut();
-            // do ConnectionWorker::start() on Mprot/NetBiosClient and set to NegotiationMode::Smb2Neg
-            let worker = ConnectionWorker::start(handler.neg_mode.take_multi().unwrap()).await?;
-            handler.neg_mode = NegotiationMode::Smb2Neg(worker);
-        }
+        self.handler.worker.set(worker)?;
+
         // Negotiate SMB2
         self.negotiate_smb2().await?;
         self.handler
-            .borrow_mut()
-            .neg_mode
-            .smb2()
+            .worker
+            .get()
+            .ok_or("Worker is uninitialized")
             .unwrap()
-            .negotaite_complete(&self.handler.borrow().negotiate_state().unwrap())
+            .negotaite_complete(&self.handler.negotiate_state().unwrap())
             .await;
         log::info!("Negotiation successful");
         Ok(())
@@ -207,52 +213,14 @@ impl Connection {
     }
 }
 
-enum NegotiationMode {
-    Mprot(Option<NetBiosClient>),
-    Smb2Neg(Arc<ConnectionWorker>),
-}
-
-impl NegotiationMode {
-    fn multi(&mut self) -> Result<&mut NetBiosClient, Box<dyn Error>> {
-        match self {
-            NegotiationMode::Mprot(client) => match client {
-                Some(client) => Ok(client),
-                None => {
-                    return Err("Unexpected connection state".into());
-                }
-            },
-            _ => Err("Unexpected connection state".into()),
-        }
-    }
-
-    fn take_multi(&mut self) -> Result<NetBiosClient, Box<dyn Error>> {
-        match self {
-            NegotiationMode::Mprot(client) => match client.take() {
-                Some(client) => Ok(client),
-                None => {
-                    return Err("Unexpected connection state".into());
-                }
-            },
-            _ => Err("Unexpected connection state".into()),
-        }
-    }
-
-    fn smb2(&mut self) -> Result<&mut Arc<ConnectionWorker>, Box<dyn Error>> {
-        match self {
-            NegotiationMode::Smb2Neg(worker) => Ok(worker),
-            _ => Err("Unexpected connection state".into()),
-        }
-    }
-}
-
 /// This struct is the internal message handler for the SMB client.
 pub struct ClientMessageHandler {
     client_guid: Guid,
 
-    neg_mode: NegotiationMode,
+    worker: OnceCell<Arc<ConnectionWorker>>,
 
-    current_message_id: u64,
-    credits_balance: u16,
+    current_message_id: AtomicU64,
+    credits_balance: AtomicU16,
 
     // Negotiation-related state.
     negotiate_state: OnceCell<NegotiateState>,
@@ -262,13 +230,12 @@ impl ClientMessageHandler {
     fn new() -> ClientMessageHandler {
         ClientMessageHandler {
             client_guid: Guid::gen(),
-            neg_mode: NegotiationMode::Mprot(Some(NetBiosClient::new())),
+            worker: OnceCell::new(),
             negotiate_state: OnceCell::new(),
-            current_message_id: 0,
-            credits_balance: 1,
+            current_message_id: AtomicU64::new(0),
+            credits_balance: AtomicU16::new(1), // TODO: Validate!
         }
     }
-
 
     pub fn negotiate_state(&self) -> Option<&NegotiateState> {
         self.negotiate_state.get()
@@ -281,7 +248,8 @@ impl MessageHandler for ClientMessageHandler {
         &self,
         mut msg: OutgoingMessage,
     ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
-        self.current_message_id += 1;
+        // message id += 1, atomic.
+        msg.message.header.message_id = self.current_message_id.fetch_add(1, Ordering::Relaxed);
         // TODO: Add assertion in the struct regarding the selected dialect!
         let priority_value = match self.negotiate_state.get() {
             Some(negotiate_state) => match negotiate_state.selected_dialect {
@@ -290,12 +258,16 @@ impl MessageHandler for ClientMessageHandler {
             },
             None => 0,
         };
-        msg.message.header.message_id = self.current_message_id;
         msg.message.header.flags = msg.message.header.flags.with_priority_mask(priority_value);
         msg.message.header.credit_charge = 1;
         msg.message.header.credit_request = 1;
 
-        Ok(self.neg_mode.smb2().unwrap().send(msg).await?)
+        Ok(self
+            .worker
+            .get()
+            .ok_or("Worker is uninitialized!")?
+            .send(msg)
+            .await?)
     }
 
     #[maybe_async]
@@ -304,8 +276,8 @@ impl MessageHandler for ClientMessageHandler {
         options: ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         let msg = self
-            .neg_mode
-            .smb2()
+            .worker
+            .get()
             .unwrap()
             .receive(options.msgid_filter)
             .await?;
@@ -334,9 +306,9 @@ impl MessageHandler for ClientMessageHandler {
             return Err(format!("Unexpected SMB2 status: {:?}", msg.message.header.status).into());
         }
 
-        // Credits handling. TODO: validate.
-        self.credits_balance -= msg.message.header.credit_charge;
-        self.credits_balance += msg.message.header.credit_request;
+        // Credits handling. TODO: Make sure how this calculation behaves when error/edge cases.
+        let diff = msg.message.header.credit_request - msg.message.header.credit_charge;
+        self.credits_balance.fetch_add(diff, Ordering::Relaxed);
 
         Ok(msg)
     }

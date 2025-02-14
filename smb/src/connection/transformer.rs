@@ -18,7 +18,7 @@ use super::negotiation_state::NegotiateState;
 
 /// This struct is tranforming messages to plain, parsed SMB2,
 /// including (en|de)cryption, (de)compression, and signing/verifying.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Transformer {
     /// Sessions opened from this connection.
     sessions: Mutex<HashMap<u64, Arc<Mutex<SessionState>>>>,
@@ -26,7 +26,7 @@ pub struct Transformer {
     config: RwLock<TranformerConfig>
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct TranformerConfig {
     /// Compressors for this connection.
     compress: Option<(Compressor, Decompressor)>,
@@ -183,7 +183,7 @@ impl Transformer {
         // 1. Decrpt
         let (message, raw) = if let Message::Encrypted(encrypted_message) = &message {
             form.encrypted = true;
-            let mut session = self
+            let session = self
                 .session_state(encrypted_message.header.session_id)
                 .await
                 .ok_or("Session not found")?;

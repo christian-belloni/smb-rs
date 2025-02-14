@@ -5,7 +5,7 @@
 
 use crate::{
     connection::{connection::ClientMessageHandler, preauth_hash::PreauthHashValue},
-    crypto::{self, KeyToDerive},
+    crypto::KeyToDerive,
     msg_handler::{
         HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, ReceiveOptions,
         SendMessageResult,
@@ -16,8 +16,11 @@ use crate::{
 use binrw::prelude::*;
 use maybe_async::*;
 use sspi::{AuthIdentity, Secret, Username};
-use std::{cell::OnceCell, error::Error, sync::Arc};
-use tokio::sync::Mutex;
+#[cfg(not(feature = "async"))]
+use std::cell::OnceCell;
+use std::{error::Error, sync::Arc};
+#[cfg(feature = "async")]
+use tokio::sync::{Mutex, OnceCell};
 
 type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
 
@@ -54,9 +57,7 @@ impl Session {
         log::debug!("Setting up session for user {}.", user_name);
         // Build the authenticator.
         let (mut authenticator, next_buf) = {
-            let handler = self.handler.borrow();
-            let handler = handler.upstream.borrow();
-            let negotate_state = handler.negotiate_state().unwrap();
+            let negotate_state = self.handler.upstream().negotiate_state().unwrap();
             let identity = AuthIdentity {
                 username: Username::new(&user_name, Some("WORKGROUP"))?,
                 password: Secret::new(password),
@@ -79,7 +80,6 @@ impl Session {
 
         // Set session id.
         self.handler
-            .borrow_mut()
             .session_id
             .set(response.message.header.session_id)
             .map_err(|_| "Session ID already set!")?;
@@ -154,9 +154,7 @@ impl Session {
         exchanged_session_key: &KeyToDerive,
         preauth_hash: &PreauthHashValue,
     ) -> Result<(), Box<dyn Error>> {
-        let s = self.handler.borrow();
-        let s = s.upstream.borrow();
-        let state = s.negotiate_state().unwrap();
+        let state = self.handler.upstream().negotiate_state().unwrap();
 
         SessionState::set(
             &mut self.session_state,
@@ -191,7 +189,7 @@ impl Session {
             .await?;
 
         // Reset session ID and keys.
-        self.handler.borrow_mut().session_id.take();
+        self.handler.session_id.take();
         SessionState::invalidate(&mut self.session_state).await;
 
         log::info!("Session logged off.");
@@ -283,7 +281,7 @@ impl MessageHandler for SessionMessageHandler {
     // #[maybe_async]
     async fn hrecvo(
         &self,
-        mut options: crate::msg_handler::ReceiveOptions,
+        options: crate::msg_handler::ReceiveOptions,
     ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
         let incoming = self.upstream.hrecvo(options).await?;
         // Make sure that it's our session.

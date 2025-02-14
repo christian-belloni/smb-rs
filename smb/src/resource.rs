@@ -26,7 +26,7 @@ impl Resource {
     #[maybe_async]
     pub async fn create(
         name: String,
-        mut upstream: Upstream,
+        upstream: Upstream,
         create_disposition: CreateDisposition,
         desired_access: FileAccessMask,
     ) -> Result<Resource, Box<dyn Error>> {

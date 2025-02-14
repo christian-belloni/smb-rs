@@ -1,7 +1,10 @@
 use maybe_async::*;
-use std::{cell::OnceCell, error::Error};
+use std::error::Error;
+
 #[cfg(feature = "async")]
-use tokio;
+use tokio::sync::OnceCell;
+#[cfg(not(feature = "async"))]
+use std::cell::OnceCell;
 
 use crate::{
     msg_handler::{HandlerReference, MessageHandler},
@@ -37,7 +40,7 @@ impl Tree {
 
     #[maybe_async]
     pub async fn connect(&mut self) -> Result<(), Box<dyn Error>> {
-        if self.handler.borrow().connect_info().is_some() {
+        if self.handler.connect_info().is_some() {
             return Err("Tree connection already established!".into());
         }
         // send and receive tree request & response.
@@ -59,7 +62,6 @@ impl Tree {
             response.message.header.tree_id
         );
         self.handler
-            .borrow_mut()
             .connect_info
             .set(TreeConnectInfo {
                 tree_id: response.message.header.tree_id,
@@ -83,7 +85,7 @@ impl Tree {
     async fn disconnect(&mut self) -> Result<(), Box<dyn Error>> {
         log::debug!("Disconnecting from tree {}", self.name);
 
-        if self.handler.borrow_mut().connect_info.get().is_none() {
+        if !self.handler.connect_info.initialized() {
             // No tree connection to disconnect from.
             return Ok(());
         };
@@ -97,7 +99,7 @@ impl Tree {
             .await?;
 
         log::info!("Disconnected from tree {}", self.name);
-        self.handler.borrow_mut().connect_info.take();
+        self.handler.connect_info.take();
         Ok(())
     }
 
