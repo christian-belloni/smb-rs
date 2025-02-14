@@ -34,13 +34,18 @@ impl OutgoingMessage {
 
 #[derive(Debug)]
 pub struct SendMessageResult {
+    // The message ID for the sent message.
+    pub msgid: u64,
     // If finalized, this is set.
     pub preauth_hash: Option<PreauthHashValue>,
 }
 
 impl SendMessageResult {
-    pub fn new(preauth_hash: Option<PreauthHashValue>) -> SendMessageResult {
-        SendMessageResult { preauth_hash }
+    pub fn new(msgid: u64, preauth_hash: Option<PreauthHashValue>) -> SendMessageResult {
+        SendMessageResult {
+            msgid,
+            preauth_hash,
+        }
     }
 }
 
@@ -99,6 +104,12 @@ impl ReceiveOptions {
         self.cmd = cmd;
         self
     }
+
+    // A matching message ID to the sent message.
+    pub fn to(mut self, sent: SendMessageResult) -> Self {
+        self.msgid_filter = sent.msgid;
+        self
+    }
 }
 
 impl Default for ReceiveOptions {
@@ -142,9 +153,11 @@ pub trait MessageHandler {
     async fn sendo_recvo(
         &self,
         msg: OutgoingMessage,
-        options: ReceiveOptions,
+        mut options: ReceiveOptions,
     ) -> crate::Result<IncomingMessage> {
-        self.sendo(msg).await?;
+        // Send the message and wait for the matching response.
+        let send_result = self.sendo(msg).await?;
+        options.msgid_filter = send_result.msgid;
         self.recvo(options).await
     }
 
@@ -154,15 +167,15 @@ pub trait MessageHandler {
         msg: Content,
         options: ReceiveOptions,
     ) -> crate::Result<IncomingMessage> {
-        self.send(msg).await?;
-        self.recvo(options).await
+        self.sendo_recvo(OutgoingMessage::new(PlainMessage::new(msg)), options)
+            .await
     }
 
-    #[maybe_async] 
+    #[maybe_async]
     async fn send_recv(&self, msg: Content) -> crate::Result<IncomingMessage> {
         let cmd = msg.associated_cmd();
-        self.send(msg).await?;
-        self.recvo(ReceiveOptions::new().cmd(Some(cmd))).await
+        self.send_recvo(msg, ReceiveOptions::new().cmd(Some(cmd)))
+            .await
     }
 }
 
@@ -186,7 +199,6 @@ impl<T: MessageHandler> HandlerReference<T> {
             handler: Arc::new(handler),
         }
     }
-
 }
 
 // Implement deref that returns the content of Arc<T> above (T)

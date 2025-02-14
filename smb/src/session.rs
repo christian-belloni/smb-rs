@@ -79,6 +79,7 @@ impl Session {
         // response hash is processed later, in the loop.
         let response = self
             .handler
+            .upstream
             .sendo_recvo(
                 request,
                 ReceiveOptions::new().status(Status::MoreProcessingRequired),
@@ -139,7 +140,8 @@ impl Session {
                     };
                     let response = self
                         .handler
-                        .recvo(ReceiveOptions::new().status(expected_status))
+                        .upstream
+                        .recvo(ReceiveOptions::new().status(expected_status).to(result))
                         .await?;
                     Some(response)
                 }
@@ -237,6 +239,11 @@ impl SessionMessageHandler {
 
     #[maybe_async]
     async fn logoff(&self) -> crate::Result<()> {
+        if *self.session_id.read().await == 0 {
+            log::trace!("Session not set up/already logged-off.");
+            return Ok(());
+        }
+
         log::debug!("Logging off session.");
 
         let _response = self

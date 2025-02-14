@@ -17,8 +17,7 @@ use crate::{
 };
 
 use super::{
-    negotiation_state::NegotiateState, netbios_client::NetBiosClient,
-    transformer::Transformer,
+    negotiation_state::NegotiateState, netbios_client::NetBiosClient, transformer::Transformer,
 };
 
 /// SMB2 connection worker.
@@ -43,9 +42,12 @@ pub struct ConnectionWorker {
 #[derive(Debug, Default)]
 struct WorkerAwaitState {
     /// Stores the awaiting tasks that are waiting for a specific message ID.
-    awaiting: HashMap<u64, oneshot::Sender<IncomingMessage>>,
+    awaiting: HashMap<u64, oneshot::Sender<crate::Result<IncomingMessage>>>,
     /// Stores the pending messages, waiting to be receive()-d.
     pending: HashMap<u64, IncomingMessage>,
+
+    /// Whether worker has stopped, and no more messages will be received.
+    stopped: bool,
 }
 
 impl ConnectionWorker {
@@ -77,6 +79,7 @@ impl ConnectionWorker {
     #[maybe_async]
     pub async fn send(self: &Self, msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         let finalize_preauth_hash = msg.finalize_preauth_hash;
+        let id = msg.message.header.message_id;
         let message = { self.transformer.tranform_outgoing(msg).await? };
 
         let hash = match finalize_preauth_hash {
@@ -88,7 +91,7 @@ impl ConnectionWorker {
             Error::MessageProcessingError("Failed to send message to worker!".to_string())
         })?;
 
-        Ok(SendMessageResult::new(hash.clone()))
+        Ok(SendMessageResult::new(id, hash.clone()))
     }
 
     /// Receive a message from the server.
@@ -98,9 +101,14 @@ impl ConnectionWorker {
         // 1. Insert channel to wait for the message, or return the message if already received.
         let wait_for_receive = {
             let mut state = self.state.lock().await;
+
+            if state.stopped {
+                return Err(Error::NotConnected);
+            }
             if state.pending.contains_key(&msg_id) {
                 return Ok(state.pending.remove(&msg_id).unwrap());
             }
+
             let (tx, rx) = oneshot::channel();
             state.awaiting.insert(msg_id, tx);
             rx
@@ -109,7 +117,7 @@ impl ConnectionWorker {
         // Wait for the message to be received.
         Ok(wait_for_receive.await.map_err(|_| {
             Error::MessageProcessingError("Failed to receive message from worker!".to_string())
-        })?)
+        })??)
     }
 
     /// Internal message loop handler.
@@ -120,9 +128,22 @@ impl ConnectionWorker {
     ) {
         let self_ref = self.as_ref();
         loop {
-            if let Err(e) = self_ref.handle_next_msg(&mut netbios_client, &mut rx).await {
-                log::error!("Error in connection worker loop: {}", e);
+            match self_ref.handle_next_msg(&mut netbios_client, &mut rx).await {
+                Ok(_) => {}
+                Err(Error::NotConnected) => {
+                    log::error!("Connection closed.");
+                    break;
+                }
+                Err(e) => {
+                    log::error!("Error in worker loop: {}", e);
+                    break;
+                }
             }
+        }
+
+        rx.close();
+        for (_, tx) in self_ref.state.lock().await.awaiting.drain() {
+            tx.send(Err(Error::NotConnected)).unwrap();
         }
     }
 
@@ -142,6 +163,7 @@ impl ConnectionWorker {
             }
             // Send a message to the server.
             message = send_channel.recv() => {
+                log::trace!("Sending message to server.");
                 let message = {
                     message.ok_or("Failed to receive message from channel.")
                     .map_err(|e| Error::MessageProcessingError(e.to_string()))?
@@ -157,6 +179,7 @@ impl ConnectionWorker {
         self: &Self,
         message: crate::Result<NetBiosTcpMessage>,
     ) -> crate::Result<()> {
+        log::trace!("Received message from server.");
         let message = { message? };
         let msg = self.transformer.transform_incoming(message).await?;
 
@@ -166,12 +189,14 @@ impl ConnectionWorker {
         // Update the state: If awaited, wake up the task. Else, store it.
         let mut state = self.state.lock().await;
         if let Some(tx) = state.awaiting.remove(&msg_id) {
-            tx.send(msg).map_err(|_| {
+            log::trace!("Waking up awaiting task for message ID {}.", msg_id);
+            tx.send(Ok(msg)).map_err(|_| {
                 Error::MessageProcessingError(
                     "Failed to send message to awaiting task.".to_string(),
                 )
             })?;
         } else {
+            log::trace!("Storing message until awaited: {}.", msg_id);
             state.pending.insert(msg_id, msg);
         }
         Ok(())

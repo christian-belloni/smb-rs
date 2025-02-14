@@ -33,39 +33,39 @@ impl NetBiosClient {
 
     /// Connects to a NetBios server in the specified address.
     #[maybe_async]
-    pub async fn connect(&mut self, address: &str) -> Result<(), io::Error> {
+    pub async fn connect(&mut self, address: &str) -> crate::Result<()> {
         self.connection = Some(TcpStream::connect(address).await?);
         Ok(())
     }
 
     /// Sends a NetBios message.
     #[maybe_async]
-    pub async fn send(&mut self, data: NetBiosMessageContent) -> Result<(), crate::Error> {
+    pub async fn send(&mut self, data: NetBiosMessageContent) -> crate::Result<()> {
         let raw_message = NetBiosTcpMessage::from_content(&data)?;
         Ok(self.send_raw(raw_message).await?)
     }
 
     /// Sends a raw byte array of a NetBios message.
     #[maybe_async]
-    pub async fn send_raw(&mut self, data: NetBiosTcpMessage) -> Result<(), crate::Error> {
+    pub async fn send_raw(&mut self, data: NetBiosTcpMessage) -> crate::Result<()> {
         // TODO(?): assert data is a valid and not-too-large NetBios message.
-        self.connection
-            .as_mut()
-            .ok_or(crate::Error::NotConnected)?
-            .write_all(&data.to_bytes()?)
-            .await?;
+        Self::write_all(
+            self.connection.as_mut().ok_or(crate::Error::NotConnected)?,
+            &data.to_bytes()?,
+        )
+        .await?;
 
         Ok(())
     }
 
     // Recieves and parses a NetBios message header, without parsing the message data.
     #[maybe_async]
-    pub async fn recieve_bytes(&mut self) -> Result<NetBiosTcpMessage, crate::Error> {
+    pub async fn recieve_bytes(&mut self) -> crate::Result<NetBiosTcpMessage> {
         let tcp = self.connection.as_mut().ok_or(crate::Error::NotConnected)?;
 
         // Recieve header.
         let mut header_data = vec![0; NetBiosTcpMessageHeader::SIZE];
-        tcp.read_exact(&mut header_data).await?;
+        Self::read_exact(tcp, &mut header_data).await?;
         let header = NetBiosTcpMessageHeader::read(&mut Cursor::new(header_data))?;
 
         if header.stream_protocol_length.value > 2u32.pow(3 * 8) - 1 {
@@ -74,8 +74,34 @@ impl NetBiosClient {
 
         // Recieve message data.
         let mut data = vec![0; header.stream_protocol_length.value as usize];
-        tcp.read_exact(&mut data).await?;
+        Self::read_exact(tcp, &mut data).await?;
 
         Ok(NetBiosTcpMessage { content: data })
+    }
+
+    /// Like an old regular read_exact, but with connection abort handling.
+    #[maybe_async]
+    async fn read_exact(tcp: &mut TcpStream, buf: &mut [u8]) -> crate::Result<()> {
+        tcp.read_exact(buf).await.map_err(Self::map_tcp_error)?;
+        Ok(())
+    }
+
+    /// Like an old regular write_all, but with connection abort handling.
+    #[maybe_async]
+    async fn write_all(tcp: &mut TcpStream, buf: &[u8]) -> crate::Result<()> {
+        tcp.write_all(buf).await.map_err(Self::map_tcp_error)?;
+        Ok(())
+    }
+
+    /// Maps a TCP error to a crate error.
+    /// Connection aborts and unexpected EOFs are mapped to [Error::NotConnected].
+    #[inline]
+    fn map_tcp_error(e: io::Error) -> crate::Error {
+        if e.kind() == io::ErrorKind::ConnectionAborted || e.kind() == io::ErrorKind::UnexpectedEof
+        {
+            crate::Error::NotConnected
+        } else {
+            e.into()
+        }
     }
 }

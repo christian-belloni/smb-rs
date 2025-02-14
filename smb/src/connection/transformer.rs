@@ -107,6 +107,10 @@ impl Transformer {
         if matches!(*pa_hash, Some(PreauthHashState::Finished(_))) {
             return;
         }
+        // Initialize the hash if it's not initialized.
+        if pa_hash.is_none() {
+            *pa_hash = Some(PreauthHashState::default());
+        }
         // Otherwise, update the hash!
         *pa_hash = pa_hash.take().unwrap().next(&raw).into();
     }

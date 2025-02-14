@@ -5,6 +5,7 @@ pub mod transformer;
 pub mod worker;
 
 use crate::packets::guid::Guid;
+use crate::packets::smb2::Message;
 use crate::Error;
 use crate::{
     crypto,
@@ -44,7 +45,7 @@ impl Connection {
     pub async fn connect(&mut self, address: &str) -> crate::Result<()> {
         let mut netbios_client = NetBiosClient::new();
 
-        log::debug!("Connecting to {}, multi-protocol negotiation.", address);
+        log::debug!("Connecting to {}...", address);
         netbios_client.connect(address).await?;
 
         log::info!("Connected to {}. Negotiating.", address);
@@ -70,8 +71,17 @@ impl Connection {
                 .await?;
 
             // 2. Expect SMB2 negotiate response
-            let smb2_response = self.handler.recv(Command::Negotiate).await?;
-            let smb2_negotiate_response = match smb2_response.message.content {
+            let response = netbios_client.recieve_bytes().await?.parse_content()?;
+            let message = match response {
+                NetBiosMessageContent::SMB2Message(Message::Plain(m)) => m,
+                _ => {
+                    return Err(Error::InvalidMessage(
+                        "Expected SMB2 negotiate response, got SMB1".to_string(),
+                    ))
+                }
+            };
+
+            let smb2_negotiate_response = match message.content {
                 Content::NegotiateResponse(response) => Some(response),
                 _ => None,
             }
@@ -85,7 +95,7 @@ impl Connection {
                     "Expected SMB2 wildcard dialect".to_string(),
                 ));
             }
-            if smb2_response.message.header.message_id != 0 {
+            if message.header.message_id != 0 {
                 return Err(Error::InvalidMessage("Expected message ID 0".to_string()));
             }
         }
@@ -250,7 +260,7 @@ impl ClientMessageHandler {
             client_guid: Guid::gen(),
             worker: OnceCell::new(),
             negotiate_state: OnceCell::new(),
-            current_message_id: AtomicU64::new(0),
+            current_message_id: AtomicU64::new(1),
             credits_balance: AtomicU16::new(1), // TODO: Validate!
         }
     }
@@ -287,6 +297,7 @@ impl MessageHandler for ClientMessageHandler {
 
     #[maybe_async]
     async fn recvo(&self, options: ReceiveOptions) -> crate::Result<IncomingMessage> {
+        dbg!(&options);
         let msg = self
             .worker
             .get()
