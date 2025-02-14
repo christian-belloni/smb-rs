@@ -88,6 +88,7 @@ impl Session {
 
         // Set session id.
         *self.handler.session_id.write().await = response.message.header.session_id;
+        self.session_state.lock().await.session_id = response.message.header.session_id;
 
         let mut response = Some(response);
         let mut flags = None;
@@ -140,7 +141,6 @@ impl Session {
                     };
                     let response = self
                         .handler
-                        .upstream
                         .recvo(ReceiveOptions::new().status(expected_status).to(result))
                         .await?;
                     Some(response)
@@ -149,7 +149,7 @@ impl Session {
             };
         }
         log::info!("Session setup complete.");
-
+        // Setup is complete, session is now ready to use.
         SessionState::set_flags(&mut self.session_state, flags.unwrap()).await;
         Ok(())
     }
@@ -162,7 +162,6 @@ impl Session {
         preauth_hash: &PreauthHashValue,
     ) -> crate::Result<()> {
         let state = self.handler.upstream().negotiate_state().unwrap();
-
         SessionState::set(
             &mut self.session_state,
             exchanged_session_key,
@@ -170,8 +169,17 @@ impl Session {
             state,
         )
         .await?;
+        log::trace!("Session signing key set.");
 
-        log::debug!("Session signing key set.");
+        self.handler
+            .upstream()
+            .handler
+            .worker()
+            .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
+            .session_started(self.session_state.clone())
+            .await?;
+        log::trace!("Session inserted into worker.");
+
         Ok(())
     }
 
@@ -252,7 +260,18 @@ impl SessionMessageHandler {
 
         // Reset session ID and keys.
         SessionState::invalidate(&self.session_state).await;
-        *self.session_id.write().await = 0;
+        let session_id = {
+            let mut session_id_ref = self.session_id.write().await;
+            let session_id = *session_id_ref;
+            *session_id_ref = 0;
+            session_id
+        };
+        self.upstream()
+            .handler
+            .worker()
+            .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
+            .session_ended(session_id)
+            .await?;
 
         log::info!("Session logged off.");
 
@@ -302,11 +321,20 @@ impl MessageHandler for SessionMessageHandler {
 
         let incoming = self.upstream.recvo(options).await?;
         // Make sure that it's our session.
-        if incoming.message.header.session_id != 0 {
-            if incoming.message.header.session_id != *self.session_id.read().await {
-                panic!("Received message for different session!");
-            }
+        if incoming.message.header.session_id == 0 {
+            return Err(Error::InvalidMessage(
+                "No session ID in message that got to session!".to_string(),
+            ));
+        } else if incoming.message.header.session_id != *self.session_id.read().await {
+            return Err(Error::InvalidMessage(
+                "Message not for this session!".to_string(),
+            ));
+        } else if !incoming.form.signed && !incoming.form.encrypted {
+            return Err(Error::InvalidMessage(
+                "Message not signed or encrypted!".to_string(),
+            ));
         }
+
         Ok(incoming)
     }
 }

@@ -110,7 +110,8 @@ impl SessionState {
 
     #[maybe_async]
     pub async fn encryption_enabled(state: &Arc<Mutex<Self>>) -> bool {
-        state.lock().await.encryptor.is_some() && state.lock().await.decryptor.is_some()
+        let state = state.lock().await;
+        return state.flags.encrypt_data() && state.encryptor.is_some() && state.decryptor.is_some();
     }
 
     #[maybe_async]

@@ -268,6 +268,10 @@ impl ClientMessageHandler {
     pub fn negotiate_state(&self) -> Option<&NegotiateState> {
         self.negotiate_state.get()
     }
+
+    pub fn worker(&self) -> Option<&Arc<ConnectionWorker>> {
+        self.worker.get()
+    }
 }
 
 impl MessageHandler for ClientMessageHandler {
@@ -297,7 +301,6 @@ impl MessageHandler for ClientMessageHandler {
 
     #[maybe_async]
     async fn recvo(&self, options: ReceiveOptions) -> crate::Result<IncomingMessage> {
-        dbg!(&options);
         let msg = self
             .worker
             .get()

@@ -10,7 +10,7 @@ use crate::{
     compression::*,
     msg_handler::*,
     packets::{netbios::*, smb2::*},
-    session::SessionState,
+    session::{self, SessionState},
 };
 
 use super::{
@@ -25,13 +25,13 @@ pub struct Transformer {
     /// Sessions opened from this connection.
     sessions: Mutex<HashMap<u64, Arc<Mutex<SessionState>>>>,
 
-    config: RwLock<TranformerConfig>,
+    config: RwLock<TransformerConfig>,
 
     preauth_hash: Mutex<Option<PreauthHashState>>,
 }
 
 #[derive(Default, Debug)]
-struct TranformerConfig {
+struct TransformerConfig {
     /// Compressors for this connection.
     compress: Option<(Compressor, Decompressor)>,
 
@@ -42,7 +42,7 @@ impl Transformer {
     /// When the connection is negotiated, this function is called to set up additional transformers,
     /// according to the allowed in the negotiation state.
     #[maybe_async]
-    pub async fn negotiated(&self, neg_state: &NegotiateState) -> Result<(), crate::Error> {
+    pub async fn negotiated(&self, neg_state: &NegotiateState) -> crate::Result<()> {
         {
             let config = self.config.read().await;
             if config.negotiated {
@@ -68,10 +68,7 @@ impl Transformer {
 
     /// Adds the session to the list of active sessions.
     #[maybe_async]
-    pub async fn session_started(
-        &self,
-        session: Arc<Mutex<SessionState>>,
-    ) -> Result<(), crate::Error> {
+    pub async fn session_started(&self, session: Arc<Mutex<SessionState>>) -> crate::Result<()> {
         let rconfig = self.config.read().await;
         if !rconfig.negotiated {
             return Err(crate::Error::InvalidState(
@@ -89,13 +86,20 @@ impl Transformer {
     }
 
     #[maybe_async]
-    pub async fn session_ended(&self, session_id: u64) {
-        self.sessions.lock().await.remove(&session_id);
+    pub async fn session_ended(&self, session_id: u64) -> crate::Result<()> {
+        let s = { self.sessions.lock().await.remove(&session_id) };
+        match s {
+            Some(_) => Ok(()),
+            None => Err(crate::Error::InvalidState("Session not found!".to_string())),
+        }
     }
 
     #[maybe_async]
     #[inline]
     pub async fn session_state(&self, session_id: u64) -> Option<Arc<Mutex<SessionState>>> {
+        if session_id == 0 {
+            return None;
+        }
         self.sessions.lock().await.get(&session_id).cloned()
     }
 
@@ -115,15 +119,26 @@ impl Transformer {
         *pa_hash = pa_hash.take().unwrap().next(&raw).into();
     }
 
-    /// If the preauth hash has finished, returns a copy of it's final value.
-    /// Otherwise, panics.
+    /// Finalizes the preauth hash, if it's not already finalized, and returns the value.
     #[maybe_async]
-    pub async fn finalize_preauth_hash(&self) -> PreauthHashValue {
+    pub async fn finalize_preauth_hash(&self) -> crate::Result<PreauthHashValue> {
         // TODO: Move into preauth hash structure.
-        let pa_hash = self.preauth_hash.lock().await;
-        match *pa_hash {
-            Some(PreauthHashState::Finished(hash)) => hash.clone(),
-            _ => panic!("Preauth hash not finished"),
+
+        let mut pa_hash = self.preauth_hash.lock().await;
+        if let Some(PreauthHashState::Finished(hash)) = &*pa_hash {
+            return Ok(hash.clone());
+        }
+        *pa_hash = pa_hash
+            .take()
+            .ok_or(crate::Error::InvalidState(
+                "Preauth hash not initialized!".to_string(),
+            ))?
+            .finish()
+            .into();
+
+        match &*pa_hash {
+            Some(PreauthHashState::Finished(hash)) => Ok(hash.clone()),
+            _ => panic!("Preauth hash not finished!"),
         }
     }
 
@@ -133,7 +148,7 @@ impl Transformer {
     pub async fn tranform_outgoing(
         &self,
         msg: OutgoingMessage,
-    ) -> Result<NetBiosTcpMessage, crate::Error> {
+    ) -> crate::Result<NetBiosTcpMessage> {
         let should_encrypt = msg.encrypt;
         let should_sign = msg.message.header.flags.signed();
         let set_session_id = msg.message.header.session_id;
@@ -216,7 +231,7 @@ impl Transformer {
     pub async fn transform_incoming(
         &self,
         netbios: NetBiosTcpMessage,
-    ) -> Result<IncomingMessage, crate::Error> {
+    ) -> crate::Result<IncomingMessage> {
         let message = match netbios.parse_content()? {
             NetBiosMessageContent::SMB2Message(message) => Some(message),
             _ => None,
@@ -232,7 +247,6 @@ impl Transformer {
 
         // 3. Decrpt
         let (message, raw) = if let Message::Encrypted(encrypted_message) = &message {
-            form.encrypted = true;
             let session = self
                 .session_state(encrypted_message.header.session_id)
                 .await
@@ -243,6 +257,7 @@ impl Transformer {
                     why: "Session not found for message!",
                 }))?;
             let decryptor = { session.lock().await.decryptor().cloned() };
+            form.encrypted = true;
             match decryptor {
                 Some(mut decryptor) => decryptor.decrypt_message(&encrypted_message)?,
                 None => {
@@ -261,8 +276,8 @@ impl Transformer {
         // 2. Decompress
         debug_assert!(!matches!(message, Message::Encrypted(_)));
         let (message, raw) = if let Message::Compressed(compressed_message) = &message {
-            form.compressed = true;
             let rconfig = self.config.read().await;
+            form.compressed = true;
             match &rconfig.compress {
                 Some(compress) => compress.1.decompress(compressed_message)?,
                 None => {
@@ -284,9 +299,10 @@ impl Transformer {
         };
 
         // 1. Verify signature (if required, according to the spec)
-        if form.encrypted
-            || message.header.message_id == u64::MAX
-            || message.header.status == Status::Pending
+        if !form.encrypted
+            && message.header.message_id != u64::MAX
+            && message.header.status != Status::Pending
+            && message.header.flags.signed()
         {
             let session_id = message.header.session_id;
             let session =
@@ -300,6 +316,7 @@ impl Transformer {
                     }))?;
             let verifier = { session.lock().await.signer().cloned() };
             if let Some(mut verifier) = verifier {
+                form.signed = true;
                 verifier.verify_signature(&mut message.header, &raw)?;
             } else {
                 return Err(crate::Error::TranformFailed(TransformError {
@@ -310,6 +327,8 @@ impl Transformer {
                 }));
             }
         }
+
+        self.step_preauth_hash(&raw).await;
 
         Ok(IncomingMessage { message, raw, form })
     }

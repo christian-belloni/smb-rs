@@ -13,6 +13,7 @@ use tokio::{
 use crate::{
     msg_handler::{IncomingMessage, OutgoingMessage, SendMessageResult},
     packets::netbios::NetBiosTcpMessage,
+    session::SessionState,
     Error,
 };
 
@@ -77,13 +78,23 @@ impl ConnectionWorker {
     }
 
     #[maybe_async]
+    pub async fn session_started(&self, session: Arc<Mutex<SessionState>>) -> crate::Result<()> {
+        self.transformer.session_started(session).await
+    }
+
+    #[maybe_async]
+    pub async fn session_ended(&self, session_id: u64) -> crate::Result<()> {
+        self.transformer.session_ended(session_id).await
+    }
+
+    #[maybe_async]
     pub async fn send(self: &Self, msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         let finalize_preauth_hash = msg.finalize_preauth_hash;
         let id = msg.message.header.message_id;
         let message = { self.transformer.tranform_outgoing(msg).await? };
 
         let hash = match finalize_preauth_hash {
-            true => Some(self.transformer.finalize_preauth_hash().await),
+            true => Some(self.transformer.finalize_preauth_hash().await?),
             false => None,
         };
 
@@ -136,7 +147,6 @@ impl ConnectionWorker {
                 }
                 Err(e) => {
                     log::error!("Error in worker loop: {}", e);
-                    break;
                 }
             }
         }

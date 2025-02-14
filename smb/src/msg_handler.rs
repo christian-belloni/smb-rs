@@ -63,6 +63,7 @@ pub struct IncomingMessage {
 pub struct MessageForm {
     pub compressed: bool,
     pub encrypted: bool,
+    pub signed: bool,
 }
 
 /// Options for receiving a message.
