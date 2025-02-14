@@ -1,9 +1,9 @@
 //! SMB Message signing implementation.
 
 use binrw::prelude::*;
-use std::{error::Error, io::Cursor};
+use std::io::Cursor;
 
-use crate::{crypto, packets::smb2::header::Header};
+use crate::{crypto, packets::smb2::header::Header, Error};
 
 #[derive(Debug)]
 pub struct MessageSigner {
@@ -19,10 +19,10 @@ impl MessageSigner {
         &mut self,
         header: &mut Header,
         raw_data: &Vec<u8>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Error> {
         let calculated_signature = self.calculate_signature(header, raw_data)?;
         if calculated_signature != header.signature {
-            return Err("Signature verification failed".into());
+            return Err(Error::SignatureVerificationFailed);
         }
         log::debug!(
             "Signature verification passed (signature={}).",
@@ -35,7 +35,7 @@ impl MessageSigner {
         &mut self,
         header: &mut Header,
         raw_data: &mut Vec<u8>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Error> {
         debug_assert!(raw_data.len() >= Header::STRUCT_SIZE);
 
         header.signature = self.calculate_signature(header, raw_data)?;
@@ -56,7 +56,7 @@ impl MessageSigner {
         &mut self,
         header: &mut Header,
         raw_data: &Vec<u8>,
-    ) -> Result<u128, Box<dyn Error>> {
+    ) -> Result<u128, Error> {
         // Write header.
         let signture_backup = header.signature;
         header.signature = 0;

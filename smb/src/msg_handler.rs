@@ -1,4 +1,4 @@
-use crate::{connection::preauth_hash::PreauthHashValue, packets::smb2::*};
+use crate::{connection::preauth_hash::PreauthHashValue, packets::smb2::*, Error};
 use maybe_async::*;
 use std::sync::Arc;
 
@@ -119,18 +119,12 @@ pub trait MessageHandler {
     /// Send a message to the server, returning the result.
     /// This must be implemented. Each handler in the chain must call the next handler,
     /// after possibly modifying the message.
-    async fn hsendo(
-        &self,
-        msg: OutgoingMessage,
-    ) -> Result<SendMessageResult, Box<dyn std::error::Error>>;
+    async fn hsendo(&self, msg: OutgoingMessage) -> Result<SendMessageResult, Error>;
 
     /// Receive a message from the server, returning the result.
     /// This must be implemented, and must call the next handler in the chain,
     /// if there is one, using the provided `ReceiveOptions`.
-    async fn hrecvo(
-        &self,
-        options: ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>>;
+    async fn hrecvo(&self, options: ReceiveOptions) -> Result<IncomingMessage, Error>;
 }
 
 /// A templated shared reference to an SMB message handler.
@@ -155,35 +149,23 @@ impl<T: MessageHandler> HandlerReference<T> {
     }
 
     #[maybe_async]
-    pub async fn sendo(
-        &self,
-        msg: OutgoingMessage,
-    ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
+    pub async fn sendo(&self, msg: OutgoingMessage) -> Result<SendMessageResult, Error> {
         self.handler.hsendo(msg).await
     }
 
     #[maybe_async]
-    pub async fn send(
-        &self,
-        msg: Content,
-    ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
+    pub async fn send(&self, msg: Content) -> Result<SendMessageResult, Error> {
         self.sendo(OutgoingMessage::new(PlainMessage::new(msg)))
             .await
     }
 
     #[maybe_async]
-    pub async fn recvo(
-        &self,
-        options: ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+    pub async fn recvo(&self, options: ReceiveOptions) -> Result<IncomingMessage, Error> {
         self.handler.hrecvo(options).await
     }
 
     #[maybe_async]
-    pub async fn recv(
-        &mut self,
-        cmd: Command,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+    pub async fn recv(&mut self, cmd: Command) -> Result<IncomingMessage, Error> {
         self.recvo(ReceiveOptions::new().cmd(Some(cmd))).await
     }
 
@@ -192,7 +174,7 @@ impl<T: MessageHandler> HandlerReference<T> {
         &mut self,
         msg: OutgoingMessage,
         options: ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+    ) -> Result<IncomingMessage, Error> {
         self.sendo(msg).await?;
         self.recvo(options).await
     }
@@ -202,16 +184,13 @@ impl<T: MessageHandler> HandlerReference<T> {
         &mut self,
         msg: Content,
         options: ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+    ) -> Result<IncomingMessage, Error> {
         self.send(msg).await?;
         self.recvo(options).await
     }
 
     #[maybe_async]
-    pub async fn send_recv(
-        &self,
-        msg: Content,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+    pub async fn send_recv(&self, msg: Content) -> Result<IncomingMessage, Error> {
         let cmd = msg.associated_cmd();
         self.send(msg).await?;
         self.recvo(ReceiveOptions::new().cmd(Some(cmd))).await

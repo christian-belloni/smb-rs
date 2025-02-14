@@ -5,6 +5,7 @@ pub mod transformer;
 pub mod worker;
 
 use crate::packets::guid::Guid;
+use crate::Error;
 use crate::{
     crypto,
     msg_handler::*,
@@ -41,7 +42,7 @@ impl Connection {
     }
 
     #[maybe_async]
-    pub async fn connect(&mut self, address: &str) -> Result<(), crate::Error> {
+    pub async fn connect(&mut self, address: &str) -> Result<(), Error> {
         let mut netbios_client = NetBiosClient::new();
 
         log::debug!("Connecting to {}, multi-protocol negotiation.", address);
@@ -58,7 +59,7 @@ impl Connection {
         &mut self,
         mut netbios_client: NetBiosClient,
         negotiate_smb1: bool,
-    ) -> Result<Arc<ConnectionWorker>, crate::Error> {
+    ) -> Result<Arc<ConnectionWorker>, Error> {
         // Multi-protocol negotiation.
         if negotiate_smb1 {
             log::debug!("Negotiating multi-protocol");
@@ -75,18 +76,18 @@ impl Connection {
                 Content::NegotiateResponse(response) => Some(response),
                 _ => None,
             }
-            .ok_or(crate::Error::InvalidMessage(
+            .ok_or(Error::InvalidMessage(
                 "Expected Negotiate response.".to_string(),
             ))?;
 
             // 3. Make sure dialect is smb2*, message ID is 0.
             if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb02Wildcard {
-                return Err(crate::Error::InvalidMessage(
+                return Err(Error::InvalidMessage(
                     "Expected SMB2 wildcard dialect".to_string(),
                 ));
             }
             if smb2_response.message.header.message_id != 0 {
-                return Err(crate::Error::InvalidMessage("Expected message ID 0".to_string()));
+                return Err(Error::InvalidMessage("Expected message ID 0".to_string()));
             }
         }
 
@@ -94,8 +95,14 @@ impl Connection {
     }
 
     #[maybe_async]
-    async fn negotiate_smb2(&mut self) -> Result<(), crate::Error> {
+    async fn negotiate_smb2(&mut self) -> Result<(), Error> {
+        // Confirm that we're not already negotiated.
+        if self.handler.negotiate_state().is_some() {
+            return Err(Error::InvalidState("Already negotiated".into()));
+        }
+
         log::debug!("Negotiating SMB2");
+
         // Send SMB2 negotiate request
         let client_guid = self.handler.client_guid;
         let response = self
@@ -112,34 +119,45 @@ impl Connection {
             Content::NegotiateResponse(response) => Some(response),
             _ => None,
         }
-        .ok_or("Unexpected SMB2 negotiate response")?;
+        .ok_or(Error::InvalidMessage(
+            "Expected Negotiate response.".to_string(),
+        ))?;
 
         // well, only 3.1 is supported for starters.
         if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb0311 {
-            return Err("Unexpected SMB2 dialect revision".into());
+            return Err(Error::UnsupportedDialect(
+                smb2_negotiate_response.dialect_revision,
+            ));
         }
 
         if let None = smb2_negotiate_response.negotiate_context_list {
-            return Err("Negotiate context list is missing".into());
+            return Err(Error::InvalidMessage(
+                "Expected negotiate context list".to_string(),
+            ));
         }
 
-        // TODO: Support non-SMB 3.1.1 dialects. (no contexts)
         let signing_algo: SigningAlgorithmId = smb2_negotiate_response.get_signing_algo().unwrap();
         if !crypto::SIGNING_ALGOS.contains(&signing_algo) {
-            return Err(format!("Unsupported signing algorithm {:?}", signing_algo).into());
+            return Err(Error::NegotiationError(
+                "Unsupported signing algorithm received".into(),
+            ));
         }
 
         // Make sure preauth integrity capability is SHA-512, if it exists in response:
-        if let Some(algos) = smb2_negotiate_response.get_preauth_integrity_algos() {
-            if !algos.contains(&HashAlgorithm::Sha512) {
-                return Err("SHA-512 preauth integrity not supported".into());
+        if let Some(algo) = smb2_negotiate_response.get_preauth_integrity_algo() {
+            if !preauth_hash::SUPPORTED_ALGOS.contains(&algo) {
+                return Err(Error::NegotiationError(
+                    "Unsupported preauth integrity algorithm received".into(),
+                ));
             }
         }
 
         // And verify that the encryption algorithm is supported.
         let encryption_cipher = smb2_negotiate_response.get_encryption_cipher().unwrap();
         if !crypto::ENCRYPTING_ALGOS.contains(&encryption_cipher) {
-            return Err(format!("Unsupported encryption algorithm {:?}", encryption_cipher).into());
+            return Err(Error::NegotiationError(
+                "Unsupported encryption algorithm received".into(),
+            ));
         }
 
         let compression: Option<CompressionCaps> = match smb2_negotiate_response.get_compression() {
@@ -164,10 +182,7 @@ impl Connection {
             &negotiate_state
         );
 
-        self.handler
-            .negotiate_state
-            .set(negotiate_state)
-            .map_err(|_| "Negotiate state already set")?;
+        self.handler.negotiate_state.set(negotiate_state).unwrap();
 
         Ok(())
     }
@@ -178,13 +193,17 @@ impl Connection {
         &mut self,
         netbios_client: NetBiosClient,
         multi_protocol: bool,
-    ) -> Result<(), crate::Error> {
+    ) -> Result<(), Error> {
+        if self.handler.negotiate_state().is_some() {
+            return Err(Error::InvalidState("Already negotiated".into()));
+        }
+
         // Negotiate SMB1, Switch to SMB2
         let worker = self
             .negotiate_switch_to_smb2(netbios_client, multi_protocol)
             .await?;
 
-        self.handler.worker.set(worker)?;
+        self.handler.worker.set(worker).unwrap();
 
         // Negotiate SMB2
         self.negotiate_smb2().await?;
@@ -204,7 +223,7 @@ impl Connection {
         self: &mut Connection,
         user_name: String,
         password: String,
-    ) -> Result<Session, crate::Error> {
+    ) -> Result<Session, Error> {
         let mut session = Session::new(self.handler.clone());
 
         session.setup(user_name, password).await?;
@@ -244,10 +263,7 @@ impl ClientMessageHandler {
 
 impl MessageHandler for ClientMessageHandler {
     #[maybe_async]
-    async fn hsendo(
-        &self,
-        mut msg: OutgoingMessage,
-    ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
+    async fn hsendo(&self, mut msg: OutgoingMessage) -> Result<SendMessageResult, Error> {
         // message id += 1, atomic.
         msg.message.header.message_id = self.current_message_id.fetch_add(1, Ordering::Relaxed);
         // TODO: Add assertion in the struct regarding the selected dialect!
@@ -265,16 +281,13 @@ impl MessageHandler for ClientMessageHandler {
         Ok(self
             .worker
             .get()
-            .ok_or("Worker is uninitialized!")?
+            .ok_or(Error::InvalidState("Worker is uninitialized".into()))?
             .send(msg)
             .await?)
     }
 
     #[maybe_async]
-    async fn hrecvo(
-        &self,
-        options: ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+    async fn hrecvo(&self, options: ReceiveOptions) -> Result<IncomingMessage, Error> {
         let msg = self
             .worker
             .get()
@@ -285,25 +298,24 @@ impl MessageHandler for ClientMessageHandler {
         // Command matching (if needed).
         if let Some(cmd) = options.cmd {
             if msg.message.header.command != cmd {
-                return Err("Unexpected SMB2 command".into());
+                return Err(Error::UnexpectedCommand(msg.message.header.command));
             }
         }
 
         // Direction matching.
         if !msg.message.header.flags.server_to_redir() {
-            return Err("Unexpected SMB2 message direction (Not a response)".into());
+            return Err(Error::InvalidMessage(
+                "Expected server-to-redir message".into(),
+            ));
         }
 
         // Expected status matching.
         if msg.message.header.status != options.status {
-            if let Content::ErrorResponse(error_res) = &msg.message.content {
-                return Err(format!(
-                    "SMB2 error response {:?}: {:?}",
-                    msg.message.header.status, crate::Error_res.error_data
-                )
-                .into());
+            // Return error only if it is unexpected.
+            if let Content::ErrorResponse(error_res) = msg.message.content {
+                return Err(Error::RecievedErrorMessage(error_res));
             }
-            return Err(format!("Unexpected SMB2 status: {:?}", msg.message.header.status).into());
+            return Err(Error::UnexpectedMessageStatus(msg.message.header.status));
         }
 
         // Credits handling. TODO: Make sure how this calculation behaves when error/edge cases.

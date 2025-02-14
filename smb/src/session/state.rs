@@ -1,6 +1,5 @@
 //! Session state
 
-use std::error::Error;
 use std::sync::Arc;
 
 use maybe_async::*;
@@ -12,9 +11,10 @@ use tokio::sync::Mutex;
 use crate::connection::negotiation_state::NegotiateState;
 use crate::connection::preauth_hash::PreauthHashValue;
 use crate::crypto::{
-    kbkdf_hmacsha256, make_encrypting_algo, make_signing_algo, DerivedKey, KeyToDerive,
+    kbkdf_hmacsha256, make_encrypting_algo, make_signing_algo, CryptoError, DerivedKey, KeyToDerive,
 };
 use crate::packets::smb2::{EncryptionCipher, SessionFlags, SigningAlgorithmId};
+use crate::Error;
 
 use super::{MessageDecryptor, MessageEncryptor, MessageSigner};
 
@@ -43,7 +43,7 @@ impl SessionState {
         session_key: &KeyToDerive,
         preauth_hash: &PreauthHashValue,
         negotation_state: &NegotiateState,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Error> {
         let deriver = KeyDeriver::new(session_key, preauth_hash);
         let signer = Self::make_signer(&deriver, negotation_state.signing_algo())?;
         let decryptor = Self::make_decryptor(&deriver, negotation_state.cipher())?;
@@ -60,32 +60,35 @@ impl SessionState {
     fn make_signer(
         deriver: &KeyDeriver,
         signing_algo: SigningAlgorithmId,
-    ) -> Result<MessageSigner, Box<dyn Error>> {
+    ) -> Result<MessageSigner, CryptoError> {
         let signing_key = deriver.derive(Self::SIGNING_KEY_LABEL)?;
-        Ok(MessageSigner::new(
-            make_signing_algo(signing_algo, &signing_key).unwrap(),
-        ))
+        Ok(MessageSigner::new(make_signing_algo(
+            signing_algo,
+            &signing_key,
+        )?))
     }
 
     fn make_encryptor(
         deriver: &KeyDeriver,
         cipher: EncryptionCipher,
-    ) -> Result<MessageEncryptor, Box<dyn Error>> {
+    ) -> Result<MessageEncryptor, CryptoError> {
         let c2s_encryption_key = deriver.derive(Self::C2S_ENCRYPTION_KEY_LABEL)?;
-        Ok(MessageEncryptor::new(
-            make_encrypting_algo(cipher, &c2s_encryption_key).unwrap(),
-        ))
+        Ok(MessageEncryptor::new(make_encrypting_algo(
+            cipher,
+            &c2s_encryption_key,
+        )?))
     }
 
     fn make_decryptor(
         deriver: &KeyDeriver,
         cipher: EncryptionCipher,
-    ) -> Result<MessageDecryptor, Box<dyn Error>> {
+    ) -> Result<MessageDecryptor, CryptoError> {
         let s2c_decryption_key = deriver.derive(Self::S2C_DECRYPTION_KEY_LABEL)?;
 
-        Ok(MessageDecryptor::new(
-            make_encrypting_algo(cipher, &s2c_decryption_key).unwrap(),
-        ))
+        Ok(MessageDecryptor::new(make_encrypting_algo(
+            cipher,
+            &s2c_decryption_key,
+        )?))
     }
 
     #[maybe_async]
@@ -145,7 +148,7 @@ impl<'a> KeyDeriver<'a> {
     }
 
     #[inline]
-    pub fn derive(&self, label: &[u8]) -> Result<DerivedKey, Box<dyn Error>> {
+    pub fn derive(&self, label: &[u8]) -> Result<DerivedKey, CryptoError> {
         kbkdf_hmacsha256::<16>(self.session_key, label, self.preauth_hash)
     }
 }

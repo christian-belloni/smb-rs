@@ -1,4 +1,4 @@
-use crate::packets::smb2::*;
+use crate::{packets::smb2::*, Error};
 use maybe_async::*;
 
 use super::ResourceHandle;
@@ -18,7 +18,7 @@ impl Directory {
     pub async fn query(
         &mut self,
         pattern: &str,
-    ) -> Result<Vec<BothDirectoryInformationItem>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<BothDirectoryInformationItem>, Error> {
         if !self.access.file_list_directory() {
             return Err("No directory list permission".into());
         }

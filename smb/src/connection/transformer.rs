@@ -42,7 +42,7 @@ impl Transformer {
         {
             let config = self.config.read().await;
             if config.negotiated {
-                return Err(crate::Error::InvalidStateError(
+                return Err(crate::Error::InvalidState(
                     "Connection is already negotiated!".into(),
                 ));
             }
@@ -70,7 +70,7 @@ impl Transformer {
     ) -> Result<(), crate::Error> {
         let rconfig = self.config.read().await;
         if !rconfig.negotiated {
-            return Err(crate::Error::InvalidStateError(
+            return Err(crate::Error::InvalidState(
                 "Connection is not negotiated yet!".to_string(),
             ));
         }
@@ -122,7 +122,7 @@ impl Transformer {
                 if let Some(mut signer) = self
                     .session_state(set_session_id)
                     .await
-                    .ok_or(crate::Error::TranformFailedError(TransformError {
+                    .ok_or(crate::Error::TranformFailed(TransformError {
                         outgoing: true,
                         phase: TranformPhase::SignVerify,
                         session_id: Some(set_session_id),
@@ -156,7 +156,7 @@ impl Transformer {
         let data = {
             if msg.encrypt {
                 let session = self.session_state(set_session_id).await.ok_or(
-                    crate::Error::InvalidStateError("Session not found!".to_string()),
+                    crate::Error::InvalidState("Session not found!".to_string()),
                 )?;
                 if let Some(mut encryptor) = session.lock().await.encryptor() {
                     debug_assert!(should_encrypt && !should_sign);
@@ -165,7 +165,7 @@ impl Transformer {
                     Message::Encrypted(encrypted).write(&mut cursor)?;
                     cursor.into_inner()
                 } else {
-                    return Err(crate::Error::TranformFailedError(
+                    return Err(crate::Error::TranformFailed(
                         TransformError {
                             outgoing: true,
                             phase: TranformPhase::EncryptDecrypt,
@@ -191,7 +191,7 @@ impl Transformer {
             NetBiosMessageContent::SMB2Message(message) => Some(message),
             _ => None,
         }
-        .ok_or(crate::Error::TranformFailedError(TransformError {
+        .ok_or(crate::Error::TranformFailed(TransformError {
             outgoing: false,
             phase: TranformPhase::EncodeDecode,
             session_id: None,
@@ -206,7 +206,7 @@ impl Transformer {
             let session = self
                 .session_state(encrypted_message.header.session_id)
                 .await
-                .ok_or(crate::Error::TranformFailedError(TransformError {
+                .ok_or(crate::Error::TranformFailed(TransformError {
                     outgoing: false,
                     phase: TranformPhase::EncryptDecrypt,
                     session_id: Some(encrypted_message.header.session_id),
@@ -216,7 +216,7 @@ impl Transformer {
             match session.decryptor() {
                 Some(decryptor) => decryptor.decrypt_message(&encrypted_message)?,
                 None => {
-                    return Err(crate::Error::TranformFailedError(TransformError {
+                    return Err(crate::Error::TranformFailed(TransformError {
                         outgoing: false,
                         phase: TranformPhase::EncryptDecrypt,
                         session_id: Some(encrypted_message.header.session_id),
@@ -236,7 +236,7 @@ impl Transformer {
             match &rconfig.compress {
                 Some(compress) => compress.1.decompress(compressed_message)?,
                 None => {
-                    return Err(crate::Error::TranformFailedError(TransformError {
+                    return Err(crate::Error::TranformFailed(TransformError {
                         outgoing: false,
                         phase: TranformPhase::CompressDecompress,
                         session_id: None,

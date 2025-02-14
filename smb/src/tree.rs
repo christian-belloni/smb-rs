@@ -1,5 +1,4 @@
 use maybe_async::*;
-use std::error::Error;
 
 #[cfg(feature = "async")]
 use tokio::sync::OnceCell;
@@ -39,7 +38,7 @@ impl Tree {
     }
 
     #[maybe_async]
-    pub async fn connect(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn connect(&mut self) -> Result<(), Error> {
         if self.handler.connect_info().is_some() {
             return Err("Tree connection already established!".into());
         }
@@ -77,12 +76,12 @@ impl Tree {
         file_name: String,
         disposition: CreateDisposition,
         desired_access: FileAccessMask,
-    ) -> Result<Resource, Box<dyn Error>> {
+    ) -> Result<Resource, Error> {
         Ok(Resource::create(file_name, self.handler.clone(), disposition, desired_access).await?)
     }
 
     #[maybe_async]
-    async fn disconnect(&mut self) -> Result<(), Box<dyn Error>> {
+    async fn disconnect(&mut self) -> Result<(), Error> {
         log::debug!("Disconnecting from tree {}", self.name);
 
         if !self.handler.connect_info.initialized() {
@@ -162,7 +161,7 @@ impl MessageHandler for TreeMessageHandler {
     async fn hsendo(
         &self,
         mut msg: crate::msg_handler::OutgoingMessage,
-    ) -> Result<crate::msg_handler::SendMessageResult, Box<dyn std::error::Error>> {
+    ) -> Result<crate::msg_handler::SendMessageResult, Error> {
         msg.message.header.tree_id = match self.connect_info.get() {
             Some(info) => info.tree_id,
             None => 0,
@@ -174,7 +173,7 @@ impl MessageHandler for TreeMessageHandler {
     async fn hrecvo(
         &self,
         options: crate::msg_handler::ReceiveOptions,
-    ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
+    ) -> Result<crate::msg_handler::IncomingMessage, Error> {
         self.upstream.hrecvo(options).await
     }
 }

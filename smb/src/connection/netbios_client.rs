@@ -53,7 +53,7 @@ impl NetBiosClient {
         // TODO(?): assert data is a valid and not-too-large NetBios message.
         self.connection
             .as_mut()
-            .ok_or(crate::Error::NotConnectedError)?
+            .ok_or(crate::Error::NotConnected)?
             .write_all(&data.to_bytes()?)
             .await?;
 
@@ -63,7 +63,7 @@ impl NetBiosClient {
     // Recieves and parses a NetBios message header, without parsing the message data.
     #[maybe_async]
     pub async fn recieve_bytes(&mut self) -> Result<NetBiosTcpMessage, crate::Error> {
-        let tcp = self.connection.as_mut().ok_or(crate::Error::NotConnectedError)?;
+        let tcp = self.connection.as_mut().ok_or(crate::Error::NotConnected)?;
 
         // Recieve header.
         let mut header_data = vec![0; NetBiosTcpMessageHeader::SIZE];

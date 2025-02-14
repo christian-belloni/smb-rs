@@ -7,7 +7,8 @@ use sspi::{
     ClientRequestFlags, CredentialUse, DataRepresentation, InitializeSecurityContextResult, Ntlm,
     OwnedSecurityBuffer, SecurityBuffer, SecurityBufferType, Sspi, SspiImpl,
 };
-use std::error::Error;
+
+use crate::Error;
 
 pub struct GssAuthenticator {
     mech_types_data_sent: Vec<u8>,
@@ -22,7 +23,7 @@ impl GssAuthenticator {
     pub fn build(
         token: &[u8],
         identity: AuthIdentity,
-    ) -> Result<(GssAuthenticator, Vec<u8>), Box<dyn Error>> {
+    ) -> Result<(GssAuthenticator, Vec<u8>), Error> {
         let mut auth_session = Self::parse_inital_context_token(token, identity)?;
         let next_buffer = auth_session.next(None)?;
 
@@ -55,7 +56,7 @@ impl GssAuthenticator {
     fn parse_inital_context_token<'a>(
         token: &'a [u8],
         identity: AuthIdentity,
-    ) -> Result<Box<dyn GssAuthTokenHandler>, Box<dyn Error>> {
+    ) -> Result<Box<dyn GssAuthTokenHandler>, Error> {
         let token = InitialContextToken::from_der(&token)?;
         if token.this_mech != SPENGO_OID {
             return Err("Unexpected mechanism".into());
@@ -81,7 +82,7 @@ impl GssAuthenticator {
         )?))
     }
 
-    pub fn next(&mut self, next_token: &Vec<u8>) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
+    pub fn next(&mut self, next_token: &Vec<u8>) -> Result<Option<Vec<u8>>, Error> {
         match self.auth_session.is_complete()? {
             true => {
                 let mut mic_to_validate = Self::get_mic_from_complete(next_token)?;
@@ -109,11 +110,11 @@ impl GssAuthenticator {
         }
     }
 
-    pub fn is_authenticated(&self) -> Result<bool, Box<dyn Error>> {
+    pub fn is_authenticated(&self) -> Result<bool, Error> {
         return Ok(self.auth_session.is_complete()? && self.server_accepted_auth_valid);
     }
 
-    fn parse_response(token: &[u8]) -> Result<NegTokenResp, Box<dyn Error>> {
+    fn parse_response(token: &[u8]) -> Result<NegTokenResp, Error> {
         let token = NegotiationToken::from_der(token)?;
         match token {
             NegotiationToken::NegTokenResp(token) => Ok(token),
@@ -121,7 +122,7 @@ impl GssAuthenticator {
         }
     }
 
-    fn get_token_from_incomplete(token: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    fn get_token_from_incomplete(token: &[u8]) -> Result<Vec<u8>, Error> {
         let token = Self::parse_response(&token)?;
 
         if token.neg_state != Some(NegState::AcceptIncomplete) {
@@ -138,7 +139,7 @@ impl GssAuthenticator {
         Ok(response_data)
     }
 
-    fn get_mic_from_complete(token: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    fn get_mic_from_complete(token: &[u8]) -> Result<Vec<u8>, Error> {
         let token = Self::parse_response(&token)?;
 
         if token.neg_state != Some(NegState::AcceptCompleted) {
@@ -155,7 +156,7 @@ impl GssAuthenticator {
         Ok(mic_data)
     }
 
-    pub fn session_key(&self) -> Result<[u8; 16], Box<dyn Error>> {
+    pub fn session_key(&self) -> Result<[u8; 16], Error> {
         self.auth_session.session_key()
     }
 
@@ -165,15 +166,15 @@ impl GssAuthenticator {
 }
 
 pub trait GssAuthTokenHandler {
-    fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> Result<Vec<u8>, Box<dyn Error>>;
-    fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>>;
+    fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> Result<Vec<u8>, Error>;
+    fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> Result<Vec<u8>, Error>;
     fn gss_validatemic(
         &mut self,
         buffer: &mut Vec<u8>,
         signature: &mut [u8],
-    ) -> Result<(), Box<dyn Error>>;
-    fn is_complete(&self) -> Result<bool, Box<dyn Error>>;
-    fn session_key(&self) -> Result<[u8; 16], Box<dyn Error>>;
+    ) -> Result<(), Error>;
+    fn is_complete(&self) -> Result<bool, Error>;
+    fn session_key(&self) -> Result<[u8; 16], Error>;
 }
 
 struct NtlmGssAuthSession {
@@ -185,7 +186,7 @@ struct NtlmGssAuthSession {
 }
 
 impl NtlmGssAuthSession {
-    pub fn new(ntlm_config: NtlmConfig, identity: AuthIdentity) -> Result<Self, Box<dyn Error>> {
+    pub fn new(ntlm_config: NtlmConfig, identity: AuthIdentity) -> Result<Self, Error> {
         let mut ntlm = Ntlm::with_config(ntlm_config);
         let acq_cred_result = ntlm
             .acquire_credentials_handle()
@@ -204,7 +205,7 @@ impl NtlmGssAuthSession {
 
 impl GssAuthTokenHandler for NtlmGssAuthSession {
     /// Process the next NTLM token from the server, and return the next token to send to the server.
-    fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> Result<Vec<u8>, Box<dyn Error>> {
+    fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> Result<Vec<u8>, Error> {
         if self.current_state.is_some()
             && self.current_state.as_ref().unwrap().status != sspi::SecurityStatus::ContinueNeeded
         {
@@ -252,7 +253,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
         return Ok(output_buffer.pop().unwrap().buffer);
     }
 
-    fn is_complete(&self) -> Result<bool, Box<dyn Error>> {
+    fn is_complete(&self) -> Result<bool, Error> {
         Ok(self
             .current_state
             .as_ref()
@@ -261,7 +262,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
             == sspi::SecurityStatus::Ok)
     }
 
-    fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>> {
+    fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> Result<Vec<u8>, Error> {
         let data_buffer = SecurityBuffer::with_security_buffer_type(SecurityBufferType::Data)?
             .with_data(buffer)?;
         let mut token_dest = vec![0; 16];
@@ -277,7 +278,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
         &mut self,
         buffer: &mut Vec<u8>,
         signature: &mut [u8],
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Error> {
         let mut ntlm_copy = self.ntlm.clone();
         let data_buffer = SecurityBuffer::with_security_buffer_type(SecurityBufferType::Data)?
             .with_data(buffer)?;
@@ -289,7 +290,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
         Ok(())
     }
 
-    fn session_key(&self) -> Result<[u8; 16], Box<dyn Error>> {
+    fn session_key(&self) -> Result<[u8; 16], Error> {
         self.ntlm
             .session_key()
             .ok_or("No session key for NTLM.".into())

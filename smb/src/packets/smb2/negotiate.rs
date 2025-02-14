@@ -4,6 +4,8 @@ use modular_bitfield::prelude::*;
 use rand::rngs::OsRng;
 use rand::Rng;
 
+use crate::Error;
+
 use super::super::binrw_util::prelude::*;
 use super::super::guid::Guid;
 
@@ -188,14 +190,14 @@ impl NegotiateResponse {
         })
     }
 
-    pub fn get_preauth_integrity_algos(&self) -> Option<&Vec<HashAlgorithm>> {
+    pub fn get_preauth_integrity_algo(&self) -> Option<HashAlgorithm> {
         self.negotiate_context_list.as_ref().and_then(|contexts| {
             contexts
                 .iter()
                 .find_map(|context| match &context.context_type {
                     NegotiateContextType::PreauthIntegrityCapabilities => match &context.data {
                         NegotiateContextValue::PreauthIntegrityCapabilities(caps) => {
-                            Some(caps.hash_algorithms.as_ref())
+                            caps.hash_algorithms.first().copied()
                         }
                         _ => None,
                     },
@@ -259,7 +261,7 @@ pub enum NegotiateDialect {
 }
 
 impl TryFrom<NegotiateDialect> for Dialect {
-    type Error = &'static str;
+    type Error = Error;
 
     fn try_from(value: NegotiateDialect) -> Result<Self, Self::Error> {
         match value {
@@ -268,9 +270,7 @@ impl TryFrom<NegotiateDialect> for Dialect {
             NegotiateDialect::Smb030 => Ok(Dialect::Smb030),
             NegotiateDialect::Smb0302 => Ok(Dialect::Smb0302),
             NegotiateDialect::Smb0311 => Ok(Dialect::Smb0311),
-            _ => {
-                Err("Negotiation Response dialect does not match a single, specific, SMB2 dialect!")
-            }
+            _ => Err(Error::UnsupportedDialect(value)),
         }
     }
 }
@@ -362,7 +362,7 @@ impl NegotiateContextValue {
 }
 
 // u16 enum hash algorithms binrw 0x01 is sha512.
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u16))]
 pub enum HashAlgorithm {
     Sha512 = 0x01,

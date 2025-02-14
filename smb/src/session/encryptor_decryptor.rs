@@ -3,11 +3,11 @@
 use binrw::prelude::*;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use std::{error::Error, io::Cursor};
+use std::io::Cursor;
 
 use crate::{
     crypto,
-    packets::smb2::{encrypted::*, message::Message},
+    packets::smb2::{encrypted::*, message::Message}, Error,
 };
 
 #[derive(Debug)]
@@ -25,7 +25,7 @@ impl MessageEncryptor {
         &mut self,
         mut message: Vec<u8>,
         session_id: u64,
-    ) -> Result<EncryptedMessage, Box<dyn Error>> {
+    ) -> Result<EncryptedMessage, Error> {
         debug_assert!(session_id != 0);
 
         // Serialize message:
@@ -71,7 +71,7 @@ impl MessageDecryptor {
     pub fn decrypt_message(
         &mut self,
         msg_in: &EncryptedMessage,
-    ) -> Result<(Message, Vec<u8>), Box<dyn Error>> {
+    ) -> Result<(Message, Vec<u8>), Error> {
         let mut serialized_message = msg_in.encrypted_message.clone();
         self.algo.decrypt(
             &mut serialized_message,

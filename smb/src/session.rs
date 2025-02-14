@@ -18,7 +18,7 @@ use maybe_async::*;
 use sspi::{AuthIdentity, Secret, Username};
 #[cfg(not(feature = "async"))]
 use std::cell::OnceCell;
-use std::{error::Error, sync::Arc};
+use std::sync::Arc;
 #[cfg(feature = "async")]
 use tokio::sync::{Mutex, OnceCell};
 
@@ -53,7 +53,7 @@ impl Session {
         &mut self,
         user_name: String,
         password: String,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Error> {
         log::debug!("Setting up session for user {}.", user_name);
         // Build the authenticator.
         let (mut authenticator, next_buf) = {
@@ -153,7 +153,7 @@ impl Session {
         &mut self,
         exchanged_session_key: &KeyToDerive,
         preauth_hash: &PreauthHashValue,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Error> {
         let state = self.handler.upstream().negotiate_state().unwrap();
 
         SessionState::set(
@@ -173,14 +173,14 @@ impl Session {
     }
 
     #[maybe_async]
-    pub async fn tree_connect(&mut self, name: String) -> Result<Tree, Box<dyn Error>> {
+    pub async fn tree_connect(&mut self, name: String) -> Result<Tree, Error> {
         let mut tree = Tree::new(name, self.handler.clone());
         tree.connect().await?;
         Ok(tree)
     }
 
     #[maybe_async]
-    async fn logoff(&mut self) -> Result<(), Box<dyn Error>> {
+    async fn logoff(&mut self) -> Result<(), Error> {
         log::debug!("Logging off session.");
 
         let _response = self
@@ -265,7 +265,7 @@ impl MessageHandler for SessionMessageHandler {
     async fn hsendo(
         &self,
         mut msg: OutgoingMessage,
-    ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
+    ) -> Result<SendMessageResult, Error> {
         // Encrypt?
         if self.should_encrypt().await {
             msg.encrypt = true;
@@ -282,7 +282,7 @@ impl MessageHandler for SessionMessageHandler {
     async fn hrecvo(
         &self,
         options: crate::msg_handler::ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
+    ) -> Result<IncomingMessage, Error> {
         let incoming = self.upstream.hrecvo(options).await?;
         // Make sure that it's our session.
         if incoming.message.header.session_id != 0 {

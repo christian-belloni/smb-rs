@@ -1,3 +1,5 @@
+use crate::Error;
+
 use super::*;
 use std::io::prelude::*;
 
@@ -23,7 +25,7 @@ impl File {
     }
 
     #[maybe_async]
-    pub async fn query_info(&self) -> Result<FileBasicInformation, Box<dyn std::error::Error>> {
+    pub async fn query_info(&self) -> Result<FileBasicInformation, Error> {
         let response = self
             .handle
             .send_receive(Content::QueryInfoRequest(QueryInfoRequest {

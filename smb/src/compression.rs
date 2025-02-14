@@ -1,9 +1,10 @@
+///! Implements (de)compression logic.
 use crate::packets::smb2::*;
 use binrw::prelude::*;
 #[cfg(feature = "compress_lz4")]
 use lz4_flex;
-///! Implements (de)compression logic.
 use std::io::Cursor;
+use thiserror::Error;
 
 /// Use this struct to decompress a compressed, received message.
 #[derive(Debug)]
@@ -13,13 +14,13 @@ pub struct Decompressor {
 
 impl<'a> Decompressor {
     pub fn new(caps: &CompressionCaps) -> Decompressor {
-        Decompressor { caps:caps.clone() }
+        Decompressor { caps: caps.clone() }
     }
 
     pub fn decompress(
         &self,
         original: &CompressedMessage,
-    ) -> Result<(Message, Vec<u8>), Box<dyn std::error::Error>> {
+    ) -> Result<(Message, Vec<u8>), CompressionError> {
         let method: Box<dyn CompressionMethod> = match original {
             CompressedMessage::Unchained(_) => Box::new(UnchainedCompression),
             CompressedMessage::Chained(_) => {
@@ -43,13 +44,10 @@ pub struct Compressor {
 
 impl Compressor {
     pub fn new(caps: &CompressionCaps) -> Compressor {
-        Compressor { caps:caps.clone() }
+        Compressor { caps: caps.clone() }
     }
 
-    pub fn compress(
-        &self,
-        bytes: &Vec<u8>,
-    ) -> Result<CompressedMessage, Box<dyn std::error::Error>> {
+    pub fn compress(&self, bytes: &Vec<u8>) -> Result<CompressedMessage, CompressionError> {
         // TODO: Chained.
         UnchainedCompression.compress(bytes, &self.caps.compression_algorithms)
     }
@@ -61,16 +59,13 @@ impl Compressor {
 /// See [self::UnchainedCompression] and [self::ChainedCompression] for the actual implementations.
 /// See algorithms implemented by using the trait [self::CompressionAlgorithmImpl].
 trait CompressionMethod {
-    fn decompress(
-        &self,
-        compressed: &CompressedMessage,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+    fn decompress(&self, compressed: &CompressedMessage) -> Result<Vec<u8>, CompressionError>;
 
     fn compress(
         &self,
         data: &Vec<u8>,
         algorithms: &[CompressionAlgorithm],
-    ) -> Result<CompressedMessage, Box<dyn std::error::Error>>;
+    ) -> Result<CompressedMessage, CompressionError>;
 
     fn get_compression_algorithm(
         &self,
@@ -94,10 +89,7 @@ impl UnchainedCompression {
 }
 
 impl CompressionMethod for UnchainedCompression {
-    fn decompress(
-        &self,
-        compressed: &CompressedMessage,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    fn decompress(&self, compressed: &CompressedMessage) -> Result<Vec<u8>, CompressionError> {
         let compressed = match compressed {
             CompressedMessage::Unchained(c) => c,
             _ => Err("Expected Unchained message")?,
@@ -112,7 +104,7 @@ impl CompressionMethod for UnchainedCompression {
         &self,
         data: &Vec<u8>,
         algorithms: &[CompressionAlgorithm],
-    ) -> Result<CompressedMessage, Box<dyn std::error::Error>> {
+    ) -> Result<CompressedMessage, CompressionError> {
         // Check what algos are supported.
         for algo in Self::ALGORITHM_PRIORITY.iter() {
             if !algorithms.contains(algo) {
@@ -135,10 +127,7 @@ impl CompressionMethod for UnchainedCompression {
 struct ChainedCompression;
 
 impl CompressionMethod for ChainedCompression {
-    fn decompress(
-        &self,
-        compressed: &CompressedMessage,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    fn decompress(&self, compressed: &CompressedMessage) -> Result<Vec<u8>, CompressionError> {
         let compressed = match compressed {
             CompressedMessage::Chained(c) => c,
             _ => Err("Expected Chained message")?,
@@ -178,7 +167,7 @@ impl CompressionMethod for ChainedCompression {
         &self,
         _data: &Vec<u8>,
         _algorithms: &[CompressionAlgorithm],
-    ) -> Result<CompressedMessage, Box<dyn std::error::Error>> {
+    ) -> Result<CompressedMessage, CompressionError> {
         todo!()
     }
 }
@@ -194,10 +183,10 @@ trait CompressionAlgorithmImpl {
         compressed: &Vec<u8>,
         original_size: Option<u32>,
         out: &mut Vec<u8>,
-    ) -> Result<(), Box<dyn std::error::Error>>;
+    ) -> Result<(), CompressionError>;
 
     /// Compress the data into a new buffer.
-    fn compress(&self, data: &Vec<u8>) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+    fn compress(&self, data: &Vec<u8>) -> Result<Vec<u8>, CompressionError>;
 }
 
 pub const SUPPORTED_ALGORITHMS: &[CompressionAlgorithm] = &[
@@ -216,14 +205,14 @@ impl CompressionAlgorithmImpl for NoneCompression {
         compressed: &Vec<u8>,
         original_size: Option<u32>,
         out: &mut Vec<u8>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), CompressionError> {
         debug_assert!(original_size.is_none());
 
         out.extend_from_slice(compressed);
         Ok(())
     }
 
-    fn compress(&self, data: &Vec<u8>) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    fn compress(&self, data: &Vec<u8>) -> Result<Vec<u8>, CompressionError> {
         Ok(data.clone())
     }
 }
@@ -253,7 +242,7 @@ impl CompressionAlgorithmImpl for PatternV1Compression {
         compressed: &Vec<u8>,
         original_size: Option<u32>,
         out: &mut Vec<u8>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), CompressionError> {
         debug_assert!(original_size.is_none());
         assert!(compressed.len() == 8);
         let mut cursor = Cursor::new(&compressed);
@@ -266,7 +255,7 @@ impl CompressionAlgorithmImpl for PatternV1Compression {
         Ok(())
     }
 
-    fn compress(&self, _data: &Vec<u8>) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    fn compress(&self, _data: &Vec<u8>) -> Result<Vec<u8>, CompressionError> {
         todo!()
     }
 }
@@ -281,7 +270,7 @@ impl CompressionAlgorithmImpl for Lz4Compression {
         compressed: &Vec<u8>,
         original_size: Option<u32>,
         out: &mut Vec<u8>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), CompressionError> {
         let start_index = out.len();
         out.resize(start_index + original_size.unwrap() as usize, 0);
 
@@ -293,9 +282,15 @@ impl CompressionAlgorithmImpl for Lz4Compression {
         Ok(())
     }
 
-    fn compress(&self, data: &Vec<u8>) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    fn compress(&self, data: &Vec<u8>) -> Result<Vec<u8>, CompressionError> {
         Ok(lz4_flex::compress(data))
     }
+}
+
+#[derive(Error, Debug)]
+pub enum CompressionError {
+    #[error("Unsupported compression algorithm {0}")]
+    UnsupportedAlgorithm(CompressionAlgorithm),
 }
 
 #[cfg(test)]

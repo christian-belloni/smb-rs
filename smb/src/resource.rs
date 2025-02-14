@@ -1,5 +1,4 @@
 use maybe_async::*;
-use std::error::Error;
 use time::PrimitiveDateTime;
 
 use crate::{
@@ -29,7 +28,7 @@ impl Resource {
         upstream: Upstream,
         create_disposition: CreateDisposition,
         desired_access: FileAccessMask,
-    ) -> Result<Resource, Box<dyn Error>> {
+    ) -> Result<Resource, Error> {
         let response = upstream
             .send_recv(Content::CreateRequest(CreateRequest {
                 requested_oplock_level: OplockLevel::None,
@@ -159,7 +158,7 @@ impl ResourceHandle {
 
     /// Close the handle.
     #[maybe_async]
-    async fn close(&mut self) -> Result<(), Box<dyn Error>> {
+    async fn close(&mut self) -> Result<(), Error> {
         if !self.is_valid() {
             return Err("File ID invalid -- Is this an already closed handle?!".into());
         }
@@ -190,7 +189,7 @@ impl ResourceHandle {
     pub async fn send_receive(
         &self,
         msg: Content,
-    ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
+    ) -> Result<crate::msg_handler::IncomingMessage, Error> {
         self.handler.send_recv(msg).await
     }
 
@@ -245,7 +244,7 @@ impl MessageHandler for MessageHandleHandler {
     async fn hsendo(
         &self,
         msg: crate::msg_handler::OutgoingMessage,
-    ) -> Result<crate::msg_handler::SendMessageResult, Box<dyn std::error::Error>> {
+    ) -> Result<crate::msg_handler::SendMessageResult, Error> {
         self.upstream.hsendo(msg).await
     }
 
@@ -254,7 +253,7 @@ impl MessageHandler for MessageHandleHandler {
     async fn hrecvo(
         &self,
         options: crate::msg_handler::ReceiveOptions,
-    ) -> Result<crate::msg_handler::IncomingMessage, Box<dyn std::error::Error>> {
+    ) -> Result<crate::msg_handler::IncomingMessage, Error> {
         self.upstream.hrecvo(options).await
     }
 }
