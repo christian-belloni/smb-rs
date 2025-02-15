@@ -98,10 +98,9 @@ impl TreeMessageHandler {
 
     #[maybe_async]
     async fn disconnect(&mut self) -> crate::Result<()> {
-        let mut connect_info = self.connect_info.write().await;
-        let connect_info = connect_info.take();
+        let connected = { self.connect_info.read().await.is_some() };
 
-        if !connect_info.is_some() {
+        if !connected {
             return Err(Error::InvalidState(
                 "Tree connection already disconnected!".into(),
             ));
@@ -115,6 +114,8 @@ impl TreeMessageHandler {
                 TreeDisconnectRequest::default(),
             ))
             .await?;
+
+        self.connect_info.write().await.take();
 
         log::info!("Disconnected from tree {}", self.tree_name);
 

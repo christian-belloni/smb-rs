@@ -75,6 +75,7 @@ impl ConnectionWorker {
 
     #[maybe_async]
     pub async fn stop(&self) {
+        log::debug!("Stopping worker.");
         self.token.cancel();
         if let Some(handle) = self.loop_handle.lock().await.take() {
             handle.await.unwrap();
@@ -107,6 +108,11 @@ impl ConnectionWorker {
             false => None,
         };
 
+        log::trace!(
+            "Message with ID {} is passed to the worker for sending.",
+            id
+        );
+
         self.sender.send(message).await.map_err(|_| {
             Error::MessageProcessingError("Failed to send message to worker!".to_string())
         })?;
@@ -123,12 +129,21 @@ impl ConnectionWorker {
             let mut state = self.state.lock().await;
 
             if self.token.is_cancelled() {
+                log::trace!("Connection is closed, avoid receiving.");
                 return Err(Error::NotConnected);
             }
             if state.pending.contains_key(&msg_id) {
+                log::trace!(
+                    "Message with ID {} is already received, remove from pending.",
+                    msg_id
+                );
                 return Ok(state.pending.remove(&msg_id).unwrap());
             }
 
+            log::trace!(
+                "Message with ID {} is not received yet, insert channel and await.",
+                msg_id
+            );
             let (tx, rx) = oneshot::channel();
             state.awaiting.insert(msg_id, tx);
             rx
@@ -146,6 +161,7 @@ impl ConnectionWorker {
         mut netbios_client: NetBiosClient,
         mut rx: mpsc::Receiver<NetBiosTcpMessage>,
     ) {
+        log::debug!("Starting worker loop.");
         let self_ref = self.as_ref();
         loop {
             match self_ref.handle_next_msg(&mut netbios_client, &mut rx).await {
@@ -166,6 +182,7 @@ impl ConnectionWorker {
 
         // Cleanup
         // TODO: Handle cleanup recursively.
+        log::debug!("Cleaning up worker loop.");
         rx.close();
         for (_, tx) in self_ref.state.lock().await.awaiting.drain() {
             tx.send(Err(Error::NotConnected)).unwrap();
@@ -188,12 +205,7 @@ impl ConnectionWorker {
             }
             // Send a message to the server.
             message = send_channel.recv() => {
-                log::trace!("Sending message to server.");
-                let message = {
-                    message.ok_or("Failed to receive message from channel.")
-                    .map_err(|e| Error::MessageProcessingError(e.to_string()))?
-                };
-                netbios_client.send_raw(message).await?;
+                self.loop_handle_outgoing(message, netbios_client).await?;
             },
             // Cancel the loop.
             _ = self.token.cancelled() => {
@@ -228,6 +240,24 @@ impl ConnectionWorker {
             log::trace!("Storing message until awaited: {}.", msg_id);
             state.pending.insert(msg_id, msg);
         }
+        Ok(())
+    }
+
+    #[maybe_async]
+    async fn loop_handle_outgoing(
+        self: &Self,
+        message: Option<NetBiosTcpMessage>,
+        netbios_client: &mut NetBiosClient,
+    ) -> crate::Result<()> {
+        log::trace!("Sending a message to the server.");
+
+        let message = {
+            message
+                .ok_or("Failed to receive message from channel.")
+                .map_err(|e| Error::MessageProcessingError(e.to_string()))?
+        };
+        netbios_client.send_raw(message).await?;
+
         Ok(())
     }
 }

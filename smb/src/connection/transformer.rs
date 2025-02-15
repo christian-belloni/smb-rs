@@ -10,7 +10,7 @@ use crate::{
     compression::*,
     msg_handler::*,
     packets::{netbios::*, smb2::*},
-    session::{self, SessionState},
+    session::SessionState,
 };
 
 use super::{

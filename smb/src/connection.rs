@@ -13,7 +13,7 @@ use crate::{
     packets::{
         netbios::NetBiosMessageContent,
         smb1::SMB1NegotiateMessage,
-        smb2::{header::*, negotiate::*, plain::*},
+        smb2::{negotiate::*, plain::*},
     },
     session::Session,
 };
@@ -60,7 +60,6 @@ impl Connection {
             None => {}
         }
     }
-
 
     #[maybe_async]
     async fn negotiate_switch_to_smb2(

@@ -19,7 +19,7 @@ impl PreauthHashState {
                 let mut hasher = Sha512::new();
                 hasher.update(&hash);
                 hasher.update(data);
-                PreauthHashState::InProgress(dbg!(hasher.finalize().into()))
+                PreauthHashState::InProgress(hasher.finalize().into())
             }
             _ => panic!("Preauth hash not started/already finished."),
         }
