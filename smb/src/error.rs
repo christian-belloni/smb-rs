@@ -56,10 +56,10 @@ pub enum Error {
     #[cfg(feature = "async")]
     #[error("Task join error.")]
     JoinError(#[from] tokio::task::JoinError),
-    #[cfg(not(feature = "async"))]
+    #[cfg(feature = "sync")]
     #[error("Thread join error: {0}")]
     JoinError(String),
-    #[cfg(not(feature = "async"))]
+    #[cfg(feature = "sync")]
     #[error("Channel recv error.")]
     ChannelRecvError(#[from] std::sync::mpsc::RecvError),
 }

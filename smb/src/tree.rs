@@ -154,7 +154,7 @@ impl MessageHandler for TreeMessageHandler {
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(feature = "sync")]
 impl Drop for TreeMessageHandler {
     fn drop(&mut self) {
         self.disconnect()

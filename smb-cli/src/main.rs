@@ -4,7 +4,7 @@ use clap::Parser;
 use maybe_async::*;
 use smb_cli::*;
 
-#[cfg(not(feature = "async"))]
+#[cfg(feature = "sync")]
 fn main() -> Result<(), Box<dyn Error>> {
     _main()
 }

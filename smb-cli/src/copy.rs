@@ -4,7 +4,7 @@ use maybe_async::*;
 use smb::resource::*;
 use std::error::Error;
 
-#[cfg(not(feature = "async"))]
+#[cfg(feature = "sync")]
 use std::{fs, io};
 #[cfg(feature = "async")]
 use tokio::{fs, io::AsyncWriteExt};
@@ -15,7 +15,7 @@ pub struct CopyCmd {
     pub to: Path,
 }
 
-#[sync_impl]
+#[cfg(feature = "sync")]
 fn do_copy(from: File, mut to: fs::File) -> Result<(), Box<dyn Error>> {
     let mut buffered_reader = io::BufReader::with_capacity(32768, from);
     io::copy(&mut buffered_reader, &mut to)?;
@@ -23,7 +23,7 @@ fn do_copy(from: File, mut to: fs::File) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[async_impl]
+#[cfg(feature = "async")]
 async fn do_copy(from: File, mut to: fs::File) -> Result<(), Box<dyn Error>> {
     let buffer = &mut [0u8; 32768];
     let mut pos = 0;

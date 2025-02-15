@@ -236,7 +236,7 @@ impl MessageHandler for MessageHandleHandler {
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(feature = "sync")]
 impl Drop for ResourceHandle {
     fn drop(&mut self) {
         self.close()

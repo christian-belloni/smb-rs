@@ -315,7 +315,7 @@ impl MessageHandler for SessionMessageHandler {
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(feature = "sync")]
 impl Drop for SessionMessageHandler {
     fn drop(&mut self) {
         self.logoff().unwrap_or_else(|e| {

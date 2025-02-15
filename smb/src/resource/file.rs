@@ -210,7 +210,7 @@ impl Seek for File {
     }
 }
 
-#[sync_impl]
+#[cfg(feature = "sync")]
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let read_length = File::read_block(self, buf, self.pos)
@@ -220,7 +220,7 @@ impl Read for File {
     }
 }
 
-#[sync_impl]
+#[cfg(feature = "sync")]
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         File::write(self, buf)

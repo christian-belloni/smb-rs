@@ -1,7 +1,7 @@
 use crate::sync_helpers::*;
 use maybe_async::*;
 use std::{collections::HashMap, sync::Arc};
-#[cfg(not(feature = "async"))]
+#[cfg(feature = "sync")]
 use std::{sync::atomic::AtomicBool, time::Duration};
 #[cfg(feature = "async")]
 use tokio::{select, sync::oneshot};
@@ -30,7 +30,7 @@ pub struct ConnectionWorker {
     #[cfg(feature = "async")]
     /// The loop handle for the worker.
     loop_handle: Mutex<Option<JoinHandle<()>>>,
-    #[cfg(not(feature = "async"))]
+    #[cfg(feature = "sync")]
     /// The loops' handles for the worker.
     loop_handles: Mutex<Option<(JoinHandle<()>, JoinHandle<()>)>>,
 
@@ -40,13 +40,13 @@ pub struct ConnectionWorker {
     #[cfg(feature = "async")]
     sender: mpsc::Sender<NetBiosTcpMessage>,
     /// A channel to send messages to the worker.
-    #[cfg(not(feature = "async"))]
+    #[cfg(feature = "sync")]
     sender: mpsc::Sender<Option<NetBiosTcpMessage>>,
 
     #[cfg(feature = "async")]
     token: CancellationToken,
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(feature = "sync")]
     stopped: AtomicBool,
 }
 
@@ -56,7 +56,7 @@ struct WorkerAwaitState {
     /// Stores the awaiting tasks that are waiting for a specific message ID.
     #[cfg(feature = "async")]
     awaiting: HashMap<u64, oneshot::Sender<crate::Result<IncomingMessage>>>,
-    #[cfg(not(feature = "async"))]
+    #[cfg(feature = "sync")]
     awaiting: HashMap<u64, std::sync::mpsc::Sender<crate::Result<IncomingMessage>>>,
     /// Stores the pending messages, waiting to be receive()-d.
     pending: HashMap<u64, IncomingMessage>,
@@ -64,7 +64,7 @@ struct WorkerAwaitState {
 
 impl ConnectionWorker {
     /// Instantiates a new connection worker.
-    #[async_impl]
+    #[cfg(feature = "async")]
     pub async fn start(netbios_client: NetBiosClient) -> crate::Result<Arc<Self>> {
         // Build the worker
         let (tx, rx) = mpsc::channel(32);
@@ -84,7 +84,7 @@ impl ConnectionWorker {
         Ok(worker)
     }
 
-    #[sync_impl]
+    #[cfg(feature = "sync")]
     pub fn start(netbios_client: NetBiosClient) -> crate::Result<Arc<Self>> {
         // Build the worker
         let (tx, rx) = mpsc::channel();
@@ -115,7 +115,7 @@ impl ConnectionWorker {
         Ok(worker)
     }
 
-    #[async_impl]
+    #[cfg(feature = "async")]
     pub async fn stop(&self) -> crate::Result<()> {
         log::debug!("Stopping worker.");
         self.token.cancel();
@@ -128,7 +128,7 @@ impl ConnectionWorker {
         Ok(())
     }
 
-    #[sync_impl]
+    #[cfg(feature = "sync")]
     pub fn stop(&self) -> crate::Result<()> {
         log::debug!("Stopping worker.");
 
@@ -189,7 +189,7 @@ impl ConnectionWorker {
             id
         );
 
-        #[cfg(not(feature = "async"))]
+        #[cfg(feature = "sync")]
         let message = Some(message);
 
         self.sender.send(message).await.map_err(|_| {
@@ -226,7 +226,7 @@ impl ConnectionWorker {
 
             #[cfg(feature = "async")]
             let (tx, rx) = oneshot::channel();
-            #[cfg(not(feature = "async"))]
+            #[cfg(feature = "sync")]
             let (tx, rx) = mpsc::channel();
 
             state.awaiting.insert(msg_id, tx);
@@ -235,7 +235,7 @@ impl ConnectionWorker {
 
         #[cfg(feature = "async")]
         let wait_result = wait_for_receive.await;
-        #[cfg(not(feature = "async"))]
+        #[cfg(feature = "sync")]
         let wait_result = wait_for_receive.recv();
 
         // Wait for the message to be received.
@@ -249,7 +249,7 @@ impl ConnectionWorker {
         self.token.is_cancelled()
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(feature = "sync")]
     fn is_cancelled(&self) -> bool {
         self.stopped.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -317,7 +317,7 @@ impl ConnectionWorker {
         Ok(())
     }
 
-    #[sync_impl]
+    #[cfg(feature = "sync")]
     fn loop_receive(&self, mut netbios_client: NetBiosClient) {
         debug_assert!(netbios_client.read_timeout().unwrap().is_some());
         while !self.is_cancelled() {
@@ -345,7 +345,7 @@ impl ConnectionWorker {
         }
     }
 
-    #[sync_impl]
+    #[cfg(feature = "sync")]
     fn loop_send(
         &self,
         mut netbios_client: NetBiosClient,
@@ -369,7 +369,7 @@ impl ConnectionWorker {
         }
     }
 
-    #[sync_impl]
+    #[cfg(feature = "sync")]
     #[inline]
     fn loop_send_next(
         &self,

@@ -1,7 +1,7 @@
 use maybe_async::*;
 use std::io::Cursor;
 
-#[cfg(not(feature = "async"))]
+#[cfg(feature = "sync")]
 use std::{
     io::{self, Read, Write},
     net::TcpStream,
@@ -82,7 +82,7 @@ impl NetBiosClient {
 
     /// For synchronous implementations, sets the read timeout for the connection.
     /// This is useful when polling for messages.
-    #[sync_impl]
+    #[cfg(feature = "sync")]
     pub fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> crate::Result<()> {
         self.connection
             .as_ref()
@@ -92,7 +92,7 @@ impl NetBiosClient {
     }
 
     /// For synchronous implementations, gets the read timeout for the connection.
-    #[sync_impl]
+    #[cfg(feature = "sync")]
     pub fn read_timeout(&self) -> crate::Result<Option<std::time::Duration>> {
         self.connection
             .as_ref()
@@ -128,7 +128,7 @@ impl NetBiosClient {
     }
 
     /// Clones the client, returning a new client with the same connection.
-    #[cfg(not(feature = "async"))]
+    #[cfg(feature = "sync")]
     pub(crate) fn try_clone(&self) -> crate::Result<NetBiosClient> {
         Ok(NetBiosClient {
             connection: Some(
