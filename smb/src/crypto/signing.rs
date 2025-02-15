@@ -1,22 +1,22 @@
-use std::{error::Error, fmt::Debug};
-
 use crate::packets::smb2::*;
+
+use super::CryptoError;
 
 type SigningKey = [u8; 16];
 
 pub fn make_signing_algo(
     signing_algorithm: SigningAlgorithmId,
     signing_key: &SigningKey,
-) -> Result<Box<dyn SigningAlgo>, Box<dyn Error>> {
+) -> Result<Box<dyn SigningAlgo>, CryptoError> {
     if !SIGNING_ALGOS.contains(&signing_algorithm) {
-        return Err(format!("Unsupported signing algorithm {:?}", signing_algorithm).into());
+        return Err(CryptoError::UnsupportedAlgorithm);
     }
     match signing_algorithm {
         #[cfg(feature = "sign_cmac")]
         SigningAlgorithmId::AesCmac => Ok(cmac_signer::Cmac128Signer::build(signing_key)?),
         #[cfg(feature = "sign_gmac")]
         SigningAlgorithmId::AesGmac => Ok(gmac_signer::Gmac128Signer::new(signing_key)),
-        _ => Err("Unsupported signing algorithm".into()),
+        _ => Err(CryptoError::UnsupportedAlgorithm),
     }
 }
 
@@ -28,7 +28,7 @@ pub const SIGNING_ALGOS: &[SigningAlgorithmId] = &[
 ];
 
 /// A trait for SMB signing algorithms.
-pub trait SigningAlgo: Debug {
+pub trait SigningAlgo: std::fmt::Debug + Send {
     /// Start a new signing session. This is called before any data is passed to the signer,
     /// and [SigningAlgo::update] must feed the header data to the signer, in addition to this call.
     ///
@@ -46,6 +46,10 @@ pub trait SigningAlgo: Debug {
     ///
     /// This function must be called once per signing session.
     fn finalize(&mut self) -> u128;
+
+    /// Clone the algo into a boxed trait object.
+    /// See [EncryptionAlgo::clone_box](super::encryption::EncryptingAlgo::clone_box) for more information.
+    fn clone_box(&self) -> Box<dyn SigningAlgo>;
 }
 
 #[cfg(feature = "sign_cmac")]
@@ -55,13 +59,13 @@ mod cmac_signer {
     use cmac::Cmac;
     use hmac::Mac;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Cmac128Signer {
         cmac: Option<Cmac<Aes128>>,
     }
 
     impl Cmac128Signer {
-        pub fn build(signing_key: &SigningKey) -> Result<Box<dyn SigningAlgo>, Box<dyn Error>> {
+        pub fn build(signing_key: &SigningKey) -> Result<Box<dyn SigningAlgo>, CryptoError> {
             Ok(Box::new(Cmac128Signer {
                 cmac: Some(Cmac::new_from_slice(signing_key)?),
             }))
@@ -75,6 +79,10 @@ mod cmac_signer {
 
         fn finalize(&mut self) -> u128 {
             u128::from_le_bytes(self.cmac.take().unwrap().finalize().into_bytes().into())
+        }
+
+        fn clone_box(&self) -> Box<dyn SigningAlgo> {
+            Box::new(self.clone())
         }
     }
 }
@@ -96,6 +104,7 @@ mod gmac_signer {
 
     type Gmac128Nonce = [u8; 12];
 
+    #[derive(Clone)]
     pub struct Gmac128Signer {
         gmac: Aes128Gcm,
         nonce: OnceCell<Gmac128Nonce>,
@@ -165,9 +174,13 @@ mod gmac_signer {
                 .unwrap();
             u128::from_le_bytes(result.into())
         }
+
+        fn clone_box(&self) -> Box<dyn SigningAlgo> {
+            Box::new(self.clone())
+        }
     }
 
-    impl Debug for Gmac128Signer {
+    impl std::fmt::Debug for Gmac128Signer {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("Gmac128Signer").finish()
         }

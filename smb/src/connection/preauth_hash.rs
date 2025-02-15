@@ -1,6 +1,10 @@
 use sha2::{Digest, Sha512};
 
+use crate::packets::smb2::HashAlgorithm;
+
 pub type PreauthHashValue = [u8; 64];
+
+pub const SUPPORTED_ALGOS: &[HashAlgorithm] = &[HashAlgorithm::Sha512];
 
 #[derive(Debug, Clone)]
 pub enum PreauthHashState {

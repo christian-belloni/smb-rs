@@ -4,6 +4,8 @@ use modular_bitfield::prelude::*;
 use rand::rngs::OsRng;
 use rand::Rng;
 
+use crate::Error;
+
 use super::super::binrw_util::prelude::*;
 use super::super::guid::Guid;
 
@@ -109,8 +111,8 @@ impl NegotiateRequest {
                 },
                 NegotiateContext {
                     context_type: NegotiateContextType::CompressionCapabilities,
-                    data: NegotiateContextValue::CompressionCapabilities(CompressionCapabilities {
-                        flags: CompressionCapabilitiesFlags::new().with_chained(true),
+                    data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
+                        flags: CompressionCapsFlags::new().with_chained(true),
                         compression_algorithms: crate::compression::SUPPORTED_ALGORITHMS
                             .iter()
                             .copied()
@@ -188,14 +190,14 @@ impl NegotiateResponse {
         })
     }
 
-    pub fn get_preauth_integrity_algos(&self) -> Option<&Vec<HashAlgorithm>> {
+    pub fn get_preauth_integrity_algo(&self) -> Option<HashAlgorithm> {
         self.negotiate_context_list.as_ref().and_then(|contexts| {
             contexts
                 .iter()
                 .find_map(|context| match &context.context_type {
                     NegotiateContextType::PreauthIntegrityCapabilities => match &context.data {
                         NegotiateContextValue::PreauthIntegrityCapabilities(caps) => {
-                            Some(caps.hash_algorithms.as_ref())
+                            caps.hash_algorithms.first().copied()
                         }
                         _ => None,
                     },
@@ -204,13 +206,29 @@ impl NegotiateResponse {
         })
     }
 
-    pub fn get_compression(&self) -> Option<&CompressionCapabilities> {
+    pub fn get_compression(&self) -> Option<&CompressionCaps> {
         self.negotiate_context_list.as_ref().and_then(|contexts| {
             contexts
                 .iter()
                 .find_map(|context| match &context.context_type {
                     NegotiateContextType::CompressionCapabilities => match &context.data {
                         NegotiateContextValue::CompressionCapabilities(caps) => Some(caps),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+        })
+    }
+
+    pub fn get_encryption_cipher(&self) -> Option<EncryptionCipher> {
+        self.negotiate_context_list.as_ref().and_then(|contexts| {
+            contexts
+                .iter()
+                .find_map(|context| match &context.context_type {
+                    NegotiateContextType::EncryptionCapabilities => match &context.data {
+                        NegotiateContextValue::EncryptionCapabilities(caps) => {
+                            caps.ciphers.first().copied()
+                        }
                         _ => None,
                     },
                     _ => None,
@@ -243,7 +261,7 @@ pub enum NegotiateDialect {
 }
 
 impl TryFrom<NegotiateDialect> for Dialect {
-    type Error = &'static str;
+    type Error = Error;
 
     fn try_from(value: NegotiateDialect) -> Result<Self, Self::Error> {
         match value {
@@ -252,9 +270,7 @@ impl TryFrom<NegotiateDialect> for Dialect {
             NegotiateDialect::Smb030 => Ok(Dialect::Smb030),
             NegotiateDialect::Smb0302 => Ok(Dialect::Smb0302),
             NegotiateDialect::Smb0311 => Ok(Dialect::Smb0311),
-            _ => {
-                Err("Negotiation Response dialect does not match a single, specific, SMB2 dialect!")
-            }
+            _ => Err(Error::UnsupportedDialect(value)),
         }
     }
 }
@@ -297,7 +313,7 @@ pub enum NegotiateContextValue {
     #[br(pre_assert(context_type == &NegotiateContextType::EncryptionCapabilities))]
     EncryptionCapabilities(EncryptionCapabilities),
     #[br(pre_assert(context_type == &NegotiateContextType::CompressionCapabilities))]
-    CompressionCapabilities(CompressionCapabilities),
+    CompressionCapabilities(CompressionCaps),
     #[br(pre_assert(context_type == &NegotiateContextType::NetnameNegotiateContextId))]
     NetnameNegotiateContextId(NetnameNegotiateContextId),
     #[br(pre_assert(context_type == &NegotiateContextType::TransportCapabilities))]
@@ -346,7 +362,7 @@ impl NegotiateContextValue {
 }
 
 // u16 enum hash algorithms binrw 0x01 is sha512.
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u16))]
 pub enum HashAlgorithm {
     Sha512 = 0x01,
@@ -384,13 +400,13 @@ pub enum EncryptionCipher {
 }
 
 #[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-pub struct CompressionCapabilities {
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CompressionCaps {
     #[bw(try_calc(u16::try_from(compression_algorithms.len())))]
     compression_algorithm_count: u16,
     #[bw(calc = 0)]
     _padding: u16,
-    pub flags: CompressionCapabilitiesFlags,
+    pub flags: CompressionCapsFlags,
     #[br(count = compression_algorithm_count)]
     pub compression_algorithms: Vec<CompressionAlgorithm>,
 }
@@ -419,10 +435,24 @@ impl CompressionAlgorithm {
     }
 }
 
+impl std::fmt::Display for CompressionAlgorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message_as_string = match self {
+            CompressionAlgorithm::None => "None",
+            CompressionAlgorithm::LZNT1 => "LZNT1",
+            CompressionAlgorithm::LZ77 => "LZ77",
+            CompressionAlgorithm::LZ77Huffman => "LZ77+Huffman",
+            CompressionAlgorithm::PatternV1 => "PatternV1",
+            CompressionAlgorithm::LZ4 => "LZ4",
+        };
+        write!(f, "{} ({:#x})", message_as_string, *self as u16)
+    }
+}
+
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct CompressionCapabilitiesFlags {
+pub struct CompressionCapsFlags {
     pub chained: bool,
     #[skip]
     __: B31,
@@ -478,7 +508,7 @@ pub enum SigningAlgorithmId {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use time::macros::datetime;
 
     use super::*;
@@ -564,8 +594,8 @@ pub mod tests {
                         transforms: vec![0x0001, 0x0002]
                     })
                     .into(),
-                    NegotiateContextValue::CompressionCapabilities(CompressionCapabilities {
-                        flags: CompressionCapabilitiesFlags::new().with_chained(true),
+                    NegotiateContextValue::CompressionCapabilities(CompressionCaps {
+                        flags: CompressionCapsFlags::new().with_chained(true),
                         compression_algorithms: vec![
                             CompressionAlgorithm::LZ77,
                             CompressionAlgorithm::PatternV1

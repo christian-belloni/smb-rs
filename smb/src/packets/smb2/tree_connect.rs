@@ -144,7 +144,7 @@ pub struct TreeDisconnectResponse {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use std::io::Cursor;
 
     use crate::packets::smb2::*;

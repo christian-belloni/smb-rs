@@ -3,7 +3,7 @@
 use binrw::prelude::*;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use std::{error::Error, io::Cursor};
+use std::io::Cursor;
 
 use crate::{
     crypto,
@@ -25,7 +25,7 @@ impl MessageEncryptor {
         &mut self,
         mut message: Vec<u8>,
         session_id: u64,
-    ) -> Result<EncryptedMessage, Box<dyn Error>> {
+    ) -> crate::Result<EncryptedMessage> {
         debug_assert!(session_id != 0);
 
         // Serialize message:
@@ -58,6 +58,14 @@ impl MessageEncryptor {
     }
 }
 
+impl Clone for MessageEncryptor {
+    fn clone(&self) -> Self {
+        MessageEncryptor {
+            algo: self.algo.clone_box(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct MessageDecryptor {
     algo: Box<dyn crypto::EncryptingAlgo>,
@@ -71,7 +79,7 @@ impl MessageDecryptor {
     pub fn decrypt_message(
         &mut self,
         msg_in: &EncryptedMessage,
-    ) -> Result<(Message, Vec<u8>), Box<dyn Error>> {
+    ) -> crate::Result<(Message, Vec<u8>)> {
         let mut serialized_message = msg_in.encrypted_message.clone();
         self.algo.decrypt(
             &mut serialized_message,
@@ -84,5 +92,13 @@ impl MessageDecryptor {
 
         log::debug!("Decrypted with signature {}", msg_in.header.signature);
         Ok((result, serialized_message))
+    }
+}
+
+impl Clone for MessageDecryptor {
+    fn clone(&self) -> Self {
+        MessageDecryptor {
+            algo: self.algo.clone_box(),
+        }
     }
 }

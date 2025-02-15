@@ -22,7 +22,7 @@ pub struct ErrorResponse {
     _byte_count: PosMarker<u32>,
 
     #[br(count = _error_context_count)]
-    error_data: Vec<ErrorResponseContext>,
+    pub error_data: Vec<ErrorResponseContext>,
 }
 
 #[binrw::binrw]
@@ -48,7 +48,7 @@ pub enum ErrorId {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use crate::packets::smb2::*;
 
     use super::*;

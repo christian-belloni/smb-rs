@@ -10,22 +10,24 @@ use ccm::{
     consts::{U11, U16},
     Ccm, KeyInit, KeySizeUser,
 };
-use std::{error::Error, fmt::Debug};
+use std::fmt::Debug;
 
 use crate::packets::smb2::*;
+
+use super::CryptoError;
 
 pub struct EncryptionResult {
     pub signature: u128,
 }
 
-pub trait EncryptingAlgo: Debug {
+pub trait EncryptingAlgo: Debug + Send {
     /// Algo-specific encryption function.
     fn encrypt(
         &mut self,
         payload: &mut [u8],
         header_data: &[u8],
         nonce: &EncryptionNonce,
-    ) -> Result<EncryptionResult, Box<dyn Error>>;
+    ) -> Result<EncryptionResult, CryptoError>;
 
     /// Algo-specific decryption function.
     fn decrypt(
@@ -34,7 +36,7 @@ pub trait EncryptingAlgo: Debug {
         header_data: &[u8],
         nonce: &EncryptionNonce,
         signature: u128,
-    ) -> Result<(), Box<dyn Error>>;
+    ) -> Result<(), CryptoError>;
 
     /// Returns the size of the nonce required by the encryption algorithm.
     fn nonce_size(&self) -> usize;
@@ -46,6 +48,13 @@ pub trait EncryptingAlgo: Debug {
         debug_assert!(nonce[self.nonce_size()..].iter().all(|&x| x == 0));
         &nonce[..self.nonce_size()]
     }
+
+    /// Clone the algo into a boxed trait object.
+    /// 
+    /// This method is added to allow cloning the trait object, and allow cloning it's users,
+    /// to enable multi-threaded access to the same encryption algorithm:
+    /// Some of the algorithms are only mutable, and can't be shared between threads.
+    fn clone_box(&self) -> Box<dyn EncryptingAlgo>;
 }
 
 pub const ENCRYPTING_ALGOS: &[EncryptionCipher] = &[
@@ -58,24 +67,21 @@ pub const ENCRYPTING_ALGOS: &[EncryptionCipher] = &[
 pub fn make_encrypting_algo(
     encrypting_algorithm: EncryptionCipher,
     encrypting_key: &[u8],
-) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
+) -> Result<Box<dyn EncryptingAlgo>, CryptoError> {
     if !ENCRYPTING_ALGOS.contains(&encrypting_algorithm) {
-        return Err(format!(
-            "Unsupported encrypting algorithm {:?}",
-            encrypting_algorithm
-        )
-        .into());
+        return Err(CryptoError::UnsupportedAlgorithm);
     }
     match encrypting_algorithm {
         #[cfg(feature = "encrypt_aes128ccm")]
         EncryptionCipher::Aes128Ccm => Ok(CcmEncryptor::<Aes128>::build(encrypting_key.into())?),
         #[cfg(feature = "encrypt_aes256ccm")]
         EncryptionCipher::Aes256Ccm => Ok(CcmEncryptor::<Aes256>::build(encrypting_key.into())?),
-        _ => Err("Unsupported encrypting algorithm".into()),
+        _ => Err(CryptoError::UnsupportedAlgorithm),
     }
 }
 
 #[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
+#[derive(Clone)]
 pub struct CcmEncryptor<C>
 where
     C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt,
@@ -86,11 +92,17 @@ where
 #[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 impl<C> CcmEncryptor<C>
 where
-    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + KeyInit + 'static,
+    C: BlockCipher
+        + BlockSizeUser<BlockSize = U16>
+        + BlockEncrypt
+        + KeyInit
+        + Send
+        + Clone
+        + 'static,
 {
     fn build(
         encrypting_key: &GenericArray<u8, <C as KeySizeUser>::KeySize>,
-    ) -> Result<Box<dyn EncryptingAlgo>, Box<dyn Error>> {
+    ) -> Result<Box<dyn EncryptingAlgo>, CryptoError> {
         Ok(Box::new(Self {
             cipher: Ccm::<C, U16, U11>::new_from_slice(encrypting_key)?,
         }))
@@ -100,14 +112,14 @@ where
 #[cfg(any(feature = "encrypt_aes128ccm", feature = "encrypt_aes256ccm"))]
 impl<C> EncryptingAlgo for CcmEncryptor<C>
 where
-    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt,
+    C: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + Send + Clone + 'static,
 {
     fn encrypt(
         &mut self,
         payload: &mut [u8],
         header_data: &[u8],
         nonce: &EncryptionNonce,
-    ) -> Result<EncryptionResult, Box<dyn Error>> {
+    ) -> Result<EncryptionResult, CryptoError> {
         let nonce = GenericArray::from_slice(self.trim_nonce(nonce));
         let signature = self
             .cipher
@@ -124,7 +136,7 @@ where
         header_data: &[u8],
         nonce: &EncryptionNonce,
         signature: u128,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), CryptoError> {
         let nonce = GenericArray::from_slice(self.trim_nonce(nonce));
         self.cipher.decrypt_in_place_detached(
             nonce,
@@ -138,6 +150,10 @@ where
 
     fn nonce_size(&self) -> usize {
         11
+    }
+
+    fn clone_box(&self) -> Box<dyn EncryptingAlgo> {
+        Box::new(self.clone())
     }
 }
 

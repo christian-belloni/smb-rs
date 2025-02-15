@@ -5,8 +5,15 @@ edition = "2021"
 
 [dependencies]
 smb = { path = "../smb" }
+maybe-async = "0.2"
+tokio = { version = "1.43", optional = true, features = ["full"] }
 
 # CLI & logging
 clap = { version = "4.5.27", features = ["derive"] }
 env_logger = "0.11.6"
 log = "0.4.22"
+
+[features]
+default = []
+async = ["smb/async", "dep:tokio"]
+sync = ["smb/sync", "maybe-async/is_sync"]

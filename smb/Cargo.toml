@@ -17,11 +17,14 @@ der = {version = "0.7.9", features = ["std", "alloc"]}
 
 # Async
 tokio = { version = "1.43", optional = true, features = ["full"] }
+tokio-util = { version = "0.7", optional = true }
+maybe-async = "0.2"
 
 # General utils
 rand = "0.8.5"
 log = "0.4.22"
 time = {version = "0.3.37", features = ["macros"]}
+thiserror = "2.0"
 
 # APIs
 sspi = { version = "0.15.1" }
@@ -31,10 +34,12 @@ gss-api = {version = "0.1.0", features = []}
 hmac = "0.12.1"
 sha2 = "0.10.8"
 rust-kbkdf = {version = "1.0.1"}
+crypto-common = {version = "0.1"}
 aes = "0.8.4"
 aes-gcm = {version = "0.10.3", features = ["std"], optional = true}
 cmac = {version = "0.7.2", optional = true}
 ccm = {version = "0.5.0", optional = true}
+aead = {version = "0.5", optional = true}
 
 # Compression
 lz4_flex = { version = "0.11", default-features = false, features = ["std"], optional = true }
@@ -43,7 +48,8 @@ lz4_flex = { version = "0.11", default-features = false, features = ["std"], opt
 default = ["sign", "encrypt", "compress"]
 
 # Async
-async = ["dep:tokio"]
+async = ["dep:tokio", "dep:tokio-util"]
+sync = ["maybe-async/is_sync"]
 
 # Compression
 compress_pattern_v1 = []
@@ -51,8 +57,8 @@ compress_lz4 = ["dep:lz4_flex"]
 compress = ["compress_pattern_v1", "compress_lz4"]
 
 # Encryption
-encrypt_aes128ccm = ["dep:ccm"]
-encrypt_aes256ccm = ["dep:ccm"]
+encrypt_aes128ccm = ["dep:ccm", "dep:aead"]
+encrypt_aes256ccm = ["dep:ccm", "dep:aead"]
 encrypt_aesccm = ["encrypt_aes128ccm", "encrypt_aes256ccm"]
 encrypt = ["encrypt_aesccm"] 
 

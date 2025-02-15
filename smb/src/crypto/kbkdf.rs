@@ -1,13 +1,17 @@
-use std::error::Error;
-
-use aes::cipher::typenum;
+use aes::cipher::{typenum, InvalidLength};
 use hmac::{Hmac, Mac};
 use rust_kbkdf::{
     kbkdf, CounterMode, InputType, KDFMode, PseudoRandomFunction, PseudoRandomFunctionKey,
     SpecifiedInput,
 };
 use sha2::Sha256;
+
+use super::CryptoError;
 type HmacSha256 = Hmac<Sha256>;
+
+/// The type of derived keys for SMB2, outputting from kbkdf.
+pub type DerivedKey = [u8; 16];
+pub type KeyToDerive = [u8; 16];
 
 /// Key-based key derivation function using HMAC-SHA256.
 /// SP108-800-CTR-HMAC-SHA256; L*8 bits; 32-bit counter.
@@ -15,10 +19,10 @@ type HmacSha256 = Hmac<Sha256>;
 /// # Arguments
 /// * `L` - The length of the output key, IN BYTES.
 pub fn kbkdf_hmacsha256<const L: usize>(
-    key: &[u8; 16],
+    key: &KeyToDerive,
     label: &[u8],
     context: &[u8],
-) -> Result<[u8; L], Box<dyn Error>> {
+) -> Result<[u8; L], CryptoError> {
     assert!(L % 8 == 0);
 
     let key = HmacSha256KeyHandle { key: key.clone() };
@@ -35,11 +39,11 @@ pub fn kbkdf_hmacsha256<const L: usize>(
 }
 
 struct HmacSha256KeyHandle {
-    key: [u8; 16],
+    key: KeyToDerive,
 }
 
 impl PseudoRandomFunctionKey for HmacSha256KeyHandle {
-    type KeyHandle = [u8; 16];
+    type KeyHandle = KeyToDerive;
 
     fn key_handle(&self) -> &Self::KeyHandle {
         &self.key
@@ -52,18 +56,18 @@ struct HmacSha256Prf {
 }
 
 impl PseudoRandomFunction<'_> for HmacSha256Prf {
-    type KeyHandle = [u8; 16];
+    type KeyHandle = KeyToDerive;
 
     type PrfOutputSize = typenum::U32;
 
-    type Error = String;
+    type Error = InvalidLength;
 
     fn init(
         &mut self,
         key: &'_ dyn PseudoRandomFunctionKey<KeyHandle = Self::KeyHandle>,
     ) -> Result<(), Self::Error> {
         assert!(self.hmac.is_none());
-        self.hmac = Some(HmacSha256::new_from_slice(key.key_handle()).unwrap());
+        self.hmac = Some(HmacSha256::new_from_slice(key.key_handle())?);
         Ok(())
     }
 

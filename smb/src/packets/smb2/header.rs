@@ -25,6 +25,33 @@ pub enum Command {
     OplockBreak = 0x12,
 }
 
+impl std::fmt::Display for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message_as_string = match self {
+            Command::Negotiate => "Negotiate",
+            Command::SessionSetup => "Session Setup",
+            Command::Logoff => "Logoff",
+            Command::TreeConnect => "Tree Connect",
+            Command::TreeDisconnect => "Tree Disconnect",
+            Command::Create => "Create",
+            Command::Close => "Close",
+            Command::Flush => "Flush",
+            Command::Read => "Read",
+            Command::Write => "Write",
+            Command::Lock => "Lock",
+            Command::Ioctl => "Ioctl",
+            Command::Cancel => "Cancel",
+            Command::Echo => "Echo",
+            Command::QueryDirectory => "Query Directory",
+            Command::ChangeNotify => "Change Notify",
+            Command::QueryInfo => "Query Info",
+            Command::SetInfo => "Set Info",
+            Command::OplockBreak => "Oplock Break",
+        };
+        write!(f, "{} ({:#x})", message_as_string, *self as u16)
+    }
+}
+
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u32))]
@@ -58,6 +85,43 @@ pub enum Status {
     UserSessionDeleted = 0xC0000203,
     NetworkSessionExpired = 0xC000035C,
     SmbTooManyUids = 0xC000205A,
+}
+
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message_as_string = match self {
+            Status::Success => "Success",
+            Status::Pending => "Pending",
+            Status::InvalidSmb => "Invalid SMB",
+            Status::SmbBadTid => "SMB Bad TID",
+            Status::SmbBadCommand => "SMB Bad Command",
+            Status::SmbBadUid => "SMB Bad UID",
+            Status::SmbUseStandard => "SMB Use Standard",
+            Status::BufferOverflow => "Buffer Overflow",
+            Status::NoMoreFiles => "No More Files",
+            Status::StoppedOnSymlink => "Stopped on Symlink",
+            Status::NotImplemented => "Not Implemented",
+            Status::InvalidParameter => "Invalid Parameter",
+            Status::NoSuchDevice => "No Such Device",
+            Status::InvalidDeviceRequest0 => "Invalid Device Request",
+            Status::EndOfFile => "End of File",
+            Status::MoreProcessingRequired => "More Processing Required",
+            Status::AccessDenied => "Access Denied",
+            Status::BufferTooSmall => "Buffer Too Small",
+            Status::ObjectNameNotFound => "Object Name Not Found",
+            Status::ObjectNameCollision => "Object Name Collision",
+            Status::ObjectPathNotFound => "Object Path Not Found",
+            Status::BadImpersonationLevel => "Bad Impersonation Level",
+            Status::IoTimeout => "I/O Timeout",
+            Status::FileIsADirectory => "File is a Directory",
+            Status::NotSupported => "Not Supported",
+            Status::NetworkNameDeleted => "Network Name Deleted",
+            Status::UserSessionDeleted => "User Session Deleted",
+            Status::NetworkSessionExpired => "Network Session Expired",
+            Status::SmbTooManyUids => "SMB Too Many UIDs",
+        };
+        write!(f, "{} ({:#x})", message_as_string, *self as u32)
+    }
 }
 
 #[binrw::binrw]

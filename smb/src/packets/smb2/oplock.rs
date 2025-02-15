@@ -89,7 +89,7 @@ pub type LeaseBreakAck = LeaseBreakAckResponse;
 pub type LeaseBreakResponse = LeaseBreakAckResponse;
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use crate::packets::smb2::*;
     use std::io::Cursor;
 

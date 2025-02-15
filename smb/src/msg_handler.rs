@@ -1,18 +1,10 @@
-use std::{cell::RefCell, rc::Rc};
-
-use crate::{
-    connection::preauth_hash::PreauthHashValue,
-    packets::smb2::*,
-    session::{MessageDecryptor, MessageEncryptor, MessageSigner},
-};
+use crate::{connection::preauth_hash::PreauthHashValue, packets::smb2::*};
+use maybe_async::*;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct OutgoingMessage {
     pub message: PlainMessage,
-
-    // signing and encryption information
-    pub signer: Option<MessageSigner>,
-    pub encryptor: Option<MessageEncryptor>,
 
     /// Whether to finalize the preauth hash after sending this message.
     /// If this is set to true twice per connection, an error will be thrown.
@@ -20,29 +12,40 @@ pub struct OutgoingMessage {
 
     /// Ask the sender to compress the message before sending, if possible.
     pub compress: bool,
+    /// Ask the sender to encrypt the message before sending, if possible.
+    pub encrypt: bool,
+    // Signing is set through message/header/flags/signed.
+    /// Whether this request also expects a response.
+    /// This value defaults to true.
+    pub has_response: bool,
 }
 
 impl OutgoingMessage {
     pub fn new(message: PlainMessage) -> OutgoingMessage {
         OutgoingMessage {
             message,
-            signer: None,
-            encryptor: None,
             finalize_preauth_hash: false,
             compress: true,
+            encrypt: false,
+            has_response: true,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct SendMessageResult {
+    // The message ID for the sent message.
+    pub msgid: u64,
     // If finalized, this is set.
     pub preauth_hash: Option<PreauthHashValue>,
 }
 
 impl SendMessageResult {
-    pub fn new(preauth_hash: Option<PreauthHashValue>) -> SendMessageResult {
-        SendMessageResult { preauth_hash }
+    pub fn new(msgid: u64, preauth_hash: Option<PreauthHashValue>) -> SendMessageResult {
+        SendMessageResult {
+            msgid,
+            preauth_hash,
+        }
     }
 }
 
@@ -60,6 +63,7 @@ pub struct IncomingMessage {
 pub struct MessageForm {
     pub compressed: bool,
     pub encrypted: bool,
+    pub signed: bool,
 }
 
 /// Options for receiving a message.
@@ -82,8 +86,9 @@ pub struct ReceiveOptions {
     /// If set, this command will be checked against the received command.
     pub cmd: Option<Command>,
 
-    // If decryption is required, this will be set.
-    pub decryptor: Option<MessageDecryptor>,
+    /// When receiving a message, only messages with this msgid will be returned.
+    /// This is mostly used for async message handling, where the client is waiting for a specific message.
+    pub msgid_filter: u64,
 }
 
 impl ReceiveOptions {
@@ -100,6 +105,12 @@ impl ReceiveOptions {
         self.cmd = cmd;
         self
     }
+
+    // A matching message ID to the sent message.
+    pub fn to(mut self, sent: SendMessageResult) -> Self {
+        self.msgid_filter = sent.msgid;
+        self
+    }
 }
 
 impl Default for ReceiveOptions {
@@ -107,29 +118,66 @@ impl Default for ReceiveOptions {
         ReceiveOptions {
             status: Status::Success,
             cmd: None,
-            decryptor: None,
+            msgid_filter: 0,
         }
     }
 }
 
 /// Chain-of-responsibility pattern trait for handling SMB messages
 /// outgoing from the client or incoming from the server.
+#[maybe_async(AFIT)]
+#[allow(async_fn_in_trait)] // We need `async`-ed trait functions for the #[maybe_async] macro.
 pub trait MessageHandler {
     /// Send a message to the server, returning the result.
     /// This must be implemented. Each handler in the chain must call the next handler,
     /// after possibly modifying the message.
-    fn hsendo(
-        &mut self,
-        msg: OutgoingMessage,
-    ) -> Result<SendMessageResult, Box<dyn std::error::Error>>;
+    async fn sendo(&self, msg: OutgoingMessage) -> crate::Result<SendMessageResult>;
 
     /// Receive a message from the server, returning the result.
     /// This must be implemented, and must call the next handler in the chain,
     /// if there is one, using the provided `ReceiveOptions`.
-    fn hrecvo(
-        &mut self,
+    async fn recvo(&self, options: ReceiveOptions) -> crate::Result<IncomingMessage>;
+
+    // -- Utility functions, accessible from references via Deref.
+    #[maybe_async]
+    async fn send(&self, msg: Content) -> crate::Result<SendMessageResult> {
+        self.sendo(OutgoingMessage::new(PlainMessage::new(msg)))
+            .await
+    }
+
+    #[maybe_async]
+    async fn recv(&self, cmd: Command) -> crate::Result<IncomingMessage> {
+        self.recvo(ReceiveOptions::new().cmd(Some(cmd))).await
+    }
+
+    #[maybe_async]
+    async fn sendo_recvo(
+        &self,
+        msg: OutgoingMessage,
+        mut options: ReceiveOptions,
+    ) -> crate::Result<IncomingMessage> {
+        // Send the message and wait for the matching response.
+        let send_result = self.sendo(msg).await?;
+        options.msgid_filter = send_result.msgid;
+        self.recvo(options).await
+    }
+
+    #[maybe_async]
+    async fn send_recvo(
+        &self,
+        msg: Content,
         options: ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>>;
+    ) -> crate::Result<IncomingMessage> {
+        self.sendo_recvo(OutgoingMessage::new(PlainMessage::new(msg)), options)
+            .await
+    }
+
+    #[maybe_async]
+    async fn send_recv(&self, msg: Content) -> crate::Result<IncomingMessage> {
+        let cmd = msg.associated_cmd();
+        self.send_recvo(msg, ReceiveOptions::new().cmd(Some(cmd)))
+            .await
+    }
 }
 
 /// A templated shared reference to an SMB message handler.
@@ -143,69 +191,20 @@ pub trait MessageHandler {
 ///     - `sendo`: Send a message with custom, low-level handler options.
 ///     - `recvo`: Receive a message with custom, low-level handler options.
 pub struct HandlerReference<T: MessageHandler + ?Sized> {
-    pub handler: Rc<RefCell<T>>,
+    pub handler: Arc<T>,
 }
 
 impl<T: MessageHandler> HandlerReference<T> {
     pub fn new(handler: T) -> HandlerReference<T> {
         HandlerReference {
-            handler: Rc::new(RefCell::new(handler)),
+            handler: Arc::new(handler),
         }
-    }
-
-    pub fn sendo(
-        &mut self,
-        msg: OutgoingMessage,
-    ) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
-        self.handler.borrow_mut().hsendo(msg)
-    }
-
-    pub fn send(&mut self, msg: Content) -> Result<SendMessageResult, Box<dyn std::error::Error>> {
-        self.sendo(OutgoingMessage::new(PlainMessage::new(msg)))
-    }
-
-    pub fn recvo(
-        &mut self,
-        options: ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        self.handler.borrow_mut().hrecvo(options)
-    }
-
-    pub fn recv(&mut self, cmd: Command) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        self.recvo(ReceiveOptions::new().cmd(Some(cmd)))
-    }
-
-    pub fn sendo_recvo(
-        &mut self,
-        msg: OutgoingMessage,
-        options: ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        self.sendo(msg)?;
-        self.recvo(options)
-    }
-
-    pub fn send_recvo(
-        &mut self,
-        msg: Content,
-        options: ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        self.send(msg)?;
-        self.recvo(options)
-    }
-
-    pub fn send_recv(
-        &mut self,
-        msg: Content,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        let cmd = msg.associated_cmd();
-        self.send(msg)?;
-        self.recvo(ReceiveOptions::new().cmd(Some(cmd)))
     }
 }
 
-// Implement deref that returns the content of Rc<..> above (RefCell<T>)
+// Implement deref that returns the content of Arc<T> above (T)
 impl<T: MessageHandler> std::ops::Deref for HandlerReference<T> {
-    type Target = RefCell<T>;
+    type Target = T;
 
     fn deref(&self) -> &Self::Target {
         &self.handler

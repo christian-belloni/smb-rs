@@ -3,57 +3,69 @@
 //! This module contains the session setup logic, as well as the session message handling,
 //! including encryption and signing of messages.
 
-use binrw::prelude::*;
-use sspi::{AuthIdentity, Secret, Username};
-use std::{cell::OnceCell, error::Error};
-
+use crate::sync_helpers::*;
 use crate::{
-    connection::connection::ClientMessageHandler,
-    crypto,
+    connection::{preauth_hash::PreauthHashValue, ClientMessageHandler},
+    crypto::KeyToDerive,
     msg_handler::{
         HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, ReceiveOptions,
         SendMessageResult,
     },
     packets::smb2::*,
     tree::Tree,
+    Error,
 };
-
-type DerivedKeyValue = [u8; 16];
+use binrw::prelude::*;
+use maybe_async::*;
+use sspi::{AuthIdentity, Secret, Username};
+use std::sync::Arc;
 type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
 
 mod authenticator;
 mod encryptor_decryptor;
 mod signer;
+mod state;
 
 use authenticator::GssAuthenticator;
 pub use encryptor_decryptor::{MessageDecryptor, MessageEncryptor};
 pub use signer::MessageSigner;
+pub use state::SessionState;
 
 pub struct Session {
-    is_set_up: bool,
     handler: HandlerReference<SessionMessageHandler>,
+    session_state: Arc<Mutex<SessionState>>,
 }
 
 impl Session {
     pub fn new(upstream: UpstreamHandlerRef) -> Session {
+        let session_state = Arc::new(Mutex::new(SessionState::default()));
         Session {
-            is_set_up: false,
-            handler: SessionMessageHandler::new(upstream),
+            handler: SessionMessageHandler::new(upstream, session_state.clone()),
+            session_state: session_state,
         }
     }
 
-    pub fn setup(&mut self, user_name: String, password: String) -> Result<(), Box<dyn Error>> {
+    /// Sets up the session with the specified username and password.
+    #[maybe_async]
+    pub async fn setup(&mut self, user_name: String, password: String) -> crate::Result<()> {
+        if *self.handler.session_id.read().await? != 0 {
+            return Err(Error::InvalidState("Session already set up!".to_string()));
+        }
+
         log::debug!("Setting up session for user {}.", user_name);
+
+        let username = Username::new(&user_name, Some("WORKGROUP")).map_err(|e| {
+            Error::UsernameError(format!("Failed to create username: {}", e.to_string()))
+        })?;
+
         // Build the authenticator.
         let (mut authenticator, next_buf) = {
-            let handler = self.handler.borrow();
-            let handler = handler.upstream.borrow();
-            let negotate_state = handler.negotiate_state().unwrap();
+            let negotate_state = self.handler.upstream().negotiate_state().unwrap();
             let identity = AuthIdentity {
-                username: Username::new(&user_name, Some("WORKGROUP"))?,
+                username,
                 password: Secret::new(password),
             };
-            GssAuthenticator::build(negotate_state.get_gss_token(), identity)?
+            GssAuthenticator::build(negotate_state.gss_token(), identity)?
         };
 
         let request = OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
@@ -61,17 +73,18 @@ impl Session {
         )));
 
         // response hash is processed later, in the loop.
-        let response = self.handler.sendo_recvo(
-            request,
-            ReceiveOptions::new().status(Status::MoreProcessingRequired),
-        )?;
+        let response = self
+            .handler
+            .upstream
+            .sendo_recvo(
+                request,
+                ReceiveOptions::new().status(Status::MoreProcessingRequired),
+            )
+            .await?;
 
         // Set session id.
-        self.handler
-            .borrow_mut()
-            .session_id
-            .set(response.message.header.session_id)
-            .map_err(|_| "Session ID already set!")?;
+        *self.handler.session_id.write().await? = response.message.header.session_id;
+        self.session_state.lock().await?.session_id = response.message.header.session_id;
 
         let mut response = Some(response);
         let mut flags = None;
@@ -105,16 +118,16 @@ impl Session {
                     let mut request = OutgoingMessage::new(PlainMessage::new(
                         Content::SessionSetupRequest(SessionSetupRequest::new(next_buf)),
                     ));
-                    let is_about_to_finish = authenticator.keys_exchanged() && !self.is_set_up;
+                    let is_about_to_finish = authenticator.keys_exchanged()
+                        && !SessionState::is_set_up(&self.session_state).await?;
                     request.finalize_preauth_hash = is_about_to_finish;
-                    let result = self.handler.sendo(request)?;
+                    let result = self.handler.sendo(request).await?;
 
-                    // Keys exchanged? We can set-up the session!
+                    // If keys are exchanged, set them up, to enable validation of next response!
                     if is_about_to_finish {
-                        // Derive keys and set-up the final session.
-                        let ntlm_key = authenticator.session_key()?.to_vec();
-                        // Derive signing key, and set-up the session.
-                        self.key_setup(&ntlm_key, result.preauth_hash.unwrap())?;
+                        let ntlm_key: KeyToDerive = authenticator.session_key()?;
+                        self.key_setup(&ntlm_key, &result.preauth_hash.unwrap())
+                            .await?;
                     }
 
                     let expected_status = if is_about_to_finish {
@@ -124,87 +137,186 @@ impl Session {
                     };
                     let response = self
                         .handler
-                        .recvo(ReceiveOptions::new().status(expected_status))?;
+                        .recvo(ReceiveOptions::new().status(expected_status).to(result))
+                        .await?;
                     Some(response)
                 }
                 None => None,
             };
         }
         log::info!("Session setup complete.");
-        self.handler.borrow_mut().session_flags = flags.unwrap();
+        // Setup is complete, session is now ready to use.
+        SessionState::set_flags(&mut self.session_state, flags.unwrap()).await?;
         Ok(())
     }
 
-    pub fn key_setup(
+    /// Sets up the session signing/encription keys.
+    #[maybe_async]
+    async fn key_setup(
         &mut self,
-        exchanged_session_key: &Vec<u8>,
-        preauth_integrity_hash: [u8; 64],
-    ) -> Result<(), Box<dyn Error>> {
-        self.handler.borrow_mut().signing_key = Some(Self::derive_signing_key(
+        exchanged_session_key: &KeyToDerive,
+        preauth_hash: &PreauthHashValue,
+    ) -> crate::Result<()> {
+        let state = self.handler.upstream().negotiate_state().unwrap();
+        SessionState::set(
+            &mut self.session_state,
             exchanged_session_key,
-            preauth_integrity_hash,
-            b"SMBSigningKey\x00",
-        )?);
-        self.handler.borrow_mut().s2c_decryption_key = Some(Self::derive_signing_key(
-            exchanged_session_key,
-            preauth_integrity_hash,
-            b"SMBS2CCipherKey\x00",
-        )?);
-        self.handler.borrow_mut().c2s_encryption_key = Some(Self::derive_signing_key(
-            exchanged_session_key,
-            preauth_integrity_hash,
-            b"SMBC2SCipherKey\x00",
-        )?);
-        self.is_set_up = true;
-        log::debug!("Session signing key set.");
+            preauth_hash,
+            state,
+        )
+        .await?;
+        log::trace!("Session signing key set.");
+
+        self.handler
+            .upstream()
+            .handler
+            .worker()
+            .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
+            .session_started(self.session_state.clone())
+            .await?;
+        log::trace!("Session inserted into worker.");
+
         Ok(())
     }
 
-    fn derive_signing_key(
-        exchanged_session_key: &Vec<u8>,
-        preauth_integrity_hash: [u8; 64],
-        label: &[u8],
-    ) -> Result<[u8; 16], Box<dyn Error>> {
-        assert_eq!(exchanged_session_key.len(), 16);
-
-        let mut session_key = [0; 16];
-        session_key.copy_from_slice(&exchanged_session_key[0..16]);
-        Ok(
-            crypto::kbkdf_hmacsha256::<16>(&session_key, label, &preauth_integrity_hash)?
-                .try_into()
-                .unwrap(),
-        )
-    }
-
-    pub fn signing_enabled(&self) -> bool {
-        true
-    }
-
-    pub fn tree_connect(&mut self, name: String) -> Result<Tree, Box<dyn Error>> {
+    /// Connects to the specified tree using the current session.
+    #[maybe_async]
+    pub async fn tree_connect(&mut self, name: String) -> crate::Result<Tree> {
         let mut tree = Tree::new(name, self.handler.clone());
-        tree.connect()?;
+        tree.connect().await?;
         Ok(tree)
     }
+}
 
-    fn logoff(&mut self) -> Result<(), Box<dyn Error>> {
+pub struct SessionMessageHandler {
+    session_id: RwLock<u64>,
+    upstream: UpstreamHandlerRef,
+
+    session_state: Arc<Mutex<SessionState>>,
+}
+
+impl SessionMessageHandler {
+    pub fn new(
+        upstream: UpstreamHandlerRef,
+        session_state: Arc<Mutex<SessionState>>,
+    ) -> HandlerReference<SessionMessageHandler> {
+        HandlerReference::new(SessionMessageHandler {
+            session_id: RwLock::new(0),
+            upstream,
+            session_state,
+        })
+    }
+
+    #[maybe_async]
+    pub async fn should_sign(&self) -> crate::Result<bool> {
+        SessionState::signing_enabled(&self.session_state).await
+    }
+
+    #[maybe_async]
+    pub async fn should_encrypt(&self) -> crate::Result<bool> {
+        SessionState::encryption_enabled(&self.session_state).await
+    }
+
+    fn upstream(&self) -> &UpstreamHandlerRef {
+        &self.upstream
+    }
+
+    #[maybe_async]
+    async fn logoff(&self) -> crate::Result<()> {
+        if *self.session_id.read().await? == 0 {
+            log::trace!("Session not set up/already logged-off.");
+            return Ok(());
+        }
+
         log::debug!("Logging off session.");
 
         let _response = self
-            .handler
-            .send_recv(Content::LogoffRequest(Default::default()))?;
+            .send_recv(Content::LogoffRequest(Default::default()))
+            .await?;
 
         // Reset session ID and keys.
-        self.handler.borrow_mut().session_id.take();
-        self.handler.borrow_mut().signing_key.take();
-        self.is_set_up = false;
+        SessionState::invalidate(&self.session_state).await?;
+        let session_id = {
+            let mut session_id_ref = self.session_id.write().await?;
+            let session_id = *session_id_ref;
+            *session_id_ref = 0;
+            session_id
+        };
+        self.upstream()
+            .handler
+            .worker()
+            .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
+            .session_ended(session_id)
+            .await?;
 
         log::info!("Session logged off.");
 
         Ok(())
     }
+
+    #[cfg(feature = "async")]
+    #[maybe_async]
+    pub async fn logoff_async(&mut self) {
+        self.logoff().await.unwrap_or_else(|e| {
+            log::error!("Failed to logoff: {}", e);
+        });
+    }
 }
 
-impl Drop for Session {
+impl MessageHandler for SessionMessageHandler {
+    #[maybe_async]
+    async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
+        if *self.session_id.read().await? == 0 {
+            return Err(
+                Error::InvalidState("Session is invalid or not set up!".to_string()).into(),
+            );
+        }
+
+        // Encrypt?
+        if self.should_encrypt().await? {
+            msg.encrypt = true;
+        }
+        // Sign instead?
+        else if self.should_sign().await? {
+            msg.message.header.flags.set_signed(true);
+        }
+        msg.message.header.session_id = *self.session_id.read().await?;
+        self.upstream.sendo(msg).await
+    }
+
+    #[maybe_async]
+    async fn recvo(
+        &self,
+        options: crate::msg_handler::ReceiveOptions,
+    ) -> crate::Result<IncomingMessage> {
+        if *self.session_id.read().await? == 0 {
+            return Err(Error::InvalidState(
+                "Session is invalid or not set up!".to_string(),
+            ));
+        }
+
+        let incoming = self.upstream.recvo(options).await?;
+        // Make sure that it's our session.
+        if incoming.message.header.session_id == 0 {
+            return Err(Error::InvalidMessage(
+                "No session ID in message that got to session!".to_string(),
+            ));
+        } else if incoming.message.header.session_id != *self.session_id.read().await? {
+            return Err(Error::InvalidMessage(
+                "Message not for this session!".to_string(),
+            ));
+        } else if !incoming.form.signed && !incoming.form.encrypted {
+            return Err(Error::InvalidMessage(
+                "Message not signed or encrypted!".to_string(),
+            ));
+        }
+
+        Ok(incoming)
+    }
+}
+
+#[cfg(feature = "sync")]
+impl Drop for SessionMessageHandler {
     fn drop(&mut self) {
         self.logoff().unwrap_or_else(|e| {
             log::error!("Failed to logoff: {}", e);
@@ -212,134 +324,13 @@ impl Drop for Session {
     }
 }
 
-pub struct SessionMessageHandler {
-    session_id: OnceCell<u64>,
-    signing_key: Option<DerivedKeyValue>,
-    s2c_decryption_key: Option<DerivedKeyValue>,
-    c2s_encryption_key: Option<DerivedKeyValue>,
-    signing_algo: SigningAlgorithmId,
-    session_flags: SessionFlags,
-
-    upstream: UpstreamHandlerRef,
-}
-
-impl SessionMessageHandler {
-    pub fn new(upstream: UpstreamHandlerRef) -> HandlerReference<SessionMessageHandler> {
-        let signing_algo = upstream
-            .handler
-            .borrow()
-            .negotiate_state()
-            .unwrap()
-            .get_signing_algo();
-        HandlerReference::new(SessionMessageHandler {
-            session_id: OnceCell::new(),
-            signing_key: None,
-            s2c_decryption_key: None,
-            c2s_encryption_key: None,
-            session_flags: SessionFlags::new(),
-            signing_algo,
-            upstream,
+#[cfg(feature = "async")]
+impl Drop for SessionMessageHandler {
+    fn drop(&mut self) {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.logoff_async().await;
+            })
         })
-    }
-
-    pub fn should_sign(&self) -> bool {
-        self.signing_key.is_some()
-    }
-
-    pub fn should_encrypt(&self) -> bool {
-        debug_assert!(self.s2c_decryption_key.is_some() == self.c2s_encryption_key.is_some());
-        self.s2c_decryption_key.is_some()
-            && self.c2s_encryption_key.is_some()
-            && self.session_flags.encrypt_data()
-    }
-
-    fn make_signer(&self) -> Result<MessageSigner, Box<dyn Error>> {
-        if !self.should_sign() {
-            return Err("Signing key is not set -- you must succeed a setup() to continue.".into());
-        }
-
-        debug_assert!(self.signing_key.is_some());
-
-        Ok(MessageSigner::new(
-            crypto::make_signing_algo(self.signing_algo, self.signing_key.as_ref().unwrap())
-                .unwrap(),
-        ))
-    }
-
-    fn make_encryptor(&self) -> Result<MessageEncryptor, Box<dyn Error>> {
-        if !self.should_encrypt() {
-            return Err(
-                "Encrypting key is not set -- you must succeed a setup() to continue.".into(),
-            );
-        }
-
-        debug_assert!(self.c2s_encryption_key.is_some());
-
-        Ok(MessageEncryptor::new(
-            crypto::make_encrypting_algo(
-                EncryptionCipher::Aes128Ccm,
-                self.c2s_encryption_key.as_ref().unwrap(),
-            )
-            .unwrap(),
-        ))
-    }
-
-    fn make_decryptor(&self) -> Result<MessageDecryptor, Box<dyn Error>> {
-        if !self.should_encrypt() {
-            return Err(
-                "Encrypting key is not set -- you must succeed a setup() to continue.".into(),
-            );
-        }
-
-        debug_assert!(self.s2c_decryption_key.is_some());
-
-        Ok(MessageDecryptor::new(
-            crypto::make_encrypting_algo(
-                EncryptionCipher::Aes128Ccm,
-                self.s2c_decryption_key.as_ref().unwrap(),
-            )
-            .unwrap(),
-        ))
-    }
-}
-
-impl MessageHandler for SessionMessageHandler {
-    fn hsendo(
-        &mut self,
-        mut msg: OutgoingMessage,
-    ) -> Result<SendMessageResult, Box<(dyn std::error::Error + 'static)>> {
-        // Set signing configuration. Upstream handler shall take care of the rest.
-        if self.should_sign() {
-            msg.message.header.flags.set_signed(true);
-            msg.signer = Some(self.make_signer()?);
-        }
-        // Encryption
-        if self.should_encrypt() {
-            msg.encryptor = Some(self.make_encryptor()?);
-        }
-        msg.message.header.session_id = *self.session_id.get().or(Some(&0)).unwrap();
-        self.upstream.borrow_mut().hsendo(msg)
-    }
-
-    fn hrecvo(
-        &mut self,
-        mut options: crate::msg_handler::ReceiveOptions,
-    ) -> Result<IncomingMessage, Box<dyn std::error::Error>> {
-        // Decryption
-        if self.should_encrypt() {
-            options.decryptor = Some(self.make_decryptor()?);
-        }
-        let mut incoming = self.upstream.borrow_mut().hrecvo(options)?;
-        // TODO: check whether this is the correct case to do such a thing.
-        if self.should_sign() && !incoming.form.encrypted {
-            // Skip authentication is message ID is -1 or status is pending.
-            if incoming.message.header.message_id != u64::MAX
-                && incoming.message.header.status != Status::Pending
-            {
-                self.make_signer()?
-                    .verify_signature(&mut incoming.message.header, &incoming.raw)?;
-            }
-        };
-        Ok(incoming)
     }
 }

@@ -67,7 +67,7 @@ pub struct CompressedData {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use std::io::Cursor;
 
     use super::*;
