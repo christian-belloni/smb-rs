@@ -226,6 +226,7 @@ impl Transformer {
     }
 
     /// Given a NetBiosTcpMessage, decrypts (if necessary), decompresses (if necessary) and returns the plain SMB2 message.
+    #[maybe_async]
     pub async fn transform_incoming(
         &self,
         netbios: NetBiosTcpMessage,

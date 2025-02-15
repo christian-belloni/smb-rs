@@ -43,28 +43,33 @@ async fn do_copy(from: File, mut to: fs::File) -> Result<(), Box<dyn Error>> {
 
 #[maybe_async]
 pub async fn copy(cmd: &CopyCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
-    let (from, client) = match &cmd.from {
-        Path::Local(_) => panic!("Local to local copy not supported"),
-        Path::Remote(unc_path) => {
-            let (client, _session, _tree, mut resource) = unc_path.connect_and_open(cli).await?;
-            (
-                resource
-                    .take()
-                    .ok_or("Source file not found")?
-                    .unwrap_file(),
-                client,
-            )
-        }
-    };
+    {
+        let (from, client) = match &cmd.from {
+            Path::Local(_) => panic!("Local to local copy not supported"),
+            Path::Remote(unc_path) => {
+                let (client, _session, _tree, mut resource) =
+                    unc_path.connect_and_open(cli).await?;
+                (
+                    resource
+                        .take()
+                        .ok_or("Source file not found")?
+                        .unwrap_file(),
+                    client,
+                )
+            }
+        };
 
-    let to: fs::File = match &cmd.to {
-        Path::Local(path_buf) => fs::File::create(path_buf).await?,
-        Path::Remote(_) => panic!("Remote to remote copy not supported"),
-    };
+        let to: fs::File = match &cmd.to {
+            Path::Local(path_buf) => fs::File::create(path_buf).await?,
+            Path::Remote(_) => panic!("Remote to remote copy not supported"),
+        };
 
-    do_copy(from, to).await?;
+        do_copy(from, to).await?;
 
-    client.close().await?;
+        client
+    }
+    .close()
+    .await?;
 
     Ok(())
 }

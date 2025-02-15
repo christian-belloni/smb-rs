@@ -1,4 +1,3 @@
-
 use super::*;
 use std::io::prelude::*;
 
@@ -214,8 +213,10 @@ impl Seek for File {
 #[sync_impl]
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let read_length = File::read(self, buf, self.pos);
+        let read_length = File::read_block(self, buf, self.pos)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         self.pos += read_length as u64;
+        Ok(read_length)
     }
 }
 

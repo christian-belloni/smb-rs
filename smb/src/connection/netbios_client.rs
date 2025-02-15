@@ -79,6 +79,28 @@ impl NetBiosClient {
         Ok(NetBiosTcpMessage { content: data })
     }
 
+
+    /// For synchronous implementations, sets the read timeout for the connection.
+    /// This is useful when polling for messages.
+    #[sync_impl]
+    pub fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> crate::Result<()> {
+        self.connection
+            .as_ref()
+            .ok_or(crate::Error::NotConnected)?
+            .set_read_timeout(timeout)
+            .map_err(|e| e.into())
+    }
+
+    /// For synchronous implementations, gets the read timeout for the connection.
+    #[sync_impl]
+    pub fn read_timeout(&self) -> crate::Result<Option<std::time::Duration>> {
+        self.connection
+            .as_ref()
+            .ok_or(crate::Error::NotConnected)?
+            .read_timeout()
+            .map_err(|e| e.into())
+    }
+
     /// Like an old regular read_exact, but with connection abort handling.
     #[maybe_async]
     async fn read_exact(tcp: &mut TcpStream, buf: &mut [u8]) -> crate::Result<()> {
@@ -103,5 +125,18 @@ impl NetBiosClient {
         } else {
             e.into()
         }
+    }
+
+    /// Clones the client, returning a new client with the same connection.
+    #[cfg(not(feature = "async"))]
+    pub(crate) fn try_clone(&self) -> crate::Result<NetBiosClient> {
+        Ok(NetBiosClient {
+            connection: Some(
+                self.connection
+                    .as_ref()
+                    .ok_or(crate::Error::NotConnected)?
+                    .try_clone()?,
+            ),
+        })
     }
 }

@@ -6,7 +6,7 @@ use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[brw(big)]
 pub struct NetBiosTcpMessage {
     #[bw(calc = NetBiosTcpMessageHeader::default())]

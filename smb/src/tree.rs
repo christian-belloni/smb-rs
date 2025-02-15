@@ -159,7 +159,7 @@ impl Drop for TreeMessageHandler {
     fn drop(&mut self) {
         self.disconnect()
             .or_else(|e| {
-                log::error!("Failed to disconnect from tree {}: {}", self.name, e);
+                log::error!("Failed to disconnect from tree {}: {}", self.tree_name, e);
                 Err(e)
             })
             .ok();

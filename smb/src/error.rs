@@ -53,8 +53,15 @@ pub enum Error {
     MessageProcessingError(String),
     #[error("Lock error.")]
     LockError,
-    #[error("Join error.")]
+    #[cfg(feature = "async")]
+    #[error("Task join error.")]
     JoinError(#[from] tokio::task::JoinError),
+    #[cfg(not(feature = "async"))]
+    #[error("Thread join error: {0}")]
+    JoinError(String),
+    #[cfg(not(feature = "async"))]
+    #[error("Channel recv error.")]
+    ChannelRecvError(#[from] std::sync::mpsc::RecvError),
 }
 
 impl<T> From<PoisonError<T>> for Error {
