@@ -3,10 +3,7 @@
 use std::sync::Arc;
 
 use maybe_async::*;
-#[cfg(not(feature = "async"))]
-use std::sync::Mutex;
-#[cfg(feature = "async")]
-use tokio::sync::Mutex;
+use crate::sync_helpers::*;
 
 use crate::connection::negotiation_state::NegotiateState;
 use crate::connection::preauth_hash::PreauthHashValue;

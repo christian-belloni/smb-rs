@@ -1,9 +1,6 @@
 use maybe_async::*;
 
-#[cfg(not(feature = "async"))]
-use std::sync::RwLock;
-#[cfg(feature = "async")]
-use tokio::sync::RwLock;
+use crate::sync_helpers::*;
 
 use crate::{
     msg_handler::{HandlerReference, MessageHandler},

@@ -10,7 +10,7 @@ pub struct InfoCmd {
 
 #[maybe_async]
 pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
-    let (_client, _session, _tree, mut resource) = info.path.connect_and_open(cli).await?;
+    let (client, _session, _tree, mut resource) = info.path.connect_and_open(cli).await?;
     let resource = resource.take().ok_or("Resource not found")?;
     match resource {
         Resource::File(file) => {
@@ -31,5 +31,8 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
             }
         }
     };
+
+    client.close().await;
+
     Ok(())
 }

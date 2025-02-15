@@ -1,11 +1,7 @@
 use binrw::prelude::*;
 use maybe_async::*;
-#[cfg(not(feature = "async"))]
-use std::sync::Mutex;
+use crate::sync_helpers::*;
 use std::{collections::HashMap, io::Cursor, sync::Arc};
-#[cfg(feature = "async")]
-use tokio::sync::{Mutex, RwLock};
-
 use crate::{
     compression::*,
     msg_handler::*,

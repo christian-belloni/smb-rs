@@ -18,11 +18,7 @@ use binrw::prelude::*;
 use maybe_async::*;
 use sspi::{AuthIdentity, Secret, Username};
 use std::sync::Arc;
-#[cfg(not(feature = "async"))]
-use std::sync::RwLock;
-#[cfg(feature = "async")]
-use tokio::sync::{Mutex, RwLock};
-
+use crate::sync_helpers::*;
 type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
 
 mod authenticator;

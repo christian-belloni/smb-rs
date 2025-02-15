@@ -1,11 +1,10 @@
 use maybe_async::*;
-#[cfg(not(feature = "async"))]
-use std::cell::OnceCell;
+use crate::sync_helpers::*;
 use std::{collections::HashMap, sync::Arc};
 #[cfg(feature = "async")]
 use tokio::{
     select,
-    sync::{mpsc, oneshot, Mutex},
+    sync::{mpsc, oneshot},
     task::JoinHandle,
 };
 #[cfg(feature = "async")]

@@ -23,10 +23,7 @@ use negotiation_state::NegotiateState;
 use netbios_client::NetBiosClient;
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::Arc;
-#[cfg(not(feature = "async"))]
-use std::{cell::OnceCell, sync::Mutex};
-#[cfg(feature = "async")]
-use tokio::sync::OnceCell;
+use crate::sync_helpers::*;
 pub use transformer::TransformError;
 use worker::ConnectionWorker;
 
