@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::Arc;
 use crate::sync_helpers::*;
 pub use transformer::TransformError;
-use worker::ConnectionWorker;
+use worker::WorkerImpl;
 
 pub struct Connection {
     handler: HandlerReference<ClientMessageHandler>,
@@ -63,7 +63,7 @@ impl Connection {
         &mut self,
         mut netbios_client: NetBiosClient,
         negotiate_smb1: bool,
-    ) -> crate::Result<Arc<ConnectionWorker>> {
+    ) -> crate::Result<Arc<WorkerImpl>> {
         // Multi-protocol negotiation.
         if negotiate_smb1 {
             log::debug!("Negotiating multi-protocol");
@@ -104,7 +104,7 @@ impl Connection {
             }
         }
 
-        Ok(ConnectionWorker::start(netbios_client).await?)
+        Ok(WorkerImpl::start(netbios_client).await?)
     }
 
     #[maybe_async]
@@ -249,7 +249,7 @@ impl Connection {
 pub struct ClientMessageHandler {
     client_guid: Guid,
 
-    worker: OnceCell<Arc<ConnectionWorker>>,
+    worker: OnceCell<Arc<WorkerImpl>>,
 
     current_message_id: AtomicU64,
     credits_balance: AtomicU16,
@@ -273,7 +273,7 @@ impl ClientMessageHandler {
         self.negotiate_state.get()
     }
 
-    pub fn worker(&self) -> Option<&Arc<ConnectionWorker>> {
+    pub fn worker(&self) -> Option<&Arc<WorkerImpl>> {
         self.worker.get()
     }
 }
