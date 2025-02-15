@@ -1,13 +1,13 @@
-use binrw::prelude::*;
-use maybe_async::*;
 use crate::sync_helpers::*;
-use std::{collections::HashMap, io::Cursor, sync::Arc};
 use crate::{
     compression::*,
     msg_handler::*,
     packets::{netbios::*, smb2::*},
     session::SessionState,
 };
+use binrw::prelude::*;
+use maybe_async::*;
+use std::{collections::HashMap, io::Cursor, sync::Arc};
 
 use super::{
     negotiation_state::NegotiateState,
@@ -72,10 +72,10 @@ impl Transformer {
             ));
         }
 
-        let session_id = session.lock().await.session_id;
+        let session_id = session.lock().await?.session_id;
         self.sessions
             .lock()
-            .await
+            .await?
             .insert(session_id, session.clone());
 
         Ok(())
@@ -83,7 +83,7 @@ impl Transformer {
 
     #[maybe_async]
     pub async fn session_ended(&self, session_id: u64) -> crate::Result<()> {
-        let s = { self.sessions.lock().await.remove(&session_id) };
+        let s = { self.sessions.lock().await?.remove(&session_id) };
         match s {
             Some(_) => Ok(()),
             None => Err(crate::Error::InvalidState("Session not found!".to_string())),
@@ -92,20 +92,25 @@ impl Transformer {
 
     #[maybe_async]
     #[inline]
-    pub async fn session_state(&self, session_id: u64) -> Option<Arc<Mutex<SessionState>>> {
+    pub async fn get_session(&self, session_id: u64) -> crate::Result<Arc<Mutex<SessionState>>> {
         if session_id == 0 {
-            return None;
+            return Err(crate::Error::InvalidState("Session ID is 0!".to_string()));
         }
-        self.sessions.lock().await.get(&session_id).cloned()
+        self.sessions
+            .lock()
+            .await?
+            .get(&session_id)
+            .cloned()
+            .ok_or(crate::Error::InvalidState("Session not found!".to_string()))
     }
 
     /// Calculate preauth integrity hash value, if required.
     #[maybe_async]
-    async fn step_preauth_hash(&self, raw: &Vec<u8>) {
-        let mut pa_hash = self.preauth_hash.lock().await;
+    async fn step_preauth_hash(&self, raw: &Vec<u8>) -> crate::Result<()> {
+        let mut pa_hash = self.preauth_hash.lock().await?;
         // If already finished -- do nothing.
         if matches!(*pa_hash, Some(PreauthHashState::Finished(_))) {
-            return;
+            return Ok(());
         }
         // Initialize the hash if it's not initialized.
         if pa_hash.is_none() {
@@ -113,6 +118,7 @@ impl Transformer {
         }
         // Otherwise, update the hash!
         *pa_hash = pa_hash.take().unwrap().next(&raw).into();
+        Ok(())
     }
 
     /// Finalizes the preauth hash, if it's not already finalized, and returns the value.
@@ -120,7 +126,7 @@ impl Transformer {
     pub async fn finalize_preauth_hash(&self) -> crate::Result<PreauthHashValue> {
         // TODO: Move into preauth hash structure.
 
-        let mut pa_hash = self.preauth_hash.lock().await;
+        let mut pa_hash = self.preauth_hash.lock().await?;
         if let Some(PreauthHashState::Finished(hash)) = &*pa_hash {
             return Ok(hash.clone());
         }
@@ -155,7 +161,7 @@ impl Transformer {
             msg.message.write(&mut Cursor::new(&mut data))?;
 
             // 0. Update preauth hash as needed.
-            self.step_preauth_hash(&data).await;
+            self.step_preauth_hash(&data).await?;
             if should_sign {
                 debug_assert!(
                     !should_encrypt,
@@ -164,11 +170,10 @@ impl Transformer {
                 let mut header_copy = msg.message.header.clone();
 
                 let signer = {
-                    self.session_state(set_session_id)
-                        .await
-                        .ok_or(crate::Error::InvalidState("Session not found!".to_string()))?
+                    self.get_session(set_session_id)
+                        .await?
                         .lock()
-                        .await
+                        .await?
                         .signer()
                         .cloned()
                 };
@@ -196,11 +201,8 @@ impl Transformer {
         // 3. Encrypt
         let data = {
             if msg.encrypt {
-                let session = self
-                    .session_state(set_session_id)
-                    .await
-                    .ok_or(crate::Error::InvalidState("Session not found!".to_string()))?;
-                let encryptor = { session.lock().await.encryptor().cloned() };
+                let session = self.get_session(set_session_id).await?;
+                let encryptor = { session.lock().await?.encryptor().cloned() };
                 if let Some(mut encryptor) = encryptor {
                     debug_assert!(should_encrypt && !should_sign);
                     let encrypted = encryptor.encrypt_message(data, set_session_id)?;
@@ -244,15 +246,9 @@ impl Transformer {
         // 3. Decrpt
         let (message, raw) = if let Message::Encrypted(encrypted_message) = &message {
             let session = self
-                .session_state(encrypted_message.header.session_id)
-                .await
-                .ok_or(crate::Error::TranformFailed(TransformError {
-                    outgoing: false,
-                    phase: TranformPhase::EncryptDecrypt,
-                    session_id: Some(encrypted_message.header.session_id),
-                    why: "Session not found for message!",
-                }))?;
-            let decryptor = { session.lock().await.decryptor().cloned() };
+                .get_session(encrypted_message.header.session_id)
+                .await?;
+            let decryptor = { session.lock().await?.decryptor().cloned() };
             form.encrypted = true;
             match decryptor {
                 Some(mut decryptor) => decryptor.decrypt_message(&encrypted_message)?,
@@ -301,16 +297,8 @@ impl Transformer {
             && message.header.flags.signed()
         {
             let session_id = message.header.session_id;
-            let session =
-                self.session_state(session_id)
-                    .await
-                    .ok_or(crate::Error::TranformFailed(TransformError {
-                        outgoing: false,
-                        phase: TranformPhase::SignVerify,
-                        session_id: Some(session_id),
-                        why: "Session not found for message!",
-                    }))?;
-            let verifier = { session.lock().await.signer().cloned() };
+            let session = self.get_session(session_id).await?;
+            let verifier = { session.lock().await?.signer().cloned() };
             if let Some(mut verifier) = verifier {
                 form.signed = true;
                 verifier.verify_signature(&mut message.header, &raw)?;
@@ -324,7 +312,7 @@ impl Transformer {
             }
         }
 
-        self.step_preauth_hash(&raw).await;
+        self.step_preauth_hash(&raw).await?;
 
         Ok(IncomingMessage { message, raw, form })
     }

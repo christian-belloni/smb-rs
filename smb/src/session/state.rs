@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use maybe_async::*;
 use crate::sync_helpers::*;
+use maybe_async::*;
 
 use crate::connection::negotiation_state::NegotiateState;
 use crate::connection::preauth_hash::PreauthHashValue;
@@ -45,7 +45,7 @@ impl SessionState {
         let decryptor = Self::make_decryptor(&deriver, negotation_state.cipher())?;
         let encryptor = Self::make_encryptor(&deriver, negotation_state.cipher())?;
 
-        let mut state = state.lock().await;
+        let mut state = state.lock().await?;
         state.signer = Some(signer);
         state.decryptor = Some(decryptor);
         state.encryptor = Some(encryptor);
@@ -88,32 +88,36 @@ impl SessionState {
     }
 
     #[maybe_async]
-    pub async fn set_flags(state: &mut Arc<Mutex<Self>>, flags: SessionFlags) {
-        state.lock().await.flags = flags;
+    pub async fn set_flags(state: &mut Arc<Mutex<Self>>, flags: SessionFlags) -> crate::Result<()> {
+        state.lock().await?.flags = flags;
+        Ok(())
     }
 
     #[maybe_async]
-    pub async fn invalidate(state: &Arc<Mutex<Self>>) {
-        let mut state = state.lock().await;
+    pub async fn invalidate(state: &Arc<Mutex<Self>>) -> crate::Result<()> {
+        let mut state = state.lock().await?;
         state.signer = None;
         state.decryptor = None;
         state.encryptor = None;
+        Ok(())
     }
 
     #[maybe_async]
-    pub async fn signing_enabled(state: &Arc<Mutex<Self>>) -> bool {
-        state.lock().await.signer.is_some()
+    pub async fn signing_enabled(state: &Arc<Mutex<Self>>) -> crate::Result<bool> {
+        Ok(state.lock().await?.signer.is_some())
     }
 
     #[maybe_async]
-    pub async fn encryption_enabled(state: &Arc<Mutex<Self>>) -> bool {
-        let state = state.lock().await;
-        return state.flags.encrypt_data() && state.encryptor.is_some() && state.decryptor.is_some();
+    pub async fn encryption_enabled(state: &Arc<Mutex<Self>>) -> crate::Result<bool> {
+        let state = state.lock().await?;
+        return Ok(state.flags.encrypt_data()
+            && state.encryptor.is_some()
+            && state.decryptor.is_some());
     }
 
     #[maybe_async]
-    pub async fn is_set_up(state: &Arc<Mutex<Self>>) -> bool {
-        Self::encryption_enabled(state).await || Self::signing_enabled(state).await
+    pub async fn is_set_up(state: &Arc<Mutex<Self>>) -> crate::Result<bool> {
+        Ok(Self::encryption_enabled(state).await? || Self::signing_enabled(state).await?)
     }
 
     pub fn decryptor(&mut self) -> Option<&mut MessageDecryptor> {

@@ -1,5 +1,5 @@
-use maybe_async::*;
 use crate::sync_helpers::*;
+use maybe_async::*;
 use std::{collections::HashMap, sync::Arc};
 #[cfg(feature = "async")]
 use tokio::{
@@ -67,18 +67,22 @@ impl ConnectionWorker {
         // Start the worker loop.
         let worker_clone = worker.clone();
         let handle = tokio::spawn(async move { worker_clone.loop_fn(netbios_client, rx).await });
-        worker.loop_handle.lock().await.replace(handle);
+        worker.loop_handle.lock().await?.replace(handle);
 
         Ok(worker)
     }
 
     #[maybe_async]
-    pub async fn stop(&self) {
+    pub async fn stop(&self) -> crate::Result<()> {
         log::debug!("Stopping worker.");
         self.token.cancel();
-        if let Some(handle) = self.loop_handle.lock().await.take() {
-            handle.await.unwrap();
-        }
+        self.loop_handle
+            .lock()
+            .await?
+            .take()
+            .ok_or(Error::NotConnected)?
+            .await?;
+        Ok(())
     }
 
     #[maybe_async]
@@ -125,7 +129,7 @@ impl ConnectionWorker {
     pub async fn receive(self: &Self, msg_id: u64) -> crate::Result<IncomingMessage> {
         // 1. Insert channel to wait for the message, or return the message if already received.
         let wait_for_receive = {
-            let mut state = self.state.lock().await;
+            let mut state = self.state.lock().await?;
 
             if self.token.is_cancelled() {
                 log::trace!("Connection is closed, avoid receiving.");
@@ -183,8 +187,10 @@ impl ConnectionWorker {
         // TODO: Handle cleanup recursively.
         log::debug!("Cleaning up worker loop.");
         rx.close();
-        for (_, tx) in self_ref.state.lock().await.awaiting.drain() {
-            tx.send(Err(Error::NotConnected)).unwrap();
+        if let Ok(mut state) = self_ref.state.lock().await {
+            for (_, tx) in state.awaiting.drain() {
+                tx.send(Err(Error::NotConnected)).unwrap();
+            }
         }
     }
 
@@ -227,7 +233,7 @@ impl ConnectionWorker {
         let msg_id = msg.message.header.message_id;
 
         // Update the state: If awaited, wake up the task. Else, store it.
-        let mut state = self.state.lock().await;
+        let mut state = self.state.lock().await?;
         if let Some(tx) = state.awaiting.remove(&msg_id) {
             log::trace!("Waking up awaiting task for message ID {}.", msg_id);
             tx.send(Ok(msg)).map_err(|_| {

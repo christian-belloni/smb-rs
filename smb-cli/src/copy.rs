@@ -64,7 +64,7 @@ pub async fn copy(cmd: &CopyCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
 
     do_copy(from, to).await?;
 
-    client.close().await;
+    client.close().await?;
 
     Ok(())
 }

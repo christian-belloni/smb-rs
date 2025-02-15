@@ -9,7 +9,7 @@ pub use std::{
 /// features enabled.
 
 #[cfg(feature = "async")]
-pub use tokio::sync::{Mutex, OnceCell};
+pub use tokio::sync::OnceCell;
 
 /// A wrapper for [tokio::sync::RwLock] that mocks the behavior of [std::sync::RwLock].
 #[cfg(feature = "async")]
@@ -18,6 +18,7 @@ pub struct RwLock<T: ?Sized> {
     inner: tokio::sync::RwLock<T>,
 }
 
+#[cfg(feature = "async")]
 impl<T> RwLock<T> {
     #[inline]
     pub fn new(value: T) -> Self {
@@ -34,5 +35,27 @@ impl<T> RwLock<T> {
     #[inline]
     pub async fn write(&self) -> LockResult<tokio::sync::RwLockWriteGuard<'_, T>> {
         Ok(self.inner.write().await)
+    }
+}
+
+// Same for mutex, with lock():
+#[cfg(feature = "async")]
+#[derive(Debug, Default)]
+pub struct Mutex<T: ?Sized> {
+    inner: tokio::sync::Mutex<T>,
+}
+
+#[cfg(feature = "async")]
+impl<T> Mutex<T> {
+    #[inline]
+    pub fn new(value: T) -> Self {
+        Self {
+            inner: tokio::sync::Mutex::new(value),
+        }
+    }
+
+    #[inline]
+    pub async fn lock(&self) -> LockResult<tokio::sync::MutexGuard<'_, T>> {
+        Ok(self.inner.lock().await)
     }
 }

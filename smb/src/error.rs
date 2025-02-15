@@ -53,6 +53,8 @@ pub enum Error {
     MessageProcessingError(String),
     #[error("Lock error.")]
     LockError,
+    #[error("Join error.")]
+    JoinError(#[from] tokio::task::JoinError),
 }
 
 impl<T> From<PoisonError<T>> for Error {

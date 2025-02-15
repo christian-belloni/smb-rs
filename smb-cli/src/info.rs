@@ -32,7 +32,7 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
         }
     };
 
-    client.close().await;
+    client.close().await?;
 
     Ok(())
 }

@@ -51,10 +51,10 @@ impl Connection {
     }
 
     #[maybe_async]
-    pub async fn close(&self) {
+    pub async fn close(&self) -> crate::Result<()> {
         match self.handler.worker().take() {
             Some(c) => c.stop().await,
-            None => {}
+            None => Ok(()),
         }
     }
 

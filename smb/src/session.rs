@@ -3,6 +3,7 @@
 //! This module contains the session setup logic, as well as the session message handling,
 //! including encryption and signing of messages.
 
+use crate::sync_helpers::*;
 use crate::{
     connection::{preauth_hash::PreauthHashValue, ClientMessageHandler},
     crypto::KeyToDerive,
@@ -18,7 +19,6 @@ use binrw::prelude::*;
 use maybe_async::*;
 use sspi::{AuthIdentity, Secret, Username};
 use std::sync::Arc;
-use crate::sync_helpers::*;
 type UpstreamHandlerRef = HandlerReference<ClientMessageHandler>;
 
 mod authenticator;
@@ -84,7 +84,7 @@ impl Session {
 
         // Set session id.
         *self.handler.session_id.write().await? = response.message.header.session_id;
-        self.session_state.lock().await.session_id = response.message.header.session_id;
+        self.session_state.lock().await?.session_id = response.message.header.session_id;
 
         let mut response = Some(response);
         let mut flags = None;
@@ -119,7 +119,7 @@ impl Session {
                         Content::SessionSetupRequest(SessionSetupRequest::new(next_buf)),
                     ));
                     let is_about_to_finish = authenticator.keys_exchanged()
-                        && !SessionState::is_set_up(&self.session_state).await;
+                        && !SessionState::is_set_up(&self.session_state).await?;
                     request.finalize_preauth_hash = is_about_to_finish;
                     let result = self.handler.sendo(request).await?;
 
@@ -146,7 +146,7 @@ impl Session {
         }
         log::info!("Session setup complete.");
         // Setup is complete, session is now ready to use.
-        SessionState::set_flags(&mut self.session_state, flags.unwrap()).await;
+        SessionState::set_flags(&mut self.session_state, flags.unwrap()).await?;
         Ok(())
     }
 
@@ -208,12 +208,12 @@ impl SessionMessageHandler {
     }
 
     #[maybe_async]
-    pub async fn should_sign(&self) -> bool {
+    pub async fn should_sign(&self) -> crate::Result<bool> {
         SessionState::signing_enabled(&self.session_state).await
     }
 
     #[maybe_async]
-    pub async fn should_encrypt(&self) -> bool {
+    pub async fn should_encrypt(&self) -> crate::Result<bool> {
         SessionState::encryption_enabled(&self.session_state).await
     }
 
@@ -235,7 +235,7 @@ impl SessionMessageHandler {
             .await?;
 
         // Reset session ID and keys.
-        SessionState::invalidate(&self.session_state).await;
+        SessionState::invalidate(&self.session_state).await?;
         let session_id = {
             let mut session_id_ref = self.session_id.write().await?;
             let session_id = *session_id_ref;
@@ -273,11 +273,11 @@ impl MessageHandler for SessionMessageHandler {
         }
 
         // Encrypt?
-        if self.should_encrypt().await {
+        if self.should_encrypt().await? {
             msg.encrypt = true;
         }
         // Sign instead?
-        else if self.should_sign().await {
+        else if self.should_sign().await? {
             msg.message.header.flags.set_signed(true);
         }
         msg.message.header.session_id = *self.session_id.read().await?;
