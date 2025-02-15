@@ -37,7 +37,7 @@ impl Tree {
 
     #[maybe_async]
     pub async fn connect(&mut self) -> crate::Result<()> {
-        if self.handler.connect_info.read().await.is_some() {
+        if self.handler.connect_info.read().await?.is_some() {
             return Err(Error::InvalidState(
                 "Tree connection already established!".into(),
             ));
@@ -60,7 +60,7 @@ impl Tree {
             self.name,
             response.message.header.tree_id
         );
-        *self.handler.connect_info.write().await = Some(TreeConnectInfo {
+        *self.handler.connect_info.write().await? = Some(TreeConnectInfo {
             tree_id: response.message.header.tree_id,
         });
         Ok(())
@@ -95,7 +95,7 @@ impl TreeMessageHandler {
 
     #[maybe_async]
     async fn disconnect(&mut self) -> crate::Result<()> {
-        let connected = { self.connect_info.read().await.is_some() };
+        let connected = { self.connect_info.read().await?.is_some() };
 
         if !connected {
             return Err(Error::InvalidState(
@@ -112,7 +112,7 @@ impl TreeMessageHandler {
             ))
             .await?;
 
-        self.connect_info.write().await.take();
+        self.connect_info.write().await?.take();
 
         log::info!("Disconnected from tree {}", self.tree_name);
 
@@ -138,7 +138,7 @@ impl MessageHandler for TreeMessageHandler {
         &self,
         mut msg: crate::msg_handler::OutgoingMessage,
     ) -> crate::Result<crate::msg_handler::SendMessageResult> {
-        msg.message.header.tree_id = match self.connect_info.read().await.as_ref() {
+        msg.message.header.tree_id = match self.connect_info.read().await?.as_ref() {
             Some(info) => info.tree_id,
             None => 0,
         };

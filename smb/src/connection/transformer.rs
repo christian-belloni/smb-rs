@@ -40,7 +40,7 @@ impl Transformer {
     #[maybe_async]
     pub async fn negotiated(&self, neg_state: &NegotiateState) -> crate::Result<()> {
         {
-            let config = self.config.read().await;
+            let config = self.config.read().await?;
             if config.negotiated {
                 return Err(crate::Error::InvalidState(
                     "Connection is already negotiated!".into(),
@@ -48,7 +48,7 @@ impl Transformer {
             }
         }
 
-        let mut config = self.config.write().await;
+        let mut config = self.config.write().await?;
 
         let compress = match &neg_state.compression {
             Some(compression) => {
@@ -65,7 +65,7 @@ impl Transformer {
     /// Adds the session to the list of active sessions.
     #[maybe_async]
     pub async fn session_started(&self, session: Arc<Mutex<SessionState>>) -> crate::Result<()> {
-        let rconfig = self.config.read().await;
+        let rconfig = self.config.read().await?;
         if !rconfig.negotiated {
             return Err(crate::Error::InvalidState(
                 "Connection is not negotiated yet!".to_string(),
@@ -182,7 +182,7 @@ impl Transformer {
         // 2. Compress
         data = {
             if msg.compress && data.len() > 1024 {
-                let rconfig = self.config.read().await;
+                let rconfig = self.config.read().await?;
                 if let Some(compress) = &rconfig.compress {
                     let compressed = compress.0.compress(&data)?;
                     data.clear();
@@ -272,7 +272,7 @@ impl Transformer {
         // 2. Decompress
         debug_assert!(!matches!(message, Message::Encrypted(_)));
         let (message, raw) = if let Message::Compressed(compressed_message) = &message {
-            let rconfig = self.config.read().await;
+            let rconfig = self.config.read().await?;
             form.compressed = true;
             match &rconfig.compress {
                 Some(compress) => compress.1.decompress(compressed_message)?,

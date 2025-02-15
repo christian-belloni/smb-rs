@@ -1,4 +1,4 @@
-use std::num::TryFromIntError;
+use std::{num::TryFromIntError, sync::PoisonError};
 
 use thiserror::Error;
 
@@ -50,5 +50,13 @@ pub enum Error {
     #[error("Username error: {0}")]
     UsernameError(String),
     #[error("Message processing failed. {0}")]
-    MessageProcessingError(String)
+    MessageProcessingError(String),
+    #[error("Lock error.")]
+    LockError,
+}
+
+impl<T> From<PoisonError<T>> for Error {
+    fn from(_: PoisonError<T>) -> Self {
+        Error::LockError
+    }
 }

@@ -48,7 +48,7 @@ impl Session {
     /// Sets up the session with the specified username and password.
     #[maybe_async]
     pub async fn setup(&mut self, user_name: String, password: String) -> crate::Result<()> {
-        if *self.handler.session_id.read().await != 0 {
+        if *self.handler.session_id.read().await? != 0 {
             return Err(Error::InvalidState("Session already set up!".to_string()));
         }
 
@@ -83,7 +83,7 @@ impl Session {
             .await?;
 
         // Set session id.
-        *self.handler.session_id.write().await = response.message.header.session_id;
+        *self.handler.session_id.write().await? = response.message.header.session_id;
         self.session_state.lock().await.session_id = response.message.header.session_id;
 
         let mut response = Some(response);
@@ -223,7 +223,7 @@ impl SessionMessageHandler {
 
     #[maybe_async]
     async fn logoff(&self) -> crate::Result<()> {
-        if *self.session_id.read().await == 0 {
+        if *self.session_id.read().await? == 0 {
             log::trace!("Session not set up/already logged-off.");
             return Ok(());
         }
@@ -237,7 +237,7 @@ impl SessionMessageHandler {
         // Reset session ID and keys.
         SessionState::invalidate(&self.session_state).await;
         let session_id = {
-            let mut session_id_ref = self.session_id.write().await;
+            let mut session_id_ref = self.session_id.write().await?;
             let session_id = *session_id_ref;
             *session_id_ref = 0;
             session_id
@@ -266,7 +266,7 @@ impl SessionMessageHandler {
 impl MessageHandler for SessionMessageHandler {
     #[maybe_async]
     async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
-        if *self.session_id.read().await == 0 {
+        if *self.session_id.read().await? == 0 {
             return Err(
                 Error::InvalidState("Session is invalid or not set up!".to_string()).into(),
             );
@@ -280,7 +280,7 @@ impl MessageHandler for SessionMessageHandler {
         else if self.should_sign().await {
             msg.message.header.flags.set_signed(true);
         }
-        msg.message.header.session_id = *self.session_id.read().await;
+        msg.message.header.session_id = *self.session_id.read().await?;
         self.upstream.sendo(msg).await
     }
 
@@ -289,7 +289,7 @@ impl MessageHandler for SessionMessageHandler {
         &self,
         options: crate::msg_handler::ReceiveOptions,
     ) -> crate::Result<IncomingMessage> {
-        if *self.session_id.read().await == 0 {
+        if *self.session_id.read().await? == 0 {
             return Err(Error::InvalidState(
                 "Session is invalid or not set up!".to_string(),
             ));
@@ -301,7 +301,7 @@ impl MessageHandler for SessionMessageHandler {
             return Err(Error::InvalidMessage(
                 "No session ID in message that got to session!".to_string(),
             ));
-        } else if incoming.message.header.session_id != *self.session_id.read().await {
+        } else if incoming.message.header.session_id != *self.session_id.read().await? {
             return Err(Error::InvalidMessage(
                 "Message not for this session!".to_string(),
             ));

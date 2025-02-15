@@ -16,9 +16,9 @@ pub struct CopyCmd {
 }
 
 #[sync_impl]
-fn do_copy(from: File, to: fs::File) -> Result<(), Box<dyn Error>> {
+fn do_copy(from: File, mut to: fs::File) -> Result<(), Box<dyn Error>> {
     let mut buffered_reader = io::BufReader::with_capacity(32768, from);
-    io::copy(&mut buffered_reader, to)?;
+    io::copy(&mut buffered_reader, &mut to)?;
 
     Ok(())
 }
