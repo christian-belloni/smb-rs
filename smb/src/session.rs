@@ -192,26 +192,6 @@ impl Session {
     }
 }
 
-#[cfg(not(feature = "async"))]
-impl Drop for SessionMessageHandler {
-    fn drop(&mut self) {
-        self.logoff().unwrap_or_else(|e| {
-            log::error!("Failed to logoff: {}", e);
-        });
-    }
-}
-
-#[cfg(feature = "async")]
-impl Drop for SessionMessageHandler {
-    fn drop(&mut self) {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                self.logoff_async().await;
-            })
-        })
-    }
-}
-
 pub struct SessionMessageHandler {
     session_id: RwLock<u64>,
     upstream: UpstreamHandlerRef,
@@ -336,5 +316,25 @@ impl MessageHandler for SessionMessageHandler {
         }
 
         Ok(incoming)
+    }
+}
+
+#[cfg(not(feature = "async"))]
+impl Drop for SessionMessageHandler {
+    fn drop(&mut self) {
+        self.logoff().unwrap_or_else(|e| {
+            log::error!("Failed to logoff: {}", e);
+        });
+    }
+}
+
+#[cfg(feature = "async")]
+impl Drop for SessionMessageHandler {
+    fn drop(&mut self) {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.logoff_async().await;
+            })
+        })
     }
 }

@@ -206,29 +206,6 @@ impl ResourceHandle {
     }
 }
 
-#[cfg(not(feature = "async"))]
-impl Drop for ResourceHandle {
-    fn drop(&mut self) {
-        self.close()
-            .or_else(|e| {
-                log::error!("Error closing file: {}", e);
-                Err(e)
-            })
-            .ok();
-    }
-}
-
-#[cfg(feature = "async")]
-impl Drop for ResourceHandle {
-    fn drop(&mut self) {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                self.close_async().await;
-            })
-        })
-    }
-}
-
 struct MessageHandleHandler {
     upstream: Upstream,
 }
@@ -256,5 +233,28 @@ impl MessageHandler for MessageHandleHandler {
         options: crate::msg_handler::ReceiveOptions,
     ) -> crate::Result<crate::msg_handler::IncomingMessage> {
         self.upstream.recvo(options).await
+    }
+}
+
+#[cfg(not(feature = "async"))]
+impl Drop for ResourceHandle {
+    fn drop(&mut self) {
+        self.close()
+            .or_else(|e| {
+                log::error!("Error closing file: {}", e);
+                Err(e)
+            })
+            .ok();
+    }
+}
+
+#[cfg(feature = "async")]
+impl Drop for ResourceHandle {
+    fn drop(&mut self) {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.close_async().await;
+            })
+        })
     }
 }
