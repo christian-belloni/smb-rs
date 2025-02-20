@@ -6,7 +6,7 @@ use std::io::Cursor;
 use crate::{crypto, packets::smb2::header::Header, Error};
 
 /// A struct for writing and verifying SMB message signatures.
-/// 
+///
 /// This struct is NOT thread-safe, use clones for concurrent access.
 #[derive(Debug)]
 pub struct MessageSigner {
@@ -19,7 +19,11 @@ impl MessageSigner {
     }
 
     /// Verifies the signature of a message.
-    pub fn verify_signature(&mut self, header: &mut Header, raw_data: &Vec<u8>) -> crate::Result<()> {
+    pub fn verify_signature(
+        &mut self,
+        header: &mut Header,
+        raw_data: &Vec<u8>,
+    ) -> crate::Result<()> {
         let calculated_signature = self.calculate_signature(header, raw_data)?;
         if calculated_signature != header.signature {
             return Err(Error::SignatureVerificationFailed);
@@ -32,7 +36,11 @@ impl MessageSigner {
     }
 
     /// Signs a message.
-    pub fn sign_message(&mut self, header: &mut Header, raw_data: &mut Vec<u8>) -> crate::Result<()> {
+    pub fn sign_message(
+        &mut self,
+        header: &mut Header,
+        raw_data: &mut Vec<u8>,
+    ) -> crate::Result<()> {
         debug_assert!(raw_data.len() >= Header::STRUCT_SIZE);
 
         header.signature = self.calculate_signature(header, raw_data)?;

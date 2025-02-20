@@ -6,6 +6,8 @@ use binrw::prelude::*;
 pub struct NegotiateState {
     pub server_guid: Guid,
 
+    pub global_caps: GlobalCapabilities,
+
     pub max_transact_size: u32,
     pub max_read_size: u32,
     pub max_write_size: u32,

@@ -237,7 +237,7 @@ impl NegotiateResponse {
     }
 }
 
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[brw(repr(u16))]
 pub enum Dialect {
     Smb0202 = 0x0202,

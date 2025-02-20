@@ -166,6 +166,38 @@ impl Content {
             ErrorResponse(_) => panic!("Error has no matching command!"),
         }
     }
+
+    /// If this is a request has a payload, it returns the size of it.
+    /// Otherwise, it returns 0.
+    ///
+    /// This method shall be used for calculating credits request & charge.
+    pub fn req_payload_size(&self) -> u32 {
+        use Content::*;
+        match self {
+            // 3.3.5.13
+            WriteRequest(req) => req.buffer.len() as u32,
+            // 3.3.5.15: InputCount + OutputCount
+            IoctlRequest(req) => req.buffer.len() as u32 + req.max_output_response,
+            _ => 0,
+        }
+    }
+
+    /// If this is a request that expects a response with size,
+    /// it returns that expected size.
+    ///
+    /// This method shall be used for calculating credits request & charge.
+    pub fn expected_resp_size(&self) -> u32 {
+        use Content::*;
+        match self {
+            // 3.3.5.12
+            ReadRequest(req) => req.length,
+            // 3.3.5.18
+            QueryDirectoryRequest(req) => req.output_buffer_length,
+            // 3.3.5.15: MaxInputCount + MaxOutputCount
+            IoctlRequest(req) => req.max_input_response + req.max_output_response,
+            _ => 0,
+        }
+    }
 }
 
 /// A plain, single, SMB2 message.

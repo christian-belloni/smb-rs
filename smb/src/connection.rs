@@ -5,7 +5,8 @@ pub mod transformer;
 pub mod worker;
 
 use crate::packets::guid::Guid;
-use crate::packets::smb2::Message;
+use crate::packets::smb2::{Command, Message};
+use crate::sync_helpers::*;
 use crate::Error;
 use crate::{
     crypto,
@@ -21,9 +22,8 @@ use binrw::prelude::*;
 use maybe_async::*;
 use negotiation_state::NegotiateState;
 use netbios_client::NetBiosClient;
-use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use std::cmp::max;
 use std::sync::Arc;
-use crate::sync_helpers::*;
 pub use transformer::TransformError;
 use worker::WorkerImpl;
 
@@ -180,6 +180,7 @@ impl Connection {
 
         let negotiate_state = NegotiateState {
             server_guid: smb2_negotiate_response.server_guid,
+            global_caps: smb2_negotiate_response.capabilities.clone(),
             max_transact_size: smb2_negotiate_response.max_transact_size,
             max_read_size: smb2_negotiate_response.max_read_size,
             max_write_size: smb2_negotiate_response.max_write_size,
@@ -248,14 +249,22 @@ impl Connection {
 /// This struct is the internal message handler for the SMB client.
 pub struct ClientMessageHandler {
     client_guid: Guid,
+    /// The number of extra credits to be requested by the client
+    /// to enable larger requests/multiple outstanding requests.
+    extra_credits_to_request: u16,
 
     worker: OnceCell<Arc<WorkerImpl>>,
 
-    current_message_id: AtomicU64,
-    credits_balance: AtomicU16,
-
     // Negotiation-related state.
     negotiate_state: OnceCell<NegotiateState>,
+    sequence_state: Mutex<SequenceState>,
+}
+
+struct SequenceState {
+    /// sequence low
+    curr_msg_id: u64,
+    /// sequence size
+    curr_credits: u16,
 }
 
 impl ClientMessageHandler {
@@ -264,8 +273,11 @@ impl ClientMessageHandler {
             client_guid: Guid::gen(),
             worker: OnceCell::new(),
             negotiate_state: OnceCell::new(),
-            current_message_id: AtomicU64::new(1),
-            credits_balance: AtomicU16::new(1), // TODO: Validate!
+            extra_credits_to_request: 16,
+            sequence_state: Mutex::new(SequenceState {
+                curr_msg_id: 1,
+                curr_credits: 1,
+            }),
         }
     }
 
@@ -276,13 +288,83 @@ impl ClientMessageHandler {
     pub fn worker(&self) -> Option<&Arc<WorkerImpl>> {
         self.worker.get()
     }
+
+    const SET_CREDIT_CHARGE_CMDS: &[Command] = &[
+        Command::Read,
+        Command::Write,
+        Command::Ioctl,
+        Command::QueryDirectory,
+    ];
+
+    const CREDIT_CALC_RATIO: u32 = 65536;
+
+    #[maybe_async]
+    async fn process_sequence_outgoing(&self, msg: &mut OutgoingMessage) -> crate::Result<()> {
+        if let Some(neg) = self.negotiate_state() {
+            if neg.selected_dialect > Dialect::Smb0202 && neg.global_caps.large_mtu() {
+                if Self::SET_CREDIT_CHARGE_CMDS
+                    .iter()
+                    .any(|&cmd| cmd == msg.message.header.command)
+                {
+                    let send_payload_size = msg.message.content.req_payload_size();
+                    let expected_response_payload_size = msg.message.content.expected_resp_size();
+                    msg.message.header.credit_charge = (1
+                        + (max(send_payload_size, expected_response_payload_size) - 1)
+                            / Self::CREDIT_CALC_RATIO)
+                        .try_into()
+                        .unwrap();
+                } else {
+                    msg.message.header.credit_charge = 1;
+                }
+                let mut sequence_state = self.sequence_state.lock().await?;
+                // Make sure that we have enough credits to satisfy this request:
+                if sequence_state.curr_credits < msg.message.header.credit_charge {
+                    // TODO: Consider waiting here if possible?
+                    return Err(Error::NoCredits(
+                        msg.message.header.credit_charge,
+                        sequence_state.curr_credits,
+                    ));
+                }
+                msg.message.header.credit_request = msg.message.header.credit_charge;
+                // Request additional credits if required: if balance < extra, add to request the diff:
+                if sequence_state.curr_credits < self.extra_credits_to_request {
+                    msg.message.header.credit_request +=
+                        self.extra_credits_to_request - sequence_state.curr_credits;
+                }
+                // Next Message ID should be incremented by the charge amount:
+                msg.message.header.message_id = sequence_state.curr_msg_id;
+                sequence_state.curr_msg_id += msg.message.header.credit_charge as u64;
+                return Ok(());
+            } else {
+                debug_assert_eq!(msg.message.header.credit_request, 0);
+                debug_assert_eq!(msg.message.header.credit_charge, 0);
+            }
+        }
+        // Default case: next sequence ID
+        {
+            let mut sequence_state = self.sequence_state.lock().await?;
+            msg.message.header.message_id = sequence_state.curr_msg_id;
+            sequence_state.curr_msg_id += 1;
+        }
+        Ok(())
+    }
+
+    #[maybe_async]
+    async fn process_sequence_incoming(&self, msg: &IncomingMessage) -> crate::Result<()> {
+        if let Some(neg) = self.negotiate_state() {
+            if neg.selected_dialect > Dialect::Smb0202 && neg.global_caps.large_mtu() {
+                let mut sequence_state = self.sequence_state.lock().await?;
+                sequence_state.curr_credits +=
+                    msg.message.header.credit_request - msg.message.header.credit_charge;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl MessageHandler for ClientMessageHandler {
     #[maybe_async]
     async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
-        // message id += 1, atomic.
-        msg.message.header.message_id = self.current_message_id.fetch_add(1, Ordering::Relaxed);
         // TODO: Add assertion in the struct regarding the selected dialect!
         let priority_value = match self.negotiate_state.get() {
             Some(negotiate_state) => match negotiate_state.selected_dialect {
@@ -292,8 +374,7 @@ impl MessageHandler for ClientMessageHandler {
             None => 0,
         };
         msg.message.header.flags = msg.message.header.flags.with_priority_mask(priority_value);
-        msg.message.header.credit_charge = 1;
-        msg.message.header.credit_request = 1;
+        self.process_sequence_outgoing(&mut msg).await?;
 
         Ok(self
             .worker
@@ -335,9 +416,7 @@ impl MessageHandler for ClientMessageHandler {
             return Err(Error::UnexpectedMessageStatus(msg.message.header.status));
         }
 
-        // Credits handling. TODO: Make sure how this calculation behaves when error/edge cases.
-        let diff = msg.message.header.credit_request - msg.message.header.credit_charge;
-        self.credits_balance.fetch_add(diff, Ordering::Relaxed);
+        self.process_sequence_incoming(&msg).await?;
 
         Ok(msg)
     }
