@@ -4,6 +4,8 @@ use binrw::{io::TakeSeekExt, prelude::*};
 use modular_bitfield::prelude::*;
 use std::io::{Cursor, SeekFrom};
 
+use crate::packets::smb2::SecurityDescriptor;
+
 use super::super::{super::binrw_util::prelude::*, super::guid::Guid, fscc::*};
 use super::common::*;
 
@@ -150,7 +152,7 @@ pub enum QueryInfoData {
     #[br(pre_assert(info_type == InfoType::FileSystem))]
     InfoFilesystem(InfoFilesystem),
     #[br(pre_assert(info_type == InfoType::Security))]
-    InfoSecurity(RawSecurityDescriptor),
+    InfoSecurity(SecurityDescriptor),
     #[br(pre_assert(info_type == InfoType::Quota))]
     InfoQuota(FileQuotaInformation),
 }
@@ -160,6 +162,27 @@ impl QueryInfoData {
         match self {
             QueryInfoData::InfoFile(file) => file,
             _ => panic!("Expected InfoFile, got {:?}", self),
+        }
+    }
+
+    pub fn unwrap_filesystem(self) -> InfoFilesystem {
+        match self {
+            QueryInfoData::InfoFilesystem(fs) => fs,
+            _ => panic!("Expected InfoFilesystem, got {:?}", self),
+        }
+    }
+
+    pub fn unwrap_security(self) -> SecurityDescriptor {
+        match self {
+            QueryInfoData::InfoSecurity(sec) => sec,
+            _ => panic!("Expected InfoSecurity, got {:?}", self),
+        }
+    }
+
+    pub fn unwrap_quota(self) -> FileQuotaInformation {
+        match self {
+            QueryInfoData::InfoQuota(q) => q,
+            _ => panic!("Expected InfoQuota, got {:?}", self),
         }
     }
 }
