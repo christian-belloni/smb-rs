@@ -52,6 +52,32 @@ impl File {
         Ok(result)
     }
 
+    #[maybe_async]
+    pub async fn query_security_info(&self) -> crate::Result<SecurityDescriptor> {
+        let response = self
+            .handle
+            .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
+                info_type: InfoType::Security,
+                file_info_class: QueryFileInfoClass::None,
+                output_buffer_length: 1024,
+                additional_information: AdditionalInfo::new().with_owner_security_information(true),
+                flags: QueryInfoFlags::new()
+                    .with_restart_scan(true)
+                    .with_return_single_entry(true),
+                file_id: self.handle.file_id(),
+                data: GetInfoRequestData::None(()),
+            }))
+            .await?;
+        let query_info_response = match response.message.content {
+            Content::QueryInfoResponse(response) => response,
+            _ => panic!("Unexpected response"),
+        };
+        let result = query_info_response
+            .parse(InfoType::Security)?
+            .unwrap_security();
+        Ok(result)
+    }
+
     /// Reads up to `buf.len()` bytes from the file into `buf`, beginning in offset `pos`.
     #[maybe_async]
     pub async fn read_block(&self, buf: &mut [u8], pos: u64) -> std::io::Result<usize> {

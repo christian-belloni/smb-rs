@@ -1,5 +1,7 @@
 //! SMB2 Set Info Request/Response messages.
 
+use crate::packets::smb2::SecurityDescriptor;
+
 use super::super::{
     super::{binrw_util::prelude::*, guid::Guid},
     fscc::*,
@@ -48,7 +50,7 @@ pub enum SetInfoData {
     #[br(pre_assert(info_type == InfoType::FileSystem))]
     FileSystem(InfoFilesystem),
     #[br(pre_assert(info_type == InfoType::Security))]
-    Security(RawSecurityDescriptor),
+    Security(SecurityDescriptor),
     #[br(pre_assert(info_type == InfoType::Quota))]
     Quota(FileQuotaInformation),
 }

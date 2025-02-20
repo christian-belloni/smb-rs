@@ -17,6 +17,8 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
             Resource::File(file) => {
                 let info = file.query_info().await?;
                 log::info!("File info: {:?}", info);
+                let security = file.query_security_info().await?;
+                log::info!("Security info: {:?}", security);
             }
             Resource::Directory(mut dir) => {
                 for item in dir.query("*").await? {

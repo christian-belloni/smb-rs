@@ -1,6 +1,5 @@
 //! Common data structures for query/set info messages.
 
-use super::super::security::*;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
@@ -40,23 +39,4 @@ pub struct AdditionalInfo {
 pub struct InfoFilesystem {
     #[br(parse_with = binrw::helpers::until_eof)]
     data: Vec<u8>,
-}
-
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct RawSecurityDescriptor {
-    #[br(parse_with = binrw::helpers::until_eof)]
-    data: Vec<u8>,
-}
-
-impl RawSecurityDescriptor {
-    pub fn parse(
-        &self,
-        _additional_info: AdditionalInfo,
-    ) -> Result<SecurityDescriptor, binrw::Error> {
-        return Err(binrw::Error::Custom {
-            pos: 0,
-            err: Box::<String>::new("Not implemented!".into()),
-        });
-    }
 }
