@@ -62,6 +62,8 @@ pub enum Error {
     #[cfg(feature = "sync")]
     #[error("Channel recv error.")]
     ChannelRecvError(#[from] std::sync::mpsc::RecvError),
+    #[error("Not enough credits to satisfy this request by the server (req: {0}, balance: {1}).")]
+    NoCredits(u16, u16),
 }
 
 impl<T> From<PoisonError<T>> for Error {

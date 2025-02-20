@@ -25,12 +25,12 @@ fn do_copy(from: File, mut to: fs::File) -> Result<(), Box<dyn Error>> {
 
 #[cfg(feature = "async")]
 async fn do_copy(from: File, mut to: fs::File) -> Result<(), Box<dyn Error>> {
-    let buffer = &mut [0u8; 32768];
+    let mut buffer = vec![0u8; 2usize.pow(20)];
     let mut pos = 0;
 
     // TODO: Make it parallel!
     loop {
-        let bytes_read = from.read_block(buffer, pos).await?;
+        let bytes_read = from.read_block(&mut buffer, pos).await?;
         if bytes_read == 0 {
             break;
         }

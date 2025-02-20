@@ -79,7 +79,6 @@ impl NetBiosClient {
         Ok(NetBiosTcpMessage { content: data })
     }
 
-
     /// For synchronous implementations, sets the read timeout for the connection.
     /// This is useful when polling for messages.
     #[cfg(feature = "sync")]

@@ -50,7 +50,7 @@ pub trait EncryptingAlgo: Debug + Send {
     }
 
     /// Clone the algo into a boxed trait object.
-    /// 
+    ///
     /// This method is added to allow cloning the trait object, and allow cloning it's users,
     /// to enable multi-threaded access to the same encryption algorithm:
     /// Some of the algorithms are only mutable, and can't be shared between threads.

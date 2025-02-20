@@ -269,7 +269,7 @@ pub trait WorkerBackend {
     fn wrap_msg_to_send(msg: NetBiosTcpMessage) -> Self::SendMessage;
     fn make_notifier_awaiter_pair() -> (Self::AwaitingNotifier, Self::AwaitingWaiter);
     // TODO: Consider typing the tx/rx in the trait, like the notifier/awaiter.
-    fn make_send_channel_pair() -> ( 
+    fn make_send_channel_pair() -> (
         mpsc::Sender<Self::SendMessage>,
         mpsc::Receiver<Self::SendMessage>,
     );
