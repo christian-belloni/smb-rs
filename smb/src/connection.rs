@@ -3,7 +3,6 @@ pub mod netbios_client;
 pub mod preauth_hash;
 pub mod transformer;
 pub mod worker;
-pub mod backend;
 
 use crate::packets::guid::Guid;
 use crate::packets::smb2::{Command, Message};
@@ -26,16 +25,16 @@ use netbios_client::NetBiosClient;
 use std::cmp::max;
 use std::sync::Arc;
 pub use transformer::TransformError;
-use worker::WorkerImpl;
+use worker::{Worker, WorkerImpl};
 
 pub struct Connection {
-    handler: HandlerReference<ClientMessageHandler>,
+    handler: HandlerReference<ConnectionMessageHandler>,
 }
 
 impl Connection {
     pub fn new() -> Connection {
         Connection {
-            handler: HandlerReference::new(ClientMessageHandler::new()),
+            handler: HandlerReference::new(ConnectionMessageHandler::new()),
         }
     }
     #[maybe_async]
@@ -248,7 +247,7 @@ impl Connection {
 }
 
 /// This struct is the internal message handler for the SMB client.
-pub struct ClientMessageHandler {
+pub struct ConnectionMessageHandler {
     client_guid: Guid,
     /// The number of extra credits to be requested by the client
     /// to enable larger requests/multiple outstanding requests.
@@ -268,9 +267,9 @@ struct SequenceState {
     curr_credits: u16,
 }
 
-impl ClientMessageHandler {
-    fn new() -> ClientMessageHandler {
-        ClientMessageHandler {
+impl ConnectionMessageHandler {
+    fn new() -> ConnectionMessageHandler {
+        ConnectionMessageHandler {
             client_guid: Guid::gen(),
             worker: OnceCell::new(),
             negotiate_state: OnceCell::new(),
@@ -363,7 +362,7 @@ impl ClientMessageHandler {
     }
 }
 
-impl MessageHandler for ClientMessageHandler {
+impl MessageHandler for ConnectionMessageHandler {
     #[maybe_async]
     async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         // TODO: Add assertion in the struct regarding the selected dialect!
@@ -391,7 +390,7 @@ impl MessageHandler for ClientMessageHandler {
             .worker
             .get()
             .unwrap()
-            .receive(options.msgid_filter)
+            .receive(options.msg_id_filter)
             .await?;
 
         // Command matching (if needed).

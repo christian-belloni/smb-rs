@@ -1,33 +1,22 @@
+use crate::connection::netbios_client::NetBiosClient;
 use crate::sync_helpers::*;
 use maybe_async::*;
 use std::sync::Arc;
 
 use crate::{msg_handler::IncomingMessage, packets::netbios::NetBiosTcpMessage};
 
-use super::netbios_client::NetBiosClient;
-
-use super::worker::WorkerBase;
-
-#[cfg(feature = "async")]
-pub mod async_backend;
-#[cfg(feature = "sync")]
-pub mod threaded_backend;
-
-#[cfg(feature = "async")]
-pub use async_backend::AsyncBackend;
-#[cfg(feature = "sync")]
-pub use threaded_backend::ThreadedBackend;
+use super::base::MultiWorkerBase;
 
 #[maybe_async(AFIT)]
 #[allow(async_fn_in_trait)] // for maybe_async.
-pub trait WorkerBackend {
+pub trait MultiWorkerBackend {
     type SendMessage;
     type AwaitingNotifier;
     type AwaitingWaiter;
 
     async fn start(
         netbios_client: NetBiosClient,
-        worker: Arc<WorkerBase<Self>>,
+        worker: Arc<MultiWorkerBase<Self>>,
         send_channel_recv: mpsc::Receiver<Self::SendMessage>,
     ) -> crate::Result<Arc<Self>>
     where

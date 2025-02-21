@@ -1,33 +1,29 @@
 use crate::connection::netbios_client::NetBiosClient;
 use crate::sync_helpers::*;
 use std::sync::atomic::AtomicBool;
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 
-use crate::{
-    msg_handler::IncomingMessage,
-    packets::netbios::NetBiosTcpMessage,
-    Error,
-};
+use crate::{msg_handler::IncomingMessage, packets::netbios::NetBiosTcpMessage, Error};
 
-use super::{WorkerBackend, WorkerBase};
+use super::{backend_trait::MultiWorkerBackend, base::MultiWorkerBase};
 
 #[derive(Debug)]
-pub struct ThreadedBackend {
-    worker: Arc<WorkerBase<Self>>,
+pub struct ThreadingBackend {
+    worker: Arc<MultiWorkerBase<Self>>,
 
     /// The loops' handles for the worker.
     loop_handles: Mutex<Option<(JoinHandle<()>, JoinHandle<()>)>>,
     stopped: AtomicBool,
 }
 
-impl ThreadedBackend {
+impl ThreadingBackend {
     fn is_cancelled(&self) -> bool {
         self.stopped.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
-impl ThreadedBackend {
+impl ThreadingBackend {
     fn loop_receive(&self, mut netbios_client: NetBiosClient) {
         debug_assert!(netbios_client.read_timeout().unwrap().is_some());
         while !self.is_cancelled() {
@@ -89,7 +85,7 @@ impl ThreadedBackend {
 }
 
 #[cfg(feature = "sync")]
-impl WorkerBackend for ThreadedBackend {
+impl MultiWorkerBackend for ThreadingBackend {
     type SendMessage = Option<NetBiosTcpMessage>;
 
     type AwaitingNotifier = std::sync::mpsc::Sender<crate::Result<IncomingMessage>>;
@@ -97,7 +93,7 @@ impl WorkerBackend for ThreadedBackend {
 
     fn start(
         netbios_client: NetBiosClient,
-        worker: Arc<WorkerBase<Self>>,
+        worker: Arc<MultiWorkerBase<Self>>,
         send_channel_recv: mpsc::Receiver<Self::SendMessage>,
     ) -> crate::Result<Arc<Self>>
     where

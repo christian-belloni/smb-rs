@@ -6,7 +6,8 @@ use crate::{msg_handler::IncomingMessage, packets::netbios::NetBiosTcpMessage, E
 
 use crate::connection::netbios_client::NetBiosClient;
 
-use super::{WorkerBackend, WorkerBase};
+use super::base::MultiWorkerBase;
+use super::backend_trait::MultiWorkerBackend;
 
 #[derive(Debug)]
 pub struct AsyncBackend {
@@ -27,7 +28,7 @@ impl AsyncBackend {
         self: Arc<Self>,
         mut netbios_client: NetBiosClient,
         mut rx: mpsc::Receiver<NetBiosTcpMessage>,
-        worker: Arc<WorkerBase<Self>>,
+        worker: Arc<MultiWorkerBase<Self>>,
     ) {
         log::debug!("Starting worker loop.");
         let self_ref = self.as_ref();
@@ -69,7 +70,7 @@ impl AsyncBackend {
         self: &Self,
         netbios_client: &mut NetBiosClient,
         send_channel: &mut mpsc::Receiver<NetBiosTcpMessage>,
-        worker: &Arc<WorkerBase<Self>>,
+        worker: &Arc<MultiWorkerBase<Self>>,
     ) -> crate::Result<()> {
         select! {
             // Receive a message from the server.
@@ -90,7 +91,7 @@ impl AsyncBackend {
 }
 
 #[cfg(feature = "async")]
-impl WorkerBackend for AsyncBackend {
+impl MultiWorkerBackend for AsyncBackend {
     type SendMessage = NetBiosTcpMessage;
 
     type AwaitingNotifier = oneshot::Sender<crate::Result<IncomingMessage>>;
@@ -98,7 +99,7 @@ impl WorkerBackend for AsyncBackend {
 
     async fn start(
         netbios_client: NetBiosClient,
-        worker: Arc<WorkerBase<Self>>,
+        worker: Arc<MultiWorkerBase<Self>>,
         send_channel_recv: mpsc::Receiver<Self::SendMessage>,
     ) -> crate::Result<Arc<Self>> {
         // Start the worker loop.
