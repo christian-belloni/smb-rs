@@ -1,11 +1,7 @@
 use crate::sync_helpers::*;
 use maybe_async::*;
 use std::sync::atomic::AtomicBool;
-#[cfg(feature = "sync")]
-use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
-#[cfg(feature = "async")]
-use tokio::{select, sync::oneshot};
 
 use crate::{
     msg_handler::{IncomingMessage, OutgoingMessage, SendMessageResult},
@@ -14,6 +10,7 @@ use crate::{
     Error,
 };
 
+use super::backend::*;
 use super::{
     negotiation_state::NegotiateState, netbios_client::NetBiosClient, transformer::Transformer,
 };
@@ -30,32 +27,33 @@ where
     T: WorkerBackend + std::fmt::Debug,
     T::AwaitingNotifier: std::fmt::Debug,
 {
-    state: Mutex<WorkerAwaitState<T>>,
+    /// TODO: Pass it down to the backend?
+    pub(crate) state: Mutex<WorkerAwaitState<T>>,
     backend: Mutex<Option<Arc<T>>>,
 
     transformer: Transformer,
 
     /// A channel to send messages to the worker.
-    sender: mpsc::Sender<T::SendMessage>,
+    pub(crate) sender: mpsc::Sender<T::SendMessage>,
     stopped: AtomicBool,
 }
 
 #[cfg(feature = "async")]
 pub type WorkerImpl = WorkerBase<AsyncBackend>;
 #[cfg(feature = "sync")]
-pub type WorkerImpl = WorkerBase<SyncBackend>;
+pub type WorkerImpl = WorkerBase<ThreadedBackend>;
 
 /// Holds state for the worker, regarding messages to be received.
 #[derive(Debug)]
-struct WorkerAwaitState<T>
+pub struct WorkerAwaitState<T>
 where
     T: WorkerBackend,
     T::AwaitingNotifier: std::fmt::Debug,
 {
     /// Stores the awaiting tasks that are waiting for a specific message ID.
-    awaiting: HashMap<u64, T::AwaitingNotifier>,
+    pub awaiting: HashMap<u64, T::AwaitingNotifier>,
     /// Stores the pending messages, waiting to be receive()-d.
-    pending: HashMap<u64, IncomingMessage>,
+    pub pending: HashMap<u64, IncomingMessage>,
 }
 
 impl<T> WorkerAwaitState<T>
@@ -199,7 +197,7 @@ where
     }
 
     #[maybe_async]
-    pub async fn loop_handle_incoming(
+    pub(crate) async fn loop_handle_incoming(
         self: &Arc<Self>,
         message: crate::Result<NetBiosTcpMessage>,
     ) -> crate::Result<()> {
@@ -245,374 +243,5 @@ where
         netbios_client.send_raw(message).await?;
 
         Ok(())
-    }
-}
-
-#[maybe_async(AFIT)]
-#[allow(async_fn_in_trait)] // for maybe_async.
-pub trait WorkerBackend {
-    type SendMessage;
-    type AwaitingNotifier;
-    type AwaitingWaiter;
-
-    async fn start(
-        netbios_client: NetBiosClient,
-        worker: Arc<WorkerBase<Self>>,
-        send_channel_recv: mpsc::Receiver<Self::SendMessage>,
-    ) -> crate::Result<Arc<Self>>
-    where
-        Self: std::fmt::Debug + Sized,
-        Self::AwaitingNotifier: std::fmt::Debug;
-    async fn stop(&self) -> crate::Result<()>;
-    fn is_cancelled(&self) -> bool;
-
-    fn wrap_msg_to_send(msg: NetBiosTcpMessage) -> Self::SendMessage;
-    fn make_notifier_awaiter_pair() -> (Self::AwaitingNotifier, Self::AwaitingWaiter);
-    // TODO: Consider typing the tx/rx in the trait, like the notifier/awaiter.
-    fn make_send_channel_pair() -> (
-        mpsc::Sender<Self::SendMessage>,
-        mpsc::Receiver<Self::SendMessage>,
-    );
-
-    async fn wait_on_waiter(waiter: Self::AwaitingWaiter) -> crate::Result<IncomingMessage>;
-    fn send_notify(
-        tx: Self::AwaitingNotifier,
-        msg: crate::Result<IncomingMessage>,
-    ) -> crate::Result<()>;
-}
-
-#[cfg(feature = "sync")]
-#[derive(Debug)]
-pub struct SyncBackend {
-    worker: Arc<WorkerBase<Self>>,
-
-    /// The loops' handles for the worker.
-    loop_handles: Mutex<Option<(JoinHandle<()>, JoinHandle<()>)>>,
-    stopped: AtomicBool,
-}
-
-#[cfg(feature = "sync")]
-impl SyncBackend {
-    fn loop_receive(&self, mut netbios_client: NetBiosClient) {
-        debug_assert!(netbios_client.read_timeout().unwrap().is_some());
-        while !self.is_cancelled() {
-            let next = netbios_client.recieve_bytes();
-            // Handle polling fail
-            if let Err(Error::IoError(ref e)) = next {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    continue;
-                }
-            }
-            match self.worker.loop_handle_incoming(next) {
-                Ok(_) => {}
-                Err(Error::NotConnected) => {
-                    if self.is_cancelled() {
-                        log::info!("Connection closed.");
-                    } else {
-                        log::error!("Connection closed.");
-                    }
-                    break;
-                }
-                Err(e) => {
-                    log::error!("Error in worker recv loop: {}", e);
-                }
-            }
-        }
-    }
-
-    fn loop_send(
-        &self,
-        mut netbios_client: NetBiosClient,
-        send_channel: mpsc::Receiver<Option<NetBiosTcpMessage>>,
-    ) {
-        loop {
-            match self.loop_send_next(send_channel.recv(), &mut netbios_client) {
-                Ok(_) => {}
-                Err(Error::NotConnected) => {
-                    if self.is_cancelled() {
-                        log::info!("Connection closed.");
-                    } else {
-                        log::error!("Connection closed.");
-                    }
-                    break;
-                }
-                Err(e) => {
-                    log::error!("Error in worker send loop: {}", e);
-                }
-            }
-        }
-    }
-
-    #[inline]
-    fn loop_send_next(
-        &self,
-        message: Result<Option<NetBiosTcpMessage>, mpsc::RecvError>,
-        netbios_client: &mut NetBiosClient,
-    ) -> crate::Result<()> {
-        self.worker.loop_handle_outgoing(message?, netbios_client)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl WorkerBackend for SyncBackend {
-    type SendMessage = Option<NetBiosTcpMessage>;
-
-    type AwaitingNotifier = std::sync::mpsc::Sender<crate::Result<IncomingMessage>>;
-    type AwaitingWaiter = std::sync::mpsc::Receiver<crate::Result<IncomingMessage>>;
-
-    fn start(
-        netbios_client: NetBiosClient,
-        worker: Arc<WorkerBase<Self>>,
-        send_channel_recv: mpsc::Receiver<Self::SendMessage>,
-    ) -> crate::Result<Arc<Self>>
-    where
-        Self: std::fmt::Debug,
-        Self::AwaitingNotifier: std::fmt::Debug,
-    {
-        let backend = Arc::new(Self {
-            worker,
-            loop_handles: Mutex::new(None),
-            stopped: AtomicBool::new(false),
-        });
-
-        // Start the worker loops - send and receive.
-        let netbios_receive = netbios_client;
-        let backend_receive = backend.clone();
-        let netbios_send = netbios_receive.try_clone()?;
-        let backend_send = backend.clone();
-
-        netbios_receive.set_read_timeout(Some(Duration::from_millis(100)))?;
-
-        let handle1 = std::thread::spawn(move || backend_receive.loop_receive(netbios_receive));
-        let handle2 =
-            std::thread::spawn(move || backend_send.loop_send(netbios_send, send_channel_recv));
-
-        backend
-            .loop_handles
-            .lock()
-            .unwrap()
-            .replace((handle1, handle2));
-
-        Ok(backend)
-    }
-
-    fn stop(&self) -> crate::Result<()> {
-        log::debug!("Stopping worker.");
-
-        let handles = self
-            .loop_handles
-            .lock()
-            .unwrap()
-            .take()
-            .ok_or(Error::NotConnected)?;
-
-        self.stopped
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-        // wake up the sender to stop the loop.
-        self.worker.sender.send(None).unwrap();
-
-        // Join the threads.
-        handles
-            .0
-            .join()
-            .map_err(|_| Error::JoinError("Error stopping reciever".to_string()))?;
-
-        handles
-            .1
-            .join()
-            .map_err(|_| Error::JoinError("Error stopping sender".to_string()))?;
-
-        Ok(())
-    }
-
-    fn is_cancelled(&self) -> bool {
-        self.stopped.load(std::sync::atomic::Ordering::SeqCst)
-    }
-
-    fn wrap_msg_to_send(msg: NetBiosTcpMessage) -> Self::SendMessage {
-        Some(msg)
-    }
-
-    fn make_notifier_awaiter_pair() -> (Self::AwaitingNotifier, Self::AwaitingWaiter) {
-        std::sync::mpsc::channel()
-    }
-
-    fn wait_on_waiter(waiter: Self::AwaitingWaiter) -> crate::Result<IncomingMessage> {
-        waiter
-            .recv()
-            .map_err(|_| Error::MessageProcessingError("Failed to receive message.".to_string()))?
-    }
-
-    fn send_notify(
-        tx: Self::AwaitingNotifier,
-        msg: crate::Result<IncomingMessage>,
-    ) -> crate::Result<()> {
-        tx.send(msg).map_err(|_| {
-            Error::MessageProcessingError("Failed to send message to awaiting task.".to_string())
-        })
-    }
-
-    fn make_send_channel_pair() -> (
-        mpsc::Sender<Self::SendMessage>,
-        mpsc::Receiver<Self::SendMessage>,
-    ) {
-        mpsc::channel()
-    }
-}
-
-#[cfg(feature = "async")]
-#[derive(Debug)]
-pub struct AsyncBackend {
-    /// The loop handle for the worker.
-    loop_handle: Mutex<Option<JoinHandle<()>>>,
-
-    token: CancellationToken,
-}
-
-#[cfg(feature = "async")]
-impl AsyncBackend {
-    fn is_cancelled(&self) -> bool {
-        self.token.is_cancelled()
-    }
-
-    /// Internal message loop handler.
-    async fn loop_fn(
-        self: Arc<Self>,
-        mut netbios_client: NetBiosClient,
-        mut rx: mpsc::Receiver<NetBiosTcpMessage>,
-        worker: Arc<WorkerBase<Self>>,
-    ) {
-        log::debug!("Starting worker loop.");
-        let self_ref = self.as_ref();
-        loop {
-            match self_ref
-                .handle_next_msg(&mut netbios_client, &mut rx, &worker)
-                .await
-            {
-                Ok(_) => {}
-                Err(Error::NotConnected) => {
-                    if self.is_cancelled() {
-                        log::info!("Connection closed.");
-                    } else {
-                        log::error!("Connection closed.");
-                    }
-                    break;
-                }
-                Err(e) => {
-                    log::error!("Error in worker loop: {}", e);
-                }
-            }
-        }
-
-        // Cleanup
-        // TODO: Handle cleanup recursively.
-        log::debug!("Cleaning up worker loop.");
-        rx.close();
-        if let Ok(mut state) = worker.state.lock().await {
-            for (_, tx) in state.awaiting.drain() {
-                tx.send(Err(Error::NotConnected)).unwrap();
-            }
-        }
-    }
-
-    /// Handles the next message in the loop:
-    /// - receives a message, transforms it, and sends it to the correct awaiting task.
-    /// - sends a message to the server.
-    async fn handle_next_msg(
-        self: &Self,
-        netbios_client: &mut NetBiosClient,
-        send_channel: &mut mpsc::Receiver<NetBiosTcpMessage>,
-        worker: &Arc<WorkerBase<Self>>,
-    ) -> crate::Result<()> {
-        select! {
-            // Receive a message from the server.
-            message = netbios_client.recieve_bytes() => {
-                worker.loop_handle_incoming(message).await?;
-            }
-            // Send a message to the server.
-            message = send_channel.recv() => {
-                worker.loop_handle_outgoing(message, netbios_client).await?;
-            },
-            // Cancel the loop.
-            _ = self.token.cancelled() => {
-                return Err(Error::NotConnected);
-            }
-        }
-        Ok(())
-    }
-}
-
-#[cfg(feature = "async")]
-impl WorkerBackend for AsyncBackend {
-    type SendMessage = NetBiosTcpMessage;
-
-    type AwaitingNotifier = oneshot::Sender<crate::Result<IncomingMessage>>;
-    type AwaitingWaiter = oneshot::Receiver<crate::Result<IncomingMessage>>;
-
-    async fn start(
-        netbios_client: NetBiosClient,
-        worker: Arc<WorkerBase<Self>>,
-        send_channel_recv: mpsc::Receiver<Self::SendMessage>,
-    ) -> crate::Result<Arc<Self>> {
-        // Start the worker loop.
-        let backend = Arc::new(Self {
-            loop_handle: Mutex::new(None),
-            token: CancellationToken::new(),
-        });
-        let backend_clone = backend.clone();
-        let handle = tokio::spawn(async move {
-            backend_clone
-                .loop_fn(netbios_client, send_channel_recv, worker)
-                .await
-        });
-        backend.loop_handle.lock().await?.replace(handle);
-
-        Ok(backend)
-    }
-
-    async fn stop(&self) -> crate::Result<()> {
-        log::debug!("Stopping worker.");
-        self.token.cancel();
-        self.loop_handle
-            .lock()
-            .await?
-            .take()
-            .ok_or(Error::NotConnected)?
-            .await?;
-        Ok(())
-    }
-
-    fn is_cancelled(&self) -> bool {
-        todo!()
-    }
-
-    fn wrap_msg_to_send(msg: NetBiosTcpMessage) -> Self::SendMessage {
-        msg
-    }
-
-    fn make_notifier_awaiter_pair() -> (Self::AwaitingNotifier, Self::AwaitingWaiter) {
-        oneshot::channel()
-    }
-
-    async fn wait_on_waiter(waiter: Self::AwaitingWaiter) -> crate::Result<IncomingMessage> {
-        waiter
-            .await
-            .map_err(|_| Error::MessageProcessingError("Failed to receive message.".to_string()))?
-    }
-
-    fn send_notify(
-        tx: Self::AwaitingNotifier,
-        msg: crate::Result<IncomingMessage>,
-    ) -> crate::Result<()> {
-        tx.send(msg).map_err(|_| {
-            Error::MessageProcessingError("Failed to send message to awaiting task.".to_string())
-        })
-    }
-
-    fn make_send_channel_pair() -> (
-        mpsc::Sender<Self::SendMessage>,
-        mpsc::Receiver<Self::SendMessage>,
-    ) {
-        mpsc::channel(100)
     }
 }

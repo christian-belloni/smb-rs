@@ -3,6 +3,7 @@ pub mod netbios_client;
 pub mod preauth_hash;
 pub mod transformer;
 pub mod worker;
+pub mod backend;
 
 use crate::packets::guid::Guid;
 use crate::packets::smb2::{Command, Message};
