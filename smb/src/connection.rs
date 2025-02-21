@@ -273,7 +273,7 @@ impl ConnectionMessageHandler {
             client_guid: Guid::gen(),
             worker: OnceCell::new(),
             negotiate_state: OnceCell::new(),
-            extra_credits_to_request: 16,
+            extra_credits_to_request: 16 * 4,
             sequence_state: Mutex::new(SequenceState {
                 curr_msg_id: 1,
                 curr_credits: 1,
