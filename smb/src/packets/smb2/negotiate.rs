@@ -74,6 +74,7 @@ impl NegotiateRequest {
         client_guid: Guid,
         signing_algorithms: Vec<SigningAlgorithmId>,
         encrypting_algorithms: Vec<EncryptionCipher>,
+        compression_algorithms: Vec<CompressionAlgorithm>,
     ) -> NegotiateRequest {
         NegotiateRequest {
             security_mode: NegotiateSecurityMode::new().with_signing_enabled(true),
@@ -86,13 +87,7 @@ impl NegotiateRequest {
                 .with_directory_leasing(true)
                 .with_encryption(true),
             client_guid,
-            dialects: vec![
-                // Dialect::Smb0202,
-                // Dialect::Smb021,
-                // Dialect::Smb030,
-                // Dialect::Smb0302,
-                Dialect::Smb0311,
-            ],
+            dialects: vec![Dialect::Smb0311],
             negotiate_context_list: Some(vec![
                 NegotiateContext {
                     context_type: NegotiateContextType::PreauthIntegrityCapabilities,
@@ -113,10 +108,7 @@ impl NegotiateRequest {
                     context_type: NegotiateContextType::CompressionCapabilities,
                     data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
                         flags: CompressionCapsFlags::new().with_chained(true),
-                        compression_algorithms: crate::compression::SUPPORTED_ALGORITHMS
-                            .iter()
-                            .copied()
-                            .collect(),
+                        compression_algorithms,
                     }),
                 },
                 NegotiateContext {

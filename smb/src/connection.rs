@@ -6,8 +6,8 @@ pub mod worker;
 
 use crate::packets::guid::Guid;
 use crate::packets::smb2::{Command, Message};
-use crate::sync_helpers::*;
 use crate::Error;
+use crate::{compression, sync_helpers::*};
 use crate::{
     crypto,
     msg_handler::*,
@@ -23,18 +23,19 @@ use maybe_async::*;
 use negotiation_state::NegotiateState;
 use netbios_client::NetBiosClient;
 use std::cmp::max;
+use std::sync::atomic::{AtomicU16, AtomicU64};
 use std::sync::Arc;
 pub use transformer::TransformError;
-use worker::WorkerImpl;
+use worker::{Worker, WorkerImpl};
 
 pub struct Connection {
-    handler: HandlerReference<ClientMessageHandler>,
+    handler: HandlerReference<ConnectionMessageHandler>,
 }
 
 impl Connection {
     pub fn new() -> Connection {
         Connection {
-            handler: HandlerReference::new(ClientMessageHandler::new()),
+            handler: HandlerReference::new(ConnectionMessageHandler::new()),
         }
     }
     #[maybe_async]
@@ -125,6 +126,7 @@ impl Connection {
                 client_guid,
                 crypto::SIGNING_ALGOS.into(),
                 crypto::ENCRYPTING_ALGOS.to_vec(),
+                compression::SUPPORTED_ALGORITHMS.to_vec(),
             )))
             .await?;
 
@@ -247,7 +249,7 @@ impl Connection {
 }
 
 /// This struct is the internal message handler for the SMB client.
-pub struct ClientMessageHandler {
+pub struct ConnectionMessageHandler {
     client_guid: Guid,
     /// The number of extra credits to be requested by the client
     /// to enable larger requests/multiple outstanding requests.
@@ -257,27 +259,25 @@ pub struct ClientMessageHandler {
 
     // Negotiation-related state.
     negotiate_state: OnceCell<NegotiateState>,
-    sequence_state: Mutex<SequenceState>,
+
+    /// Number of credits available to the client at the moment, for the next requests.
+    curr_credits: Semaphore,
+    /// The current message ID to be used in the next message.
+    curr_msg_id: AtomicU64,
+    /// The number of credits granted to the client by the server, including the being-used ones.
+    credit_pool: AtomicU16,
 }
 
-struct SequenceState {
-    /// sequence low
-    curr_msg_id: u64,
-    /// sequence size
-    curr_credits: u16,
-}
-
-impl ClientMessageHandler {
-    fn new() -> ClientMessageHandler {
-        ClientMessageHandler {
+impl ConnectionMessageHandler {
+    fn new() -> ConnectionMessageHandler {
+        ConnectionMessageHandler {
             client_guid: Guid::gen(),
             worker: OnceCell::new(),
             negotiate_state: OnceCell::new(),
-            extra_credits_to_request: 16,
-            sequence_state: Mutex::new(SequenceState {
-                curr_msg_id: 1,
-                curr_credits: 1,
-            }),
+            extra_credits_to_request: 4,
+            curr_credits: Semaphore::new(1),
+            curr_msg_id: AtomicU64::new(1),
+            credit_pool: AtomicU16::new(1),
         }
     }
 
@@ -302,38 +302,38 @@ impl ClientMessageHandler {
     async fn process_sequence_outgoing(&self, msg: &mut OutgoingMessage) -> crate::Result<()> {
         if let Some(neg) = self.negotiate_state() {
             if neg.selected_dialect > Dialect::Smb0202 && neg.global_caps.large_mtu() {
-                if Self::SET_CREDIT_CHARGE_CMDS
+                // Calculate the cost of the message (charge).
+                let cost = if Self::SET_CREDIT_CHARGE_CMDS
                     .iter()
                     .any(|&cmd| cmd == msg.message.header.command)
                 {
                     let send_payload_size = msg.message.content.req_payload_size();
                     let expected_response_payload_size = msg.message.content.expected_resp_size();
-                    msg.message.header.credit_charge = (1
-                        + (max(send_payload_size, expected_response_payload_size) - 1)
-                            / Self::CREDIT_CALC_RATIO)
+                    (1 + (max(send_payload_size, expected_response_payload_size) - 1)
+                        / Self::CREDIT_CALC_RATIO)
                         .try_into()
-                        .unwrap();
+                        .unwrap()
                 } else {
-                    msg.message.header.credit_charge = 1;
-                }
-                let mut sequence_state = self.sequence_state.lock().await?;
-                // Make sure that we have enough credits to satisfy this request:
-                if sequence_state.curr_credits < msg.message.header.credit_charge {
-                    // TODO: Consider waiting here if possible?
-                    return Err(Error::NoCredits(
-                        msg.message.header.credit_charge,
-                        sequence_state.curr_credits,
-                    ));
-                }
-                msg.message.header.credit_request = msg.message.header.credit_charge;
+                    1
+                };
+
+                // First, acquire credits from the semaphore, and forget them.
+                // They may be returned via the response message, at `process_sequence_incoming` below.
+                self.curr_credits.acquire_many(cost as u32).await?.forget();
+
+                let mut request = cost;
                 // Request additional credits if required: if balance < extra, add to request the diff:
-                if sequence_state.curr_credits < self.extra_credits_to_request {
-                    msg.message.header.credit_request +=
-                        self.extra_credits_to_request - sequence_state.curr_credits;
+                let current_pool_size = self.credit_pool.load(std::sync::atomic::Ordering::SeqCst);
+                if current_pool_size < self.extra_credits_to_request {
+                    request += self.extra_credits_to_request - current_pool_size;
                 }
-                // Next Message ID should be incremented by the charge amount:
-                msg.message.header.message_id = sequence_state.curr_msg_id;
-                sequence_state.curr_msg_id += msg.message.header.credit_charge as u64;
+
+                msg.message.header.credit_charge = cost;
+                msg.message.header.credit_request = request;
+                msg.message.header.message_id = self
+                    .curr_msg_id
+                    .fetch_add(cost as u64, std::sync::atomic::Ordering::SeqCst);
+
                 return Ok(());
             } else {
                 debug_assert_eq!(msg.message.header.credit_request, 0);
@@ -342,9 +342,9 @@ impl ClientMessageHandler {
         }
         // Default case: next sequence ID
         {
-            let mut sequence_state = self.sequence_state.lock().await?;
-            msg.message.header.message_id = sequence_state.curr_msg_id;
-            sequence_state.curr_msg_id += 1;
+            msg.message.header.message_id = self
+                .curr_msg_id
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         Ok(())
     }
@@ -353,16 +353,31 @@ impl ClientMessageHandler {
     async fn process_sequence_incoming(&self, msg: &IncomingMessage) -> crate::Result<()> {
         if let Some(neg) = self.negotiate_state() {
             if neg.selected_dialect > Dialect::Smb0202 && neg.global_caps.large_mtu() {
-                let mut sequence_state = self.sequence_state.lock().await?;
-                sequence_state.curr_credits +=
-                    msg.message.header.credit_request - msg.message.header.credit_charge;
+                let granted_credits = msg.message.header.credit_request;
+                let charged_credits = msg.message.header.credit_charge;
+                // Update the pool size - return how many EXTRA credits were granted.
+                // also, handle the case where the server granted less credits than charged.
+                if charged_credits > granted_credits {
+                    self.credit_pool.fetch_sub(
+                        charged_credits - granted_credits,
+                        std::sync::atomic::Ordering::SeqCst,
+                    );
+                } else {
+                    self.credit_pool.fetch_add(
+                        granted_credits - charged_credits,
+                        std::sync::atomic::Ordering::SeqCst,
+                    );
+                }
+
+                // Return the credits to the pool.
+                self.curr_credits.add_permits(granted_credits as usize);
             }
         }
         Ok(())
     }
 }
 
-impl MessageHandler for ClientMessageHandler {
+impl MessageHandler for ConnectionMessageHandler {
     #[maybe_async]
     async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         // TODO: Add assertion in the struct regarding the selected dialect!
@@ -390,7 +405,7 @@ impl MessageHandler for ClientMessageHandler {
             .worker
             .get()
             .unwrap()
-            .receive(options.msgid_filter)
+            .receive(options.msg_id_filter)
             .await?;
 
         // Command matching (if needed).

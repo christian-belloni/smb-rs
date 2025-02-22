@@ -3,6 +3,7 @@ use crate::packets::smb2::*;
 use binrw::prelude::*;
 #[cfg(feature = "compress_lz4")]
 use lz4_flex;
+#[cfg(feature = "compress_pattern_v1")]
 use std::io::Cursor;
 use thiserror::Error;
 
