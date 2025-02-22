@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::{
     connection::TransformError,
     packets::smb2::{Command, ErrorResponse, NegotiateDialect, Status},
+    sync_helpers::AcquireError,
 };
 
 #[derive(Error, Debug)]
@@ -56,14 +57,14 @@ pub enum Error {
     #[cfg(feature = "async")]
     #[error("Task join error.")]
     JoinError(#[from] tokio::task::JoinError),
+    #[error("Acquire Error: {0}")]
+    AcquireError(#[from] AcquireError),
     #[cfg(feature = "sync")]
     #[error("Thread join error: {0}")]
     JoinError(String),
     #[cfg(feature = "sync")]
     #[error("Channel recv error.")]
     ChannelRecvError(#[from] std::sync::mpsc::RecvError),
-    #[error("Not enough credits to satisfy this request by the server (req: {0}, balance: {1}).")]
-    NoCredits(u16, u16),
     #[error("Unexpected message with ID {0} (exp {1}).")]
     UnexpectedMessageId(u64, u64),
 }

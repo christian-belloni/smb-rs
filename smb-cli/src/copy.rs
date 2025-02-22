@@ -32,7 +32,7 @@ fn do_copy(from: File, mut to: fs::File) -> Result<(), smb::Error> {
 }
 
 #[cfg(not(feature = "single_threaded"))]
-const WORKERS: usize = 10;
+const WORKERS: usize = 16;
 #[cfg(not(feature = "single_threaded"))]
 const CHUNK_SIZE: usize = 2usize.pow(16);
 
