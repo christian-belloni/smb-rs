@@ -1,9 +1,10 @@
 //! MS-DTYP 2.4.4: ACE
 
+use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use crate::packets::{binrw_util::prelude::*, smb2::FileAccessMask};
+use crate::packets::{binrw_util::prelude::*, guid::Guid, smb2::FileAccessMask};
 
 use super::SID;
 
@@ -16,6 +17,7 @@ pub struct ACE {
     #[bw(calc = PosMarker::default())]
     _ace_size: PosMarker<u16>,
     #[br(args(ace_type))]
+    #[br(map_stream = |s| s.take_seek(_ace_size.value as u64))]
     #[bw(write_with = PosMarker::write_size, args(&_ace_size))]
     pub value: AceValue,
 }
@@ -25,22 +27,177 @@ pub struct ACE {
 #[br(import(ace_type: AceType))]
 pub enum AceValue {
     #[br(pre_assert(matches!(ace_type, AceType::AccessAllowed)))]
-    AccessAllowed(AccessAllowedAce),
+    AccessAllowed(AccessAce),
+    #[br(pre_assert(matches!(ace_type, AceType::AccessDenied)))]
+    AccessDenied(AccessAce),
+    #[br(pre_assert(matches!(ace_type, AceType::SystemAudit)))]
+    SystemAudit(AccessAce),
+
+    #[br(pre_assert(matches!(ace_type, AceType::AccessAllowedObject)))]
+    AccessAllowedObject(AccessObjectAce),
+    #[br(pre_assert(matches!(ace_type, AceType::AccessDeniedObject)))]
+    AccessDeniedObject(AccessObjectAce),
+    #[br(pre_assert(matches!(ace_type, AceType::SystemAuditObject)))]
+    SystemAuditObject(AccessObjectAce),
+
+    #[br(pre_assert(matches!(ace_type, AceType::AccessAllowedCallback)))]
+    AccessAllowedCallback(AccessCallbackAce),
+    #[br(pre_assert(matches!(ace_type, AceType::AccessDeniedCallback)))]
+    AccessDeniedCallback(AccessCallbackAce),
+
+    #[br(pre_assert(matches!(ace_type, AceType::AccessAllowedCallbackObject)))]
+    AccessAllowedCallbackObject(AccessObjectCallbackAce),
+    #[br(pre_assert(matches!(ace_type, AceType::AccessDeniedCallbackObject)))]
+    AccessDeniedCallbackObject(AccessObjectCallbackAce),
+    #[br(pre_assert(matches!(ace_type, AceType::SystemAuditCallback)))]
+    SystemAuditCallback(AccessCallbackAce),
+    #[br(pre_assert(matches!(ace_type, AceType::SystemAuditCallbackObject)))]
+    SystemAuditCallbackObject(AccessObjectCallbackAce),
+
+    #[br(pre_assert(matches!(ace_type, AceType::SystemMandatoryLabel)))]
+    SystemMandatoryLabel(SystemMandatoryLabelAce),
+    #[br(pre_assert(matches!(ace_type, AceType::SystemResourceAttribute)))]
+    SystemResourceAttribute(SystemResourceAttributeAce),
+    #[br(pre_assert(matches!(ace_type, AceType::SystemScopedPolicyId)))]
+    SystemScopedPolicyId(AccessAce),
 }
 
 impl AceValue {
     pub fn get_type(&self) -> AceType {
         match self {
             AceValue::AccessAllowed(_) => AceType::AccessAllowed,
+            AceValue::AccessDenied(_) => AceType::AccessDenied,
+            AceValue::SystemAudit(_) => AceType::SystemAudit,
+            AceValue::AccessAllowedObject(_) => AceType::AccessAllowedObject,
+            AceValue::AccessDeniedObject(_) => AceType::AccessDeniedObject,
+            AceValue::SystemAuditObject(_) => AceType::SystemAuditObject,
+            AceValue::AccessAllowedCallback(_) => AceType::AccessAllowedCallback,
+            AceValue::AccessDeniedCallback(_) => AceType::AccessDeniedCallback,
+            AceValue::AccessAllowedCallbackObject(_) => AceType::AccessAllowedCallbackObject,
+            AceValue::AccessDeniedCallbackObject(_) => AceType::AccessDeniedCallbackObject,
+            AceValue::SystemAuditCallback(_) => AceType::SystemAuditCallback,
+            AceValue::SystemAuditCallbackObject(_) => AceType::SystemAuditCallbackObject,
+            AceValue::SystemMandatoryLabel(_) => AceType::SystemMandatoryLabel,
+            AceValue::SystemResourceAttribute(_) => AceType::SystemResourceAttribute,
+            AceValue::SystemScopedPolicyId(_) => AceType::SystemScopedPolicyId,
         }
     }
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct AccessAllowedAce {
+pub struct AccessAce {
     pub access_mask: FileAccessMask,
     pub sid: SID,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct AccessObjectAce {
+    pub access_mask: FileAccessMask,
+    #[bw(calc = ObjectAceFlags::new().with_object_type_present(object_type.is_some()).with_inherited_object_type_present(inherited_object_type.is_some()))]
+    pub flags: ObjectAceFlags,
+    #[br(if(flags.object_type_present()))]
+    pub object_type: Option<Guid>,
+    #[br(if(flags.inherited_object_type_present()))]
+    pub inherited_object_type: Option<Guid>,
+    pub sid: SID,
+}
+
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct ObjectAceFlags {
+    pub object_type_present: bool,
+    pub inherited_object_type_present: bool,
+    #[skip]
+    __: B30,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct AccessCallbackAce {
+    pub access_mask: FileAccessMask,
+    pub sid: SID,
+    #[br(parse_with = binrw::helpers::until_eof)]
+    pub application_data: Vec<u8>,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct AccessObjectCallbackAce {
+    pub access_mask: FileAccessMask,
+    #[bw(calc = ObjectAceFlags::new().with_object_type_present(object_type.is_some()).with_inherited_object_type_present(inherited_object_type.is_some()))]
+    pub flags: ObjectAceFlags,
+    #[br(if(flags.object_type_present()))]
+    pub object_type: Option<Guid>,
+    #[br(if(flags.inherited_object_type_present()))]
+    pub inherited_object_type: Option<Guid>,
+    pub sid: SID,
+    #[br(parse_with = binrw::helpers::until_eof)]
+    pub application_data: Vec<u8>,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SystemMandatoryLabelAce {
+    pub mask: u32,
+    pub sid: SID,
+}
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SystemResourceAttributeAce {
+    pub mask: u32,
+    pub sid: SID,
+    pub attribute_data: ClaimSecurityAttributeRelativeV1,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct ClaimSecurityAttributeRelativeV1 {
+    #[bw(calc = PosMarker::default())]
+    _name: PosMarker<u32>, // TODO: Figure out what this is.
+    pub value_type: ClaimSecurityAttributeType,
+    #[bw(calc = 0)]
+    #[br(assert(reserved == 0))]
+    reserved: u16,
+    pub flags: FciClaimSecurityAttributes,
+    value_count: u32,
+    #[br(parse_with = binrw::helpers::until_eof)]
+    pub value: Vec<u8>, // TODO: Use concrete types
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+#[brw(repr(u16))]
+pub enum ClaimSecurityAttributeType {
+    None = 0,
+    Int64 = 1,
+    Uint64 = 2,
+    String = 3,
+    SID = 4,
+    Boolean = 5,
+    OctetString = 6,
+}
+
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct FciClaimSecurityAttributes {
+    pub non_inheritable: bool,
+    pub value_case_sensitive: bool,
+    pub use_for_deny_only: bool,
+    pub disabled_by_default: bool,
+
+    pub disabled: bool,
+    pub mandatory: bool,
+    #[skip]
+    __: B2,
+
+    pub manual: bool,
+    pub policy_derived: bool,
+    #[skip]
+    __: B6,
 }
 
 #[binrw::binrw]
