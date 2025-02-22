@@ -87,7 +87,7 @@ impl std::fmt::Display for AcquireError {
     }
 }
 
-/// An implementation of a limited tokio::sync::Semaphore using std::sync primitives - 
+/// An implementation of a limited tokio::sync::Semaphore using std::sync primitives -
 /// for multi-threaded environments, where tokio::sync::Semaphore is not available.
 #[cfg(not(feature = "async"))]
 impl Semaphore {
