@@ -137,38 +137,36 @@ pub struct AccessAce {
 }
 
 access_mask! {
-    pub struct AccessMask {
+pub struct AccessMask {
     common: B16,
 }}
 
-access_mask!(
-    pub struct ObjectAccessMask {
-        crate_child: bool,
-        delete_child: bool,
-        #[skip]
-        __: bool,
-        ds_self: bool,
+access_mask! {
+pub struct ObjectAccessMask {
+    crate_child: bool,
+    delete_child: bool,
+    #[skip]
+    __: bool,
+    ds_self: bool,
 
-        read_prop: bool,
-        write_prop: bool,
-        #[skip]
-        __: B2,
+    read_prop: bool,
+    write_prop: bool,
+    #[skip]
+    __: B2,
 
-        control_access: bool,
-        #[skip]
-        __: B7,
-    }
-);
+    control_access: bool,
+    #[skip]
+    __: B7,
+}}
 
 access_mask! {
-    pub struct MandatoryLabelAccessMask {
-        no_write_up: bool,
-        no_read_up: bool,
-        no_execute_up: bool,
-        #[skip]
-        __: B13,
-    }
-}
+pub struct MandatoryLabelAccessMask {
+    no_write_up: bool,
+    no_read_up: bool,
+    no_execute_up: bool,
+    #[skip]
+    __: B13,
+}}
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]

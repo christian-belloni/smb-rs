@@ -52,7 +52,8 @@ pub struct FileAttributes {
     __: B9,
 }
 
-access_mask! {pub struct FileAccessMask {
+access_mask! {
+pub struct FileAccessMask {
     file_read_data: bool,
     file_write_data: bool,
     file_append_data: bool,
