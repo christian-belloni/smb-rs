@@ -1,5 +1,3 @@
-use crate::packets::smb2::FileAccessMask;
-
 use super::*;
 use std::str::FromStr;
 
@@ -67,7 +65,7 @@ pub fn test_dacl_only_parse() {
                             .with_container_inherit(true)
                             .with_object_inherit(true),
                         value: AceValue::AccessAllowed(AccessAce {
-                            access_mask: FileAccessMask::from_bytes(0x1f01ffu32.to_le_bytes()),
+                            access_mask: AccessMask::from_bytes(0x1f01ffu32.to_le_bytes()),
                             sid: SID::from_str("S-1-5-21-782712087-4182988437-2163400469-1001")
                                 .unwrap()
                         })
@@ -78,7 +76,7 @@ pub fn test_dacl_only_parse() {
                             .with_container_inherit(true)
                             .with_object_inherit(true),
                         value: AceValue::AccessAllowed(AccessAce {
-                            access_mask: FileAccessMask::from_bytes(0x1f01ffu32.to_le_bytes()),
+                            access_mask: AccessMask::from_bytes(0x1f01ffu32.to_le_bytes()),
                             sid: SID::from_str(SID::S_ADMINISTRATORS).unwrap()
                         })
                     },
@@ -88,7 +86,7 @@ pub fn test_dacl_only_parse() {
                             .with_container_inherit(true)
                             .with_object_inherit(true),
                         value: AceValue::AccessAllowed(AccessAce {
-                            access_mask: FileAccessMask::from_bytes(0x1f01ffu32.to_le_bytes()),
+                            access_mask: AccessMask::from_bytes(0x1f01ffu32.to_le_bytes()),
                             sid: SID::from_str(SID::S_LOCAL_SYSTEM).unwrap()
                         })
                     },
@@ -98,7 +96,7 @@ pub fn test_dacl_only_parse() {
                             .with_container_inherit(true)
                             .with_object_inherit(true),
                         value: AceValue::AccessAllowed(AccessAce {
-                            access_mask: FileAccessMask::from_bytes(0x1200a9u32.to_le_bytes()),
+                            access_mask: AccessMask::from_bytes(0x1200a9u32.to_le_bytes()),
                             sid: SID::from_str(SID::S_EVERYONE).unwrap()
                         })
                     },
@@ -108,7 +106,7 @@ pub fn test_dacl_only_parse() {
                             .with_container_inherit(true)
                             .with_object_inherit(true),
                         value: AceValue::AccessAllowed(AccessAce {
-                            access_mask: FileAccessMask::from_bytes(0x1f01ffu32.to_le_bytes()),
+                            access_mask: AccessMask::from_bytes(0x1f01ffu32.to_le_bytes()),
                             sid: SID::from_str("S-1-5-21-782712087-4182988437-2163400469-1002")
                                 .unwrap()
                         })

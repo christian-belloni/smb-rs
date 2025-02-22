@@ -7,6 +7,8 @@ use std::io::Cursor;
 use binrw::{io::TakeSeekExt, prelude::*, NullString};
 use modular_bitfield::prelude::*;
 
+use crate::access_mask;
+
 use super::super::binrw_util::prelude::*;
 
 /// MS-FSCC 2.6
@@ -50,81 +52,38 @@ pub struct FileAttributes {
     __: B9,
 }
 
-#[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
-#[bw(map = |&x| Self::into_bytes(x))]
-pub struct FileAccessMask {
-    pub file_read_data: bool,
-    pub file_write_data: bool,
-    pub file_append_data: bool,
-    pub file_read_ea: bool,
+access_mask! {pub struct FileAccessMask {
+    file_read_data: bool,
+    file_write_data: bool,
+    file_append_data: bool,
+    file_read_ea: bool,
 
-    pub file_write_ea: bool,
-    pub file_execute: bool,
-    pub file_delete_child: bool,
-    pub file_read_attributes: bool,
+    file_write_ea: bool,
+    file_execute: bool,
+    file_delete_child: bool,
+    file_read_attributes: bool,
 
-    pub file_write_attributes: bool,
+    file_write_attributes: bool,
     #[skip]
     __: B7,
+}}
 
-    pub delete: bool,
-    pub read_control: bool,
-    pub write_dac: bool,
-    pub write_owner: bool,
-
-    pub synchronize: bool,
-    #[skip]
-    __: B3,
-
-    pub access_system_security: bool,
-    pub maximum_allowed: bool,
-    #[skip]
-    __: B2,
-
-    pub generic_all: bool,
-    pub generic_execute: bool,
-    pub generic_write: bool,
-    pub generic_read: bool,
-}
-
-#[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
-#[bw(map = |&x| Self::into_bytes(x))]
+access_mask! {
 pub struct DirAccessMask {
-    pub file_list_directory: bool,
-    pub file_add_file: bool,
-    pub file_add_subdirectory: bool,
-    pub file_read_ea: bool,
+    list_directory: bool,
+    add_file: bool,
+    add_subdirectory: bool,
+    read_ea: bool,
 
-    pub file_write_ea: bool,
-    pub file_traverse: bool,
-    pub file_delete_child: bool,
-    pub file_read_attributes: bool,
+    write_ea: bool,
+    traverse: bool,
+    delete_child: bool,
+    read_attributes: bool,
 
-    pub file_write_attributes: bool,
+    write_attributes: bool,
     #[skip]
     __: B7,
-
-    pub delete: bool,
-    pub read_control: bool,
-    pub write_dac: bool,
-    pub write_owner: bool,
-
-    pub synchronize: bool,
-    #[skip]
-    __: B3,
-
-    pub access_system_security: bool,
-    pub maximum_allowed: bool,
-    #[skip]
-    __: B2,
-
-    pub generic_all: bool,
-    pub generic_execute: bool,
-    pub generic_write: bool,
-    pub generic_read: bool,
-}
+}}
 
 impl From<FileAccessMask> for DirAccessMask {
     fn from(mask: FileAccessMask) -> Self {

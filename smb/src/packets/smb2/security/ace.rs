@@ -4,9 +4,54 @@ use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use crate::packets::{binrw_util::prelude::*, guid::Guid, smb2::FileAccessMask};
+use crate::packets::{binrw_util::prelude::*, guid::Guid};
 
 use super::SID;
+
+/// Macro for defining a bitfield for an access mask.
+/// It's input is the name of the struct to generate, and in {}, the list of fields to add
+/// before the common fields. include support for #[skip] fields, without visibility (all fields are public).
+#[macro_export]
+macro_rules! access_mask {
+    (
+        $vis:vis struct $name:ident {
+        $(
+            $(#[$field_meta:meta])*
+            $field_name:ident : $field_ty:ty,
+        )*
+    }) => {
+
+    #[bitfield]
+    #[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+    #[bw(map = |&x| Self::into_bytes(x))]
+        $vis struct $name {
+            // User fields
+            $(
+                $(#[$field_meta])*
+                pub $field_name : $field_ty,
+            )*
+
+            pub delete: bool,
+            pub read_control: bool,
+            pub write_dacl: bool,
+            pub write_owner: bool,
+
+            pub synchronize: bool,
+            #[skip]
+            __: B3,
+
+            pub access_system_security: bool,
+            pub maximum_allowed: bool,
+            #[skip]
+            __: B2,
+
+            pub generic_all: bool,
+            pub generic_execute: bool,
+            pub generic_write: bool,
+            pub generic_read: bool,
+        }
+    };
+}
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
@@ -87,14 +132,48 @@ impl AceValue {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct AccessAce {
-    pub access_mask: FileAccessMask,
+    pub access_mask: AccessMask,
     pub sid: SID,
+}
+
+access_mask! {
+    pub struct AccessMask {
+    common: B16,
+}}
+
+access_mask!(
+    pub struct ObjectAccessMask {
+        crate_child: bool,
+        delete_child: bool,
+        #[skip]
+        __: bool,
+        ds_self: bool,
+
+        read_prop: bool,
+        write_prop: bool,
+        #[skip]
+        __: B2,
+
+        control_access: bool,
+        #[skip]
+        __: B7,
+    }
+);
+
+access_mask! {
+    pub struct MandatoryLabelAccessMask {
+        no_write_up: bool,
+        no_read_up: bool,
+        no_execute_up: bool,
+        #[skip]
+        __: B13,
+    }
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct AccessObjectAce {
-    pub access_mask: FileAccessMask,
+    pub access_mask: ObjectAccessMask,
     #[bw(calc = ObjectAceFlags::new().with_object_type_present(object_type.is_some()).with_inherited_object_type_present(inherited_object_type.is_some()))]
     pub flags: ObjectAceFlags,
     #[br(if(flags.object_type_present()))]
@@ -117,7 +196,7 @@ pub struct ObjectAceFlags {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct AccessCallbackAce {
-    pub access_mask: FileAccessMask,
+    pub access_mask: AccessMask,
     pub sid: SID,
     #[br(parse_with = binrw::helpers::until_eof)]
     pub application_data: Vec<u8>,
@@ -126,7 +205,7 @@ pub struct AccessCallbackAce {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct AccessObjectCallbackAce {
-    pub access_mask: FileAccessMask,
+    pub access_mask: ObjectAccessMask,
     #[bw(calc = ObjectAceFlags::new().with_object_type_present(object_type.is_some()).with_inherited_object_type_present(inherited_object_type.is_some()))]
     pub flags: ObjectAceFlags,
     #[br(if(flags.object_type_present()))]
@@ -141,13 +220,13 @@ pub struct AccessObjectCallbackAce {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct SystemMandatoryLabelAce {
-    pub mask: u32,
+    pub mask: MandatoryLabelAccessMask,
     pub sid: SID,
 }
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct SystemResourceAttributeAce {
-    pub mask: u32,
+    pub mask: AccessMask,
     pub sid: SID,
     pub attribute_data: ClaimSecurityAttributeRelativeV1,
 }

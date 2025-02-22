@@ -19,7 +19,7 @@ impl Directory {
         &mut self,
         pattern: &str,
     ) -> crate::Result<Vec<BothDirectoryInformationItem>> {
-        if !self.access.file_list_directory() {
+        if !self.access.list_directory() {
             return Err(Error::MissingPermissions("file_list_directory".to_string()));
         }
 
