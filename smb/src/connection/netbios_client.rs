@@ -9,12 +9,22 @@ use std::{
 #[cfg(feature = "async")]
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
+    net::{tcp, TcpStream},
 };
 
 use binrw::prelude::*;
 
 use crate::packets::netbios::{NetBiosMessageContent, NetBiosTcpMessage, NetBiosTcpMessageHeader};
+
+#[cfg(feature = "async")]
+type TcpRead = tcp::OwnedReadHalf;
+#[cfg(feature = "async")]
+type TcpWrite = tcp::OwnedWriteHalf;
+
+#[cfg(feature = "sync")]
+type TcpRead = TcpStream;
+#[cfg(feature = "sync")]
+type TcpWrite = TcpStream;
 
 /// A (very) simple NETBIOS client.
 ///
@@ -22,41 +32,38 @@ use crate::packets::netbios::{NetBiosMessageContent, NetBiosTcpMessage, NetBiosT
 ///
 /// Use [connect](NetBiosClient::connect), [send](NetBiosClient::send),
 /// and [receive_bytes](NetBiosClient::recieve_bytes) to interact with a server.
+
 #[derive(Debug)]
 pub struct NetBiosClient {
-    connection: Option<TcpStream>,
+    reader: Option<TcpRead>,
+    writer: Option<TcpWrite>,
 }
 
 impl NetBiosClient {
     pub fn new() -> NetBiosClient {
-        NetBiosClient { connection: None }
+        NetBiosClient {
+            reader: None,
+            writer: None,
+        }
     }
 
     /// Connects to a NetBios server in the specified address.
     #[maybe_async]
     pub async fn connect(&mut self, address: &str) -> crate::Result<()> {
-        self.connection = Some(TcpStream::connect(address).await?);
+        let socket = TcpStream::connect(address).await?;
+        let (r, w) = Self::split_socket(socket);
+        self.reader = Some(r);
+        self.writer = Some(w);
         Ok(())
     }
 
     pub fn is_connected(&self) -> bool {
-        self.connection.is_some()
+        self.reader.is_some()
     }
 
-    #[cfg(feature = "sync")]
     pub fn disconnect(&mut self) {
-        if let Some(connection) = self.connection.as_mut() {
-            let _ = connection.shutdown(std::net::Shutdown::Both);
-        }
-        self.connection = None;
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn disconnect(&mut self) {
-        if let Some(connection) = self.connection.as_mut() {
-            let _ = connection.shutdown().await;
-        }
-        self.connection = None;
+        self.reader.take();
+        self.writer.take();
     }
 
     /// Sends a NetBios message.
@@ -69,9 +76,9 @@ impl NetBiosClient {
     /// Sends a raw byte array of a NetBios message.
     #[maybe_async]
     pub async fn send_raw(&mut self, data: NetBiosTcpMessage) -> crate::Result<()> {
-        // TODO(?): assert data is a valid and not-too-large NetBios message.
+        log::trace!("Sending message of size {}.", data.content.len());
         Self::write_all(
-            self.connection.as_mut().ok_or(crate::Error::NotConnected)?,
+            self.writer.as_mut().ok_or(crate::Error::NotConnected)?,
             &data.to_bytes()?,
         )
         .await?;
@@ -82,7 +89,7 @@ impl NetBiosClient {
     // Recieves and parses a NetBios message header, without parsing the message data.
     #[maybe_async]
     pub async fn recieve_bytes(&mut self) -> crate::Result<NetBiosTcpMessage> {
-        let tcp = self.connection.as_mut().ok_or(crate::Error::NotConnected)?;
+        let tcp = self.reader.as_mut().ok_or(crate::Error::NotConnected)?;
 
         // Recieve header.
         let mut header_data = vec![0; NetBiosTcpMessageHeader::SIZE];
@@ -104,7 +111,10 @@ impl NetBiosClient {
     /// This is useful when polling for messages.
     #[cfg(feature = "sync")]
     pub fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> crate::Result<()> {
-        self.connection
+        if !self.can_read() {
+            return Err(crate::Error::NotConnected);
+        }
+        self.reader
             .as_ref()
             .ok_or(crate::Error::NotConnected)?
             .set_read_timeout(timeout)
@@ -114,7 +124,10 @@ impl NetBiosClient {
     /// For synchronous implementations, gets the read timeout for the connection.
     #[cfg(feature = "sync")]
     pub fn read_timeout(&self) -> crate::Result<Option<std::time::Duration>> {
-        self.connection
+        if !self.can_read() {
+            return Err(crate::Error::NotConnected);
+        }
+        self.reader
             .as_ref()
             .ok_or(crate::Error::NotConnected)?
             .read_timeout()
@@ -123,14 +136,16 @@ impl NetBiosClient {
 
     /// Like an old regular read_exact, but with connection abort handling.
     #[maybe_async]
-    async fn read_exact(tcp: &mut TcpStream, buf: &mut [u8]) -> crate::Result<()> {
+    async fn read_exact(tcp: &mut TcpRead, buf: &mut [u8]) -> crate::Result<()> {
+        log::trace!("Reading {} bytes.", buf.len());
         tcp.read_exact(buf).await.map_err(Self::map_tcp_error)?;
+        log::trace!("Read {} bytes OK.", buf.len());
         Ok(())
     }
 
     /// Like an old regular write_all, but with connection abort handling.
     #[maybe_async]
-    async fn write_all(tcp: &mut TcpStream, buf: &[u8]) -> crate::Result<()> {
+    async fn write_all(tcp: &mut TcpWrite, buf: &[u8]) -> crate::Result<()> {
         tcp.write_all(buf).await.map_err(Self::map_tcp_error)?;
         Ok(())
     }
@@ -141,23 +156,60 @@ impl NetBiosClient {
     fn map_tcp_error(e: io::Error) -> crate::Error {
         if e.kind() == io::ErrorKind::ConnectionAborted || e.kind() == io::ErrorKind::UnexpectedEof
         {
-            crate::Error::NotConnected
-        } else {
-            e.into()
+            log::error!(
+                "Got IO error: {} -- Connection Error, notify NotConnected!",
+                e
+            );
+            return crate::Error::NotConnected;
         }
+        if e.kind() == io::ErrorKind::WouldBlock {
+            log::debug!("Got IO error: {} -- with ErrorKind::WouldBlock.", e);
+        } else {
+            log::error!("Got IO error: {} -- Mapping to IO error.", e);
+        }
+        e.into()
     }
 
-    /// Clones the client, returning a new client with the same connection.
-    #[cfg(all(feature = "sync", not(feature = "single_threaded")))]
-    pub(crate) fn try_clone(&self) -> crate::Result<NetBiosClient> {
-        // TODO: If used for splitting read/write, call Shutdown::Read on the original connection and Shutdown::Write on the clone.
-        Ok(NetBiosClient {
-            connection: Some(
-                self.connection
-                    .as_ref()
-                    .ok_or(crate::Error::NotConnected)?
-                    .try_clone()?,
-            ),
-        })
+    #[cfg(feature = "async")]
+    fn split_socket(socket: TcpStream) -> (TcpRead, TcpWrite) {
+        let (r, w) = socket.into_split();
+        (r, w)
+    }
+
+    #[cfg(feature = "sync")]
+    fn split_socket(socket: TcpStream) -> (TcpRead, TcpWrite) {
+        let rsocket = socket.try_clone().unwrap();
+        let wsocket = socket;
+
+        (rsocket, wsocket)
+    }
+
+    /// Splits the client into two separate clients:
+    /// One for reading, and one for writing,
+    /// given that the client has both the reading and writing capabilities.
+    pub fn split(self) -> crate::Result<(NetBiosClient, NetBiosClient)> {
+        if !self.can_read() || !self.can_write() {
+            return Err(crate::Error::InvalidState(
+                "Cannot split a non-connected client.".into(),
+            ));
+        }
+        Ok((
+            NetBiosClient {
+                reader: self.reader,
+                writer: None,
+            },
+            NetBiosClient {
+                reader: None,
+                writer: self.writer,
+            },
+        ))
+    }
+
+    pub fn can_read(&self) -> bool {
+        self.reader.is_some()
+    }
+
+    pub fn can_write(&self) -> bool {
+        self.writer.is_some()
     }
 }

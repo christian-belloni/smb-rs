@@ -6,8 +6,8 @@ pub mod worker;
 
 use crate::packets::guid::Guid;
 use crate::packets::smb2::{Command, Message};
-use crate::sync_helpers::*;
 use crate::Error;
+use crate::{compression, sync_helpers::*};
 use crate::{
     crypto,
     msg_handler::*,
@@ -125,6 +125,7 @@ impl Connection {
                 client_guid,
                 crypto::SIGNING_ALGOS.into(),
                 crypto::ENCRYPTING_ALGOS.to_vec(),
+                compression::SUPPORTED_ALGORITHMS.to_vec(),
             )))
             .await?;
 

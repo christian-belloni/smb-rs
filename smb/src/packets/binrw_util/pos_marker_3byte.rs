@@ -47,10 +47,12 @@ impl BinWrite for PosMarker3Byte {
         endian: binrw::Endian,
         args: Self::Args<'_>,
     ) -> BinResult<()> {
-        self.pos.set(writer.stream_position()?).map_err(|_| binrw::error::Error::Custom {
-            pos: writer.stream_position().unwrap(),
-            err: Box::new("PosMarker has already been written to"),
-        })?;
+        self.pos
+            .set(writer.stream_position()?)
+            .map_err(|_| binrw::error::Error::Custom {
+                pos: writer.stream_position().unwrap(),
+                err: Box::new("PosMarker has already been written to"),
+            })?;
         write_u24(&u32::default(), writer, endian, args)
     }
 }

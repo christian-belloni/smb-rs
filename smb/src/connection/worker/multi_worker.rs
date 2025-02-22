@@ -8,8 +8,8 @@
 
 #[cfg(feature = "async")]
 pub mod async_backend;
-pub mod base;
 pub mod backend_trait;
+pub mod base;
 #[cfg(feature = "sync")]
 pub mod threading_backend;
 #[cfg(feature = "async")]

@@ -102,8 +102,6 @@ where
         message: Option<NetBiosTcpMessage>,
         netbios_client: &mut NetBiosClient,
     ) -> crate::Result<()> {
-        log::trace!("Sending a message to the server.");
-
         let message = match message {
             Some(m) => m,
             None => {

@@ -2,13 +2,12 @@
 /// Async/Multi-threaded features in the library, according to the
 /// features enabled.
 #[cfg(not(feature = "async"))]
-pub use std::{
-    cell::OnceCell,
-    sync::{Mutex, RwLock},
-};
+pub use std::sync::{Mutex, RwLock};
 
+#[cfg(feature = "single_threaded")]
+pub use std::cell::OnceCell;
 #[cfg(feature = "multi_threaded")]
-pub use std::{sync::mpsc, thread::JoinHandle};
+pub use std::{sync::mpsc, sync::OnceLock as OnceCell, thread::JoinHandle};
 
 #[cfg(feature = "async")]
 pub use tokio::{

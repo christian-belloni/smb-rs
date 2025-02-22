@@ -31,4 +31,4 @@ pub use error::Error;
 type Result<T> = std::result::Result<T, crate::Error>;
 
 // Re-exports of some dependencies for convenience
-mod sync_helpers;
+pub mod sync_helpers;

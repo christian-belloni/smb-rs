@@ -24,8 +24,12 @@ impl ThreadingBackend {
 }
 
 impl ThreadingBackend {
+    const READ_POLL_TIMEOUT: Duration = Duration::from_millis(100);
+
     fn loop_receive(&self, mut netbios_client: NetBiosClient) {
-        debug_assert!(netbios_client.read_timeout().unwrap().is_some());
+        debug_assert!(
+            netbios_client.can_read() && netbios_client.read_timeout().unwrap().is_some()
+        );
         while !self.is_cancelled() {
             let next = netbios_client.recieve_bytes();
             // Handle polling fail
@@ -49,6 +53,7 @@ impl ThreadingBackend {
                 }
             }
         }
+        log::debug!("Receive loop finished.");
     }
 
     fn loop_send(
@@ -56,6 +61,7 @@ impl ThreadingBackend {
         mut netbios_client: NetBiosClient,
         send_channel: mpsc::Receiver<Option<NetBiosTcpMessage>>,
     ) {
+        debug_assert!(netbios_client.can_write());
         loop {
             match self.loop_send_next(send_channel.recv(), &mut netbios_client) {
                 Ok(_) => {}
@@ -72,6 +78,7 @@ impl ThreadingBackend {
                 }
             }
         }
+        log::debug!("Send loop finished.");
     }
 
     #[inline]
@@ -107,12 +114,11 @@ impl MultiWorkerBackend for ThreadingBackend {
         });
 
         // Start the worker loops - send and receive.
-        let netbios_receive = netbios_client;
         let backend_receive = backend.clone();
-        let netbios_send = netbios_receive.try_clone()?;
+        let (netbios_receive, netbios_send) = netbios_client.split()?;
         let backend_send = backend.clone();
 
-        netbios_receive.set_read_timeout(Some(Duration::from_millis(100)))?;
+        netbios_receive.set_read_timeout(Some(Self::READ_POLL_TIMEOUT))?;
 
         let handle1 = std::thread::spawn(move || backend_receive.loop_receive(netbios_receive));
         let handle2 =
@@ -130,6 +136,9 @@ impl MultiWorkerBackend for ThreadingBackend {
     fn stop(&self) -> crate::Result<()> {
         log::debug!("Stopping worker.");
 
+        self.stopped
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+
         let handles = self
             .loop_handles
             .lock()
@@ -137,8 +146,6 @@ impl MultiWorkerBackend for ThreadingBackend {
             .take()
             .ok_or(Error::NotConnected)?;
 
-        self.stopped
-            .store(true, std::sync::atomic::Ordering::SeqCst);
         // wake up the sender to stop the loop.
         self.worker.sender.send(None).unwrap();
 
