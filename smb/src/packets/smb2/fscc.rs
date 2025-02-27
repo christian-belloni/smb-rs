@@ -1,6 +1,7 @@
 //! File System Control Codes (MS-FSCC)
 //!
 //! The FSCC types are widely used in SMB messages.
+use paste::paste;
 
 use std::io::Cursor;
 
@@ -93,27 +94,7 @@ impl From<FileAccessMask> for DirAccessMask {
     }
 }
 
-#[binrw::binrw]
-#[derive(Debug)]
-#[brw(import(c: QueryFileInfoClass))]
-#[brw(little)]
-pub enum QueryDirectoryInfoVector {
-    #[br(pre_assert(c == QueryFileInfoClass::IdBothDirectoryInformation))]
-    IdBothDirectoryInformation(IdBothDirectoryInfoVector),
-}
-
-impl QueryDirectoryInfoVector {
-    pub fn parse(payload: &[u8], class: QueryFileInfoClass) -> Result<Self, binrw::Error> {
-        let mut cursor = Cursor::new(payload);
-        Self::read_args(&mut cursor, (class,))
-    }
-}
-
-impl QueryDirectoryInfoVector {
-    pub const SUPPORTED_DIRECTORY_CLASSES: [QueryFileInfoClass; 1] =
-        [QueryFileInfoClass::DirectoryInformation];
-}
-
+// TODO: Make it generic, so it will be easy-peasy to use!
 #[binrw::binrw]
 #[derive(Debug)]
 pub struct IdBothDirectoryInfoVector {
@@ -248,128 +229,67 @@ impl FileGetEaInformation {
     }
 }
 
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[brw(repr(u8))]
-pub enum QueryFileInfoClass {
-    /// this value is not specified in FSCC, but we need it for SMB.
-    None = 0,
-    // File stuff, general info
-    AccessInformation = 8,
-    AlignmentInformation = 17,
-    AllInformation = 18,
-    AlternateNameInformation = 21,
-    AttributeTagInformation = 35,
-    BasicInformation = 4,
-    CompressionInformation = 28,
-    EaInformation = 7,
-    FullEaInformation = 15,
-    IdInformation = 59,
-    InternalInformation = 6,
-    ModeInformation = 16,
-    NetworkOpenInformation = 34,
-    NormalizedNameInformation = 48,
-    PipeInformation = 23,
-    PipeLocalInformation = 24,
-    PipeRemoteInformation = 25,
-    PositionInformation = 14,
-    StandardInformation = 5,
-    StreamInformation = 22,
+/// A macro for generating a file class enums,
+/// for both the file information class, and information value.
+macro_rules! file_info_classes {
+    ($svis:vis $name:ident {
+        $($vis:vis $field_name:ident = $cid:literal,)+
+    }) => {
+        paste! {
+            // Enum for Class IDs
+            #[binrw::binrw]
+            #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+            #[brw(repr(u8))]
+            $svis enum [<$name Class>] {
+                $(
+                    $vis [<$field_name Information>] = $cid,
+                )*
+            }
 
-    // Directory stuff
-    DirectoryInformation = 0x01,
-    FullDirectoryInformation = 0x02,
-    IdFullDirectoryInformation = 0x26,
-    BothDirectoryInformation = 0x03,
-    IdBothDirectoryInformation = 0x25,
-    NamesInformation = 0x0C,
-    IdExtdDirectoryInformation = 0x3c,
-    Id64ExtdDirectoryInformation = 0x4e,
-    Id64ExtdBothDirectoryInformation = 0x4f,
-    IdAllExtdDirectoryInformation = 0x50,
-    IdAllExtdBothDirectoryInformation = 0x51,
+            // Enum for class values
+            #[binrw::binrw]
+            #[derive(Debug, PartialEq, Eq)]
+            #[brw(little)]
+            #[br(import(c: [<$name Class>]))]
+            $svis enum $name {
+                $(
+                    #[br(pre_assert(matches!(c, [<$name Class>]::[<$field_name Information>])))]
+                    [<$field_name Information>]([<File $field_name Information>]),
+                )*
+            }
 
-    // reserved.
-    InformationClassReserved = 0x64,
-}
-
-impl QueryFileInfoClass {
-    pub const DIRECTORY_CLASSES: [Self; 11] = [
-        Self::DirectoryInformation,
-        Self::FullDirectoryInformation,
-        Self::IdFullDirectoryInformation,
-        Self::IdBothDirectoryInformation,
-        Self::BothDirectoryInformation,
-        Self::IdExtdDirectoryInformation,
-        Self::Id64ExtdDirectoryInformation,
-        Self::Id64ExtdBothDirectoryInformation,
-        Self::IdAllExtdDirectoryInformation,
-        Self::IdAllExtdBothDirectoryInformation,
-        Self::NamesInformation,
-    ];
-
-    pub const FILE_CLASSES: [Self; 20] = [
-        Self::AccessInformation,
-        Self::AlignmentInformation,
-        Self::AllInformation,
-        Self::AlternateNameInformation,
-        Self::AttributeTagInformation,
-        Self::BasicInformation,
-        Self::CompressionInformation,
-        Self::EaInformation,
-        Self::FullEaInformation,
-        Self::IdInformation,
-        Self::InternalInformation,
-        Self::ModeInformation,
-        Self::NetworkOpenInformation,
-        Self::NormalizedNameInformation,
-        Self::PipeInformation,
-        Self::PipeLocalInformation,
-        Self::PipeRemoteInformation,
-        Self::PositionInformation,
-        Self::StandardInformation,
-        Self::StreamInformation,
-    ];
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[brw(repr(u8))]
-pub enum SetFileInfoClass {
-    EndOfFileInformation = 20,
-    DispositionInformation = 13,
-    RenameInformation = 10,
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-#[brw(import(c: QueryFileInfoClass), little)]
-#[brw(assert(c != QueryFileInfoClass::None))]
-pub enum QueryFileInfo {
-    #[br(pre_assert(c == QueryFileInfoClass::BasicInformation))]
-    BasicInformation(FileBasicInformation),
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-#[brw(little)]
-#[br(import(c: SetFileInfoClass))]
-pub enum SetFileInfo {
-    #[br(pre_assert(c == SetFileInfoClass::EndOfFileInformation))]
-    EndOfFileInformation(FileEndOfFileInformation),
-    #[br(pre_assert(c == SetFileInfoClass::DispositionInformation))]
-    DispositionInformation(FileDispositionInformation),
-    #[br(pre_assert(c == SetFileInfoClass::RenameInformation))]
-    RenameInformation(RenameInformation2),
-}
-
-impl SetFileInfo {
-    pub fn info_class(&self) -> SetFileInfoClass {
-        match self {
-            SetFileInfo::EndOfFileInformation(_) => SetFileInfoClass::EndOfFileInformation,
-            SetFileInfo::DispositionInformation(_) => SetFileInfoClass::DispositionInformation,
-            SetFileInfo::RenameInformation(_) => SetFileInfoClass::RenameInformation,
+            impl $name {
+                $svis fn class(&self) -> [<$name Class>] {
+                    match self {
+                        $(
+                            $name::[<$field_name Information>](_) => [<$name Class>]::[<$field_name Information>],
+                        )*
+                    }
+                }
+            }
         }
+    }
+}
+
+file_info_classes! {
+    pub QueryFileInfo {
+        pub Basic = 4,
+        pub FullEa = 15,
+        pub NetworkOpen = 34,
+    }
+}
+
+file_info_classes! {
+    pub SetFileInfo {
+        pub EndOfFile = 20,
+        pub Disposition = 13,
+        pub Rename = 10,
+    }
+}
+
+file_info_classes! {
+    pub QueryDirectoryInfo {
+        pub IdBothDirectoryInformation = 37,
     }
 }
 
@@ -388,6 +308,35 @@ pub struct FileBasicInformation {
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
+pub struct FileFullEaInformation {
+    // TODO
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileNetworkOpenInformation {
+    #[bw(calc = PosMarker::default())]
+    next_entry_offset: PosMarker<u32>,
+    pub flags: u8,
+    #[bw(try_calc = ea_name.len().try_into())]
+    ea_name_length: u8,
+    #[bw(calc = match ea_value {
+        Some(v) => v.len() as u16,
+        None => 0
+    })]
+    ea_value_length: u16,
+    #[br(assert(ea_name.len() == ea_name_length as usize))]
+    pub ea_name: NullString,
+    #[br(if(ea_value_length > 0))]
+    #[br(count = ea_value_length)]
+    pub ea_value: Option<Vec<u8>>,
+
+    #[br(seek_before = next_entry_offset.seek_relative(true))]
+    __: (),
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FileEndOfFileInformation {
     pub end_of_file: u64,
 }
@@ -400,7 +349,7 @@ pub struct FileDispositionInformation {
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct RenameInformation2 {
+pub struct FileRenameInformation2 {
     pub replace_if_exists: u8,
     #[bw(calc = 0)]
     _reserved: u8,
@@ -414,6 +363,7 @@ pub struct RenameInformation2 {
     #[br(args(_file_name_length as u64))]
     pub file_name: SizedWideString,
 }
+type FileRenameInformation = FileRenameInformation2;
 
 #[binrw::binrw]
 #[derive(Debug)]

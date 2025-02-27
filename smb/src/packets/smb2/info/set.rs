@@ -112,13 +112,13 @@ mod tests {
 
     #[test]
     fn test_set_info_request_write() {
-        let set_info = SetFileInfo::RenameInformation(RenameInformation2 {
+        let set_info = SetFileInfo::RenameInformation(FileRenameInformation2 {
             replace_if_exists: false as u8,
             root_directory: 0,
             file_name: "hello\\myNewFile.txt".into(),
         });
 
-        let cls = set_info.info_class();
+        let cls = set_info.class();
         let req = RawSetFileInfo::from(set_info)
             .to_set_data()
             .to_req(cls, "00000042-000e-0000-0500-10000e000000".parse().unwrap());
