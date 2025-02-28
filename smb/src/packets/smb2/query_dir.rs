@@ -114,18 +114,8 @@ mod tests {
             0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xbc, 0xf8, 0x0, 0x0,
             0x0, 0x0, 0x4, 0x0, 0x64, 0x0, 0x2e, 0x0, 0x74, 0x0, 0x78, 0x0, 0x74, 0x0,
         ];
-        let data = QueryDirectoryInfo::read_output(
-            &data.into(),
-            QueryDirectoryInfoClass::IdBothDirectoryInformation,
-        )
-        .unwrap();
-
-        for data_item in data.iter() {
-            assert!(matches!(
-                data_item,
-                QueryDirectoryInfo::IdBothDirectoryInformation(_)
-            ));
-        }
+        let _data: Vec<FileIdBothDirectoryInformation> =
+            QueryDirectoryInfo::read_output(&data.into()).unwrap();
 
         // TODO: Test the contents of the result, not just that it parses.
     }

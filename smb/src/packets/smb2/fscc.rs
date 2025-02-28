@@ -7,14 +7,17 @@ use modular_bitfield::prelude::*;
 
 use super::super::binrw_util::prelude::*;
 pub mod chained_item;
-pub use chained_item::ChainedItem;
-pub mod query_file_info;
-pub use query_file_info::*;
 pub mod common_info;
 pub mod directory_info;
+pub mod filesystem_info;
+pub mod query_file_info;
 pub mod set_file_info;
+
+pub use chained_item::ChainedItem;
 pub use common_info::*;
 pub use directory_info::*;
+pub use filesystem_info::*;
+pub use query_file_info::*;
 pub use set_file_info::*;
 
 /// MS-FSCC 2.6
@@ -143,13 +146,21 @@ pub type FileGetEaInformation = ChainedItem<FileGetEaInformationInner>;
 
 /// A macro for generating a file class enums,
 /// for both the file information class, and information value.
+/// including a trait for the value types.
 #[macro_export]
 macro_rules! file_info_classes {
     ($svis:vis $name:ident {
         $($vis:vis $field_name:ident = $cid:literal,)+
     }) => {
         use paste::paste;
+        #[allow(unused_imports)]
+        use binrw::prelude::*;
         paste! {
+            // Trait to be implemented for all the included value types.
+            pub trait [<$name Value>] : TryFrom<$name, Error = crate::Error> + BinRead<Args<'static> = ()> {
+                const CLASS_ID: [<$name Class>];
+            }
+
             // Enum for Class IDs
             #[binrw::binrw]
             #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -172,6 +183,16 @@ macro_rules! file_info_classes {
                 )*
             }
 
+            impl std::fmt::Display for [<$name Class>] {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    match self {
+                        $(
+                            [<$name Class>]::[<$field_name Information>] => write!(f, stringify!([<$field_name Information>])),
+                        )*
+                    }
+                }
+            }
+
             impl $name {
                 $svis fn class(&self) -> [<$name Class>] {
                     match self {
@@ -187,6 +208,21 @@ macro_rules! file_info_classes {
                     fn into(self) -> $name {
                         $name::[<$field_name Information>](self)
                     }
+                }
+
+                impl TryFrom<$name> for [<File $field_name Information>] {
+                    type Error = crate::Error;
+
+                    fn try_from(value: $name) -> Result<Self, Self::Error> {
+                        match value {
+                            $name::[<$field_name Information>](v) => Ok(v),
+                            _ => Err(crate::Error::UnexpectedInformationType(Self::CLASS_ID as u8, value.class() as u8)),
+                        }
+                    }
+                }
+
+                impl [<$name Value>] for [<File $field_name Information>] {
+                    const CLASS_ID: [<$name Class>] = [<$name Class>]::[<$field_name Information>];
                 }
             )*
         }

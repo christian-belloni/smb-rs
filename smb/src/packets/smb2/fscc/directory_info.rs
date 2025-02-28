@@ -22,31 +22,17 @@ file_info_classes! {
 }
 
 impl QueryDirectoryInfo {
-    pub fn read_output(
-        output: &Vec<u8>,
-        class: QueryDirectoryInfoClass,
-    ) -> BinResult<Vec<QueryDirectoryInfo>> {
+    pub fn read_output<T>(output: &Vec<u8>) -> BinResult<Vec<T>>
+    where
+        T: QueryDirectoryInfoValue,
+    {
         let mut reader = std::io::Cursor::new(output);
         let mut result = vec![];
         while reader.position() < output.len() as u64 {
-            let item = match class {
-                QueryDirectoryInfoClass::IdBothDirectoryInformation => {
-                    Self::read_item::<FileIdBothDirectoryInformation>(&mut reader)?
-                }
-                _ => todo!(),
-            };
+            let item = T::read_options(&mut reader, binrw::Endian::Little, ())?;
             result.push(item);
         }
         Ok(result)
-    }
-
-    fn read_item<T>(reader: &mut std::io::Cursor<&Vec<u8>>) -> BinResult<QueryDirectoryInfo>
-    where
-        T: BinRead + Into<QueryDirectoryInfo>,
-        for<'a> T::Args<'a>: Default,
-    {
-        let item = T::read_le(reader)?;
-        Ok(item.into())
     }
 }
 

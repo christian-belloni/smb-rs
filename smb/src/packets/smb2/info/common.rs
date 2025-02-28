@@ -33,11 +33,3 @@ pub struct AdditionalInfo {
     #[skip]
     __: B15,
 }
-
-/// TODO: Move to FSCC & implement properly.
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct InfoFilesystem {
-    #[br(parse_with = binrw::helpers::until_eof)]
-    data: Vec<u8>,
-}

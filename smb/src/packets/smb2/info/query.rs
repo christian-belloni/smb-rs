@@ -16,8 +16,9 @@ pub struct QueryInfoRequest {
     #[br(assert(_structure_size == 41))]
     _structure_size: u16,
     pub info_type: InfoType,
-    // TODO: Support non-file info types below:
-    pub file_info_class: Option<QueryFileInfoClass>,
+    #[brw(args(info_type))]
+    pub info_class: QueryInfoClass,
+
     pub output_buffer_length: u32,
     #[bw(calc = PosMarker::default())]
     _input_buffer_offset: PosMarker<u16>,
@@ -30,9 +31,37 @@ pub struct QueryInfoRequest {
     pub flags: QueryInfoFlags,
     pub file_id: Guid,
     #[br(map_stream = |s| s.take_seek(input_buffer_length.value as u64))]
-    #[br(args(file_info_class, info_type))]
-    #[bw(write_with = PosMarker::write_aoff_size_a, args(&_input_buffer_offset, &input_buffer_length, (*file_info_class, *info_type)))]
+    #[br(args(&info_class, info_type))]
+    #[bw(write_with = PosMarker::write_aoff_size_a, args(&_input_buffer_offset, &input_buffer_length, (info_class, *info_type)))]
     pub data: GetInfoRequestData,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+#[br(import(info_type: InfoType))]
+#[bw(import(info_type: &InfoType))]
+pub enum QueryInfoClass {
+    #[br(pre_assert(matches!(info_type, InfoType::File)))]
+    #[bw(assert(matches!(info_type, InfoType::File)))]
+    File(QueryFileInfoClass),
+    #[br(pre_assert(matches!(info_type, InfoType::FileSystem)))]
+    #[bw(assert(matches!(info_type, InfoType::FileSystem)))]
+    FileSystem(QueryFileSystemInfoClass),
+    Empty(NullByte),
+}
+
+impl Default for QueryInfoClass {
+    fn default() -> Self {
+        QueryInfoClass::Empty(NullByte {})
+    }
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct NullByte {
+    #[bw(calc = 0)]
+    #[br(assert(_null == 0))]
+    _null: u8,
 }
 
 impl AdditionalInfo {
@@ -61,12 +90,14 @@ pub struct QueryInfoFlags {
 
 #[binrw::binrw]
 #[derive(Debug)]
-#[brw(import(file_info_class: Option<QueryFileInfoClass>, query_info_type: InfoType))]
+#[brw(import(file_info_class: &QueryInfoClass, query_info_type: InfoType))]
 pub enum GetInfoRequestData {
     #[br(pre_assert(query_info_type == InfoType::File))]
+    #[bw(assert(query_info_type == InfoType::File))]
     QuotaInfo(QueryQuotaInfo),
 
-    #[br(pre_assert(matches!(file_info_class, Some(QueryFileInfoClass::FullEaInformation)) && query_info_type == InfoType::File))]
+    #[br(pre_assert(matches!(file_info_class, QueryInfoClass::File(QueryFileInfoClass::FullEaInformation)) && query_info_type == InfoType::File))]
+    #[bw(assert(matches!(file_info_class, QueryInfoClass::File(QueryFileInfoClass::FullEaInformation)) && query_info_type == InfoType::File))]
     EaInfo(GetEaInfoList),
 
     // Other cases have no data.
@@ -173,7 +204,7 @@ macro_rules! query_info_data {
 
 query_info_data! {
     File: QueryInfoFileRaw,
-    FileSystem: InfoFilesystem,
+    FileSystem: QueryInfoRawFilesystem,
     Security: SecurityDescriptor,
     Quota: QueryQuotaInfo,
 }
@@ -196,8 +227,25 @@ impl QueryInfoFileRaw {
     }
 }
 
+/// Same for FileSystem:
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct QueryInfoRawFilesystem {
+    #[br(parse_with = binrw::helpers::until_eof)]
+    data: Vec<u8>,
+}
+
+impl QueryInfoRawFilesystem {
+    pub fn parse(&self, class: QueryFileSystemInfoClass) -> Result<QueryFileSystemInfo, binrw::Error> {
+        let mut cursor = Cursor::new(&self.data);
+        QueryFileSystemInfo::read_args(&mut cursor, (class,))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use time::macros::datetime;
 
     use crate::packets::smb2::*;
@@ -208,7 +256,7 @@ mod tests {
     pub fn test_query_info_req_short_write() {
         let data = encode_content(Content::QueryInfoRequest(QueryInfoRequest {
             info_type: InfoType::File,
-            file_info_class: Some(QueryFileInfoClass::NetworkOpenInformation),
+            info_class: QueryInfoClass::File(QueryFileInfoClass::NetworkOpenInformation),
             output_buffer_length: 56,
             additional_information: AdditionalInfo::new(),
             flags: QueryInfoFlags::new(),
@@ -232,7 +280,7 @@ mod tests {
     pub fn test_query_info_ea_request() {
         let req = QueryInfoRequest {
             info_type: InfoType::File,
-            file_info_class: Some(QueryFileInfoClass::FullEaInformation),
+            info_class: QueryInfoClass::File(QueryFileInfoClass::FullEaInformation),
             additional_information: AdditionalInfo::new(),
             flags: QueryInfoFlags::new()
                 .with_restart_scan(true)
@@ -260,6 +308,31 @@ mod tests {
                 0x35, 0x31, 0x32, 0x39, 0x35, 0x0
             ]
         )
+    }
+
+    #[test]
+    pub fn test_query_security_request() {
+        let res = encode_content(Content::QueryInfoRequest(QueryInfoRequest {
+            info_type: InfoType::Security,
+            info_class: Default::default(),
+            output_buffer_length: 0,
+            additional_information: AdditionalInfo::new()
+                .with_owner_security_information(true)
+                .with_group_security_information(true)
+                .with_dacl_security_information(true)
+                .with_sacl_security_information(true),
+            flags: QueryInfoFlags::new(),
+            file_id: Guid::from_str("0000002b-000d-0000-3100-00000d000000").unwrap(),
+            data: GetInfoRequestData::None(()),
+        }));
+        assert_eq!(
+            res,
+            &[
+                0x29, 0x0, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x68, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0xf, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2b, 0x0, 0x0, 0x0, 0xd, 0x0, 0x0, 0x0,
+                0x31, 0x0, 0x0, 0x0, 0xd, 0x0, 0x0, 0x0,
+            ]
+        );
     }
 
     #[test]

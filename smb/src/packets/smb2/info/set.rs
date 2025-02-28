@@ -41,7 +41,7 @@ pub enum SetInfoData {
     #[br(pre_assert(info_type == InfoType::File))]
     File(RawSetFileInfo),
     #[br(pre_assert(info_type == InfoType::FileSystem))]
-    FileSystem(InfoFilesystem),
+    FileSystem(RawSetFileSystemInfo),
     #[br(pre_assert(info_type == InfoType::Security))]
     Security(SecurityDescriptor),
     #[br(pre_assert(info_type == InfoType::Quota))]
@@ -91,6 +91,35 @@ impl From<SetFileInfo> for RawSetFileInfo {
         let mut cursor = std::io::Cursor::new(Vec::new());
         value.write(&mut cursor).unwrap();
         RawSetFileInfo {
+            data: cursor.into_inner(),
+        }
+    }
+}
+
+// All same for filesystem:
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct RawSetFileSystemInfo {
+    #[br(parse_with = binrw::helpers::until_eof)]
+    data: Vec<u8>,
+}
+
+impl RawSetFileSystemInfo {
+    pub fn to_set_data(self) -> SetInfoData {
+        SetInfoData::FileSystem(self)
+    }
+
+    pub fn parse(&self) -> Result<SetFileSystemInfo, binrw::Error> {
+        let mut cursor = std::io::Cursor::new(&self.data);
+        SetFileSystemInfo::read(&mut cursor)
+    }
+}
+
+impl From<SetFileSystemInfo> for RawSetFileSystemInfo {
+    fn from(value: SetFileSystemInfo) -> Self {
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        value.write(&mut cursor).unwrap();
+        RawSetFileSystemInfo {
             data: cursor.into_inner(),
         }
     }
