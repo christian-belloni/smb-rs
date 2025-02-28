@@ -15,10 +15,7 @@ impl Directory {
 
     // Query the directory for it's contents.
     #[maybe_async]
-    pub async fn query(
-        &mut self,
-        pattern: &str,
-    ) -> crate::Result<Vec<BothDirectoryInformationItem>> {
+    pub async fn query(&mut self, pattern: &str) -> crate::Result<Vec<QueryDirectoryInfo>> {
         if !self.access.list_directory() {
             return Err(Error::MissingPermissions("file_list_directory".to_string()));
         }
@@ -28,7 +25,7 @@ impl Directory {
         let response = self
             .handle
             .send_receive(Content::QueryDirectoryRequest(QueryDirectoryRequest {
-                file_information_class: QueryFileInfoClass::IdBothDirectoryInformation,
+                file_information_class: QueryDirectoryInfoClass::IdBothDirectoryInformation,
                 flags: QueryDirectoryFlags::new().with_restart_scans(true),
                 file_index: 0,
                 file_id: self.handle.file_id(),
@@ -41,12 +38,11 @@ impl Directory {
             Content::QueryDirectoryResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
-        let result = match QueryDirectoryInfoVector::parse(
+        let result = QueryDirectoryInfo::read_output(
             &content.output_buffer,
-            QueryFileInfoClass::IdBothDirectoryInformation,
-        )? {
-            QueryDirectoryInfoVector::IdBothDirectoryInformation(val) => val,
-        };
+            QueryDirectoryInfoClass::IdBothDirectoryInformation,
+        )
+        .unwrap();
         Ok(result.into())
     }
 }

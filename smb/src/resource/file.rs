@@ -36,7 +36,7 @@ impl File {
             .handle
             .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
                 info_type: InfoType::File,
-                file_info_class: QueryFileInfoClass::BasicInformation,
+                file_info_class: Some(QueryFileInfoClass::BasicInformation),
                 output_buffer_length: 1024,
                 additional_information: AdditionalInfo::new(),
                 flags: QueryInfoFlags::new()
@@ -56,6 +56,7 @@ impl File {
             .parse(QueryFileInfoClass::BasicInformation)?;
         let result = match result {
             QueryFileInfo::BasicInformation(val) => val,
+            _ => panic!("Unexpected response"),
         };
         Ok(result)
     }
@@ -66,7 +67,7 @@ impl File {
             .handle
             .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
                 info_type: InfoType::Security,
-                file_info_class: QueryFileInfoClass::None,
+                file_info_class: None,
                 output_buffer_length: 1024,
                 additional_information: AdditionalInfo::new().with_owner_security_information(true),
                 flags: QueryInfoFlags::new()

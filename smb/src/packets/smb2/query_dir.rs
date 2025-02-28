@@ -17,7 +17,7 @@ pub struct QueryDirectoryRequest {
     #[bw(calc = 33)]
     #[br(assert(_structure_size == 33))]
     _structure_size: u16,
-    pub file_information_class: QueryFileInfoClass,
+    pub file_information_class: QueryDirectoryInfoClass,
     pub flags: QueryDirectoryFlags,
     // If SMB2_INDEX_SPECIFIED is set in Flags, this value MUST be supplied.
     // Otherwise, it MUST be set to zero and the server MUST ignore it.
@@ -66,8 +66,6 @@ pub struct QueryDirectoryResponse {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::*;
     #[test]
     pub fn test_both_directory_information_attribute_parse() {
@@ -116,11 +114,18 @@ mod tests {
             0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xbc, 0xf8, 0x0, 0x0,
             0x0, 0x0, 0x4, 0x0, 0x64, 0x0, 0x2e, 0x0, 0x74, 0x0, 0x78, 0x0, 0x74, 0x0,
         ];
-        QueryDirectoryInfoVector::read_args(
-            &mut Cursor::new(&data),
-            (QueryFileInfoClass::IdBothDirectoryInformation,),
+        let data = QueryDirectoryInfo::read_output(
+            &data.into(),
+            QueryDirectoryInfoClass::IdBothDirectoryInformation,
         )
         .unwrap();
+
+        for data_item in data.iter() {
+            assert!(matches!(
+                data_item,
+                QueryDirectoryInfo::IdBothDirectoryInformation(_)
+            ));
+        }
 
         // TODO: Test the contents of the result, not just that it parses.
     }

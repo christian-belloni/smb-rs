@@ -17,7 +17,7 @@ pub struct QueryInfoRequest {
     _structure_size: u16,
     pub info_type: InfoType,
     // TODO: Support non-file info types below:
-    pub file_info_class: QueryFileInfoClass,
+    pub file_info_class: Option<QueryFileInfoClass>,
     pub output_buffer_length: u32,
     #[bw(calc = PosMarker::default())]
     _input_buffer_offset: PosMarker<u16>,
@@ -61,12 +61,12 @@ pub struct QueryInfoFlags {
 
 #[binrw::binrw]
 #[derive(Debug)]
-#[brw(import(file_info_class: QueryFileInfoClass, query_info_type: InfoType))]
+#[brw(import(file_info_class: Option<QueryFileInfoClass>, query_info_type: InfoType))]
 pub enum GetInfoRequestData {
     #[br(pre_assert(query_info_type == InfoType::File))]
     QuotaInfo(QueryQuotaInfo),
 
-    #[br(pre_assert(file_info_class == QueryFileInfoClass::FullEaInformation && query_info_type == InfoType::File))]
+    #[br(pre_assert(matches!(file_info_class, Some(QueryFileInfoClass::FullEaInformation)) && query_info_type == InfoType::File))]
     EaInfo(GetEaInfoList),
 
     // Other cases have no data.
@@ -90,7 +90,7 @@ pub struct QueryQuotaInfo {
 #[derive(Debug)]
 pub struct GetEaInfoList {
     #[br(parse_with = binrw::helpers::until_eof)]
-    #[bw(write_with = FileGetEaInformation::write_list)]
+    #[bw(write_with = FileGetEaInformation::write_chained)]
     values: Vec<FileGetEaInformation>,
 }
 
@@ -217,7 +217,7 @@ mod tests {
     pub fn test_query_info_req_short_write() {
         let data = encode_content(Content::QueryInfoRequest(QueryInfoRequest {
             info_type: InfoType::File,
-            file_info_class: QueryFileInfoClass::NetworkOpenInformation,
+            file_info_class: Some(QueryFileInfoClass::NetworkOpenInformation),
             output_buffer_length: 56,
             additional_information: AdditionalInfo::new(),
             flags: QueryInfoFlags::new(),
@@ -241,7 +241,7 @@ mod tests {
     pub fn test_query_info_ea_request() {
         let req = QueryInfoRequest {
             info_type: InfoType::File,
-            file_info_class: QueryFileInfoClass::FullEaInformation,
+            file_info_class: Some(QueryFileInfoClass::FullEaInformation),
             additional_information: AdditionalInfo::new(),
             flags: QueryInfoFlags::new()
                 .with_restart_scan(true)
@@ -251,7 +251,10 @@ mod tests {
             ]
             .into(),
             data: GetInfoRequestData::EaInfo(GetEaInfoList {
-                values: vec![FileGetEaInformation::new("$MpEa_D262AC624451295")],
+                values: vec![FileGetEaInformationInner {
+                    ea_name: "$MpEa_D262AC624451295".into(),
+                }
+                .into()],
             }),
             output_buffer_length: 554,
         };

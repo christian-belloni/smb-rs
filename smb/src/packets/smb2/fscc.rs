@@ -1,12 +1,11 @@
 //! File System Control Codes (MS-FSCC)
 //!
 //! The FSCC types are widely used in SMB messages.
-use paste::paste;
-
-use std::io::Cursor;
+use std::ops::Deref;
 
 use binrw::{io::TakeSeekExt, prelude::*, NullString};
 use modular_bitfield::prelude::*;
+use paste::paste;
 
 use crate::access_mask;
 
@@ -94,25 +93,9 @@ impl From<FileAccessMask> for DirAccessMask {
     }
 }
 
-// TODO: Make it generic, so it will be easy-peasy to use!
 #[binrw::binrw]
-#[derive(Debug)]
-pub struct IdBothDirectoryInfoVector {
-    #[br(parse_with = binrw::helpers::until_eof)]
-    val: Vec<BothDirectoryInformationItem>,
-}
-
-impl Into<Vec<BothDirectoryInformationItem>> for IdBothDirectoryInfoVector {
-    fn into(self) -> Vec<BothDirectoryInformationItem> {
-        self.val
-    }
-}
-
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct BothDirectoryInformationItem {
-    #[bw(calc = PosMarker::default())]
-    _next_entry_offset: PosMarker<u32>,
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileIdBothDirectoryInformationInner {
     pub file_index: u32,
     pub creation_time: FileTime,
     pub last_access_time: FileTime,
@@ -135,42 +118,22 @@ pub struct BothDirectoryInformationItem {
     pub fild_id: u64,
     #[br(args(_file_name_length as u64))]
     pub file_name: SizedWideString,
-    // Seek to next item if exists.
-    #[br(seek_before = _next_entry_offset.seek_relative(true))]
-    #[bw(calc = ())]
-    _seek_next_if_exists: (),
 }
+
+pub type FileIdBothDirectoryInformation = ChainedItem<FileIdBothDirectoryInformationInner>;
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[bw(import(has_next: bool))]
-pub struct FileNotifyInformation {
-    #[br(assert(next_entry_offset.value % 4 == 0))]
-    #[bw(calc = PosMarker::default())]
-    next_entry_offset: PosMarker<u32>,
+pub struct FileNotifyInformationInner {
     pub action: NotifyAction,
     #[bw(try_calc = file_name.size().try_into())]
     file_name_length: u32,
     #[br(args(file_name_length.into()))]
     pub file_name: SizedWideString,
-
-    // Handle next entry.
-    #[br(seek_before = next_entry_offset.seek_relative(true))]
-    #[bw(if(has_next))]
-    #[bw(align_before = 4)]
-    #[bw(write_with = PosMarker::write_aoff, args(&next_entry_offset))]
-    _seek_next: (),
 }
 
-impl FileNotifyInformation {
-    pub fn new(action: NotifyAction, file_name: &str) -> Self {
-        Self {
-            action,
-            file_name: SizedWideString::from(file_name),
-            _seek_next: (),
-        }
-    }
-}
+pub type FileNotifyInformation = ChainedItem<FileNotifyInformationInner>;
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
@@ -192,42 +155,14 @@ pub enum NotifyAction {
 #[binrw::binrw]
 #[derive(Debug)]
 #[bw(import(has_next: bool))]
-pub struct FileGetEaInformation {
-    #[bw(calc = PosMarker::default())]
-    next_entry_offset: PosMarker<u32>,
-    // ea_name_length is the STRING LENGTH of ea_name -- excluding the null terminator!
+pub struct FileGetEaInformationInner {
     #[bw(try_calc = ea_name.len().try_into())]
     ea_name_length: u8,
     #[br(map_stream = |s| s.take_seek(ea_name_length as u64))]
     pub ea_name: NullString,
-
-    // Seek to next item if exists.
-    #[br(seek_before = next_entry_offset.seek_relative(true))]
-    #[bw(if(has_next))]
-    #[bw(write_with = PosMarker::write_aoff, args(&next_entry_offset))]
-    pub _seek_next_if_exists: (),
 }
 
-impl FileGetEaInformation {
-    pub fn new(ea_name: &str) -> Self {
-        Self {
-            ea_name: NullString::from(ea_name),
-            _seek_next_if_exists: (),
-        }
-    }
-
-    /// A [binrw::writer] function to write a list of [FileGetEaInformation] items.
-    /// It makes sure that next_entry_offset is properly set, and should always be used
-    /// to write a list of [FileGetEaInformation] items.
-    #[binrw::writer(writer, endian)]
-    pub fn write_list(value: &Vec<Self>) -> BinResult<()> {
-        for (i, item) in value.iter().enumerate() {
-            let has_next = i < value.len() - 1;
-            item.write_options(writer, endian, (has_next,))?;
-        }
-        Ok(())
-    }
-}
+pub type FileGetEaInformation = ChainedItem<FileGetEaInformationInner>;
 
 /// A macro for generating a file class enums,
 /// for both the file information class, and information value.
@@ -267,6 +202,14 @@ macro_rules! file_info_classes {
                     }
                 }
             }
+
+            $(
+                impl Into<$name> for [<File $field_name Information>] {
+                    fn into(self) -> $name {
+                        $name::[<$field_name Information>](self)
+                    }
+                }
+            )*
         }
     }
 }
@@ -289,7 +232,35 @@ file_info_classes! {
 
 file_info_classes! {
     pub QueryDirectoryInfo {
-        pub IdBothDirectoryInformation = 37,
+        pub IdBothDirectory = 37,
+    }
+}
+
+impl QueryDirectoryInfo {
+    pub fn read_output(
+        output: &Vec<u8>,
+        class: QueryDirectoryInfoClass,
+    ) -> BinResult<Vec<QueryDirectoryInfo>> {
+        let mut reader = std::io::Cursor::new(output);
+        let mut result = vec![];
+        while reader.position() < output.len() as u64 {
+            let item = match class {
+                QueryDirectoryInfoClass::IdBothDirectoryInformation => {
+                    Self::read_item::<FileIdBothDirectoryInformation>(&mut reader)?
+                }
+            };
+            result.push(item);
+        }
+        Ok(result)
+    }
+
+    fn read_item<T>(reader: &mut std::io::Cursor<&Vec<u8>>) -> BinResult<QueryDirectoryInfo>
+    where
+        T: BinRead + Into<QueryDirectoryInfo>,
+        for<'a> T::Args<'a>: Default,
+    {
+        let item = T::read_le(reader)?;
+        Ok(item.into())
     }
 }
 
@@ -314,9 +285,7 @@ pub struct FileFullEaInformation {
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct FileNetworkOpenInformation {
-    #[bw(calc = PosMarker::default())]
-    next_entry_offset: PosMarker<u32>,
+pub struct FileNetworkOpenInformationInner {
     pub flags: u8,
     #[bw(try_calc = ea_name.len().try_into())]
     ea_name_length: u8,
@@ -330,10 +299,9 @@ pub struct FileNetworkOpenInformation {
     #[br(if(ea_value_length > 0))]
     #[br(count = ea_value_length)]
     pub ea_value: Option<Vec<u8>>,
-
-    #[br(seek_before = next_entry_offset.seek_relative(true))]
-    __: (),
 }
+
+pub type FileNetworkOpenInformation = ChainedItem<FileNetworkOpenInformationInner>;
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
@@ -367,8 +335,7 @@ type FileRenameInformation = FileRenameInformation2;
 
 #[binrw::binrw]
 #[derive(Debug)]
-pub struct FileQuotaInformation {
-    _next_entry_offset: u32,
+pub struct FileQuotaInformationInner {
     sid_length: u32,
     change_time: FileTime,
     quota_used: u64,
@@ -377,4 +344,89 @@ pub struct FileQuotaInformation {
     // TODO: Parse properly.
     #[br(count = sid_length)]
     sid: Vec<u8>,
+}
+
+pub type FileQuotaInformation = ChainedItem<FileQuotaInformationInner>;
+
+/// A genric utility struct to wrap "chained"-encoded entries.
+/// Many fscc-query structs have a common "next entry offset" field,
+/// which is used to chain multiple entries together.
+/// This struct wraps the value, and the offset, and provides a way to iterate over them.
+/// See [ChainedItem<T>::write_chained] to see how to write this type when in a list.
+#[binrw::binrw]
+#[derive(Debug)]
+#[bw(import(last: bool))]
+pub struct ChainedItem<T>
+where
+    T: BinRead + BinWrite,
+    for<'a> <T as BinRead>::Args<'a>: Default,
+    for<'b> <T as BinWrite>::Args<'b>: Default,
+{
+    #[br(assert(next_entry_offset.value % 4 == 0))]
+    #[bw(calc = PosMarker::default())]
+    next_entry_offset: PosMarker<u32>,
+    value: T,
+    #[br(seek_before = next_entry_offset.seek_relative(true))]
+    #[bw(if(!last))]
+    #[bw(align_before = 4)]
+    #[bw(write_with = PosMarker::write_roff, args(&next_entry_offset))]
+    __: (),
+}
+
+impl<T> ChainedItem<T>
+where
+    T: BinRead + BinWrite,
+    for<'a> <T as BinRead>::Args<'a>: Default,
+    for<'b> <T as BinWrite>::Args<'b>: Default,
+{
+    #[binrw::writer(writer, endian)]
+    pub fn write_chained(value: &Vec<ChainedItem<T>>) -> BinResult<()> {
+        for (i, item) in value.iter().enumerate() {
+            item.write_options(writer, endian, (i == value.len() - 1,))?;
+        }
+        Ok(())
+    }
+}
+
+impl<T> PartialEq for ChainedItem<T>
+where
+    T: BinRead + BinWrite + PartialEq,
+    for<'a> <T as BinRead>::Args<'a>: Default,
+    for<'b> <T as BinWrite>::Args<'b>: Default,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl<T> Eq for ChainedItem<T>
+where
+    T: BinRead + BinWrite + Eq,
+    for<'a> <T as BinRead>::Args<'a>: Default,
+    for<'b> <T as BinWrite>::Args<'b>: Default,
+{
+}
+
+impl<T> Deref for ChainedItem<T>
+where
+    T: BinRead + BinWrite,
+    for<'a> <T as BinRead>::Args<'a>: Default,
+    for<'b> <T as BinWrite>::Args<'b>: Default,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T> From<T> for ChainedItem<T>
+where
+    T: BinRead + BinWrite,
+    for<'a> <T as BinRead>::Args<'a>: Default,
+    for<'b> <T as BinWrite>::Args<'b>: Default,
+{
+    fn from(value: T) -> Self {
+        Self { value, __: () }
+    }
 }
