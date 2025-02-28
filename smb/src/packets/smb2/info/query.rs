@@ -1,10 +1,10 @@
 //! Get/Set Info Request/Response
 
+use crate::packets::smb2::SecurityDescriptor;
 use binrw::{io::TakeSeekExt, prelude::*};
 use modular_bitfield::prelude::*;
+use paste::paste;
 use std::io::{Cursor, SeekFrom};
-
-use crate::packets::smb2::SecurityDescriptor;
 
 use super::super::{super::binrw_util::prelude::*, super::guid::Guid, fscc::*};
 use super::common::*;
@@ -107,7 +107,7 @@ pub struct QueryInfoResponse {
     #[br(seek_before = SeekFrom::Start(output_buffer_offset.value.into()))]
     #[br(map_stream = |s| s.take_seek(output_buffer_length.value.into()))]
     #[bw(write_with = PosMarker::write_aoff_size, args(&output_buffer_offset, &output_buffer_length))]
-    data: QueryRawInfoData,
+    data: QueryInfoResponseData,
 }
 
 impl QueryInfoResponse {
@@ -117,15 +117,15 @@ impl QueryInfoResponse {
 }
 
 /// A helpers struct that contains the raw data of a query info response or a set info request,
-/// and can be parsed using the [RawQueryInfoResponseData::parse] method, to a specific info type.
+/// and can be parsed using the [QueryInfoResponseData::parse] method, to a specific info type.
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct QueryRawInfoData {
+pub struct QueryInfoResponseData {
     #[br(parse_with = binrw::helpers::until_eof)]
     data: Vec<u8>,
 }
 
-impl QueryRawInfoData {
+impl QueryInfoResponseData {
     /// Call this method to parse the raw data into a specific info type.
     pub fn parse(&self, info_type: InfoType) -> Result<QueryInfoData, binrw::Error> {
         let mut cursor = Cursor::new(&self.data);
@@ -133,58 +133,49 @@ impl QueryRawInfoData {
     }
 }
 
-impl From<Vec<u8>> for QueryRawInfoData {
+impl From<Vec<u8>> for QueryInfoResponseData {
     fn from(data: Vec<u8>) -> Self {
-        QueryRawInfoData { data }
+        QueryInfoResponseData { data }
     }
 }
 
-/// Represents information passed in get/set info requests.
-/// This is the information matching [InfoType], and should be used
-/// in the get info response and in the set info request.
-#[binrw::binrw]
-#[derive(Debug)]
-#[brw(little)]
-#[br(import(info_type: InfoType))]
-pub enum QueryInfoData {
-    #[br(pre_assert(info_type == InfoType::File))]
-    InfoFile(QueryInfoFileRaw),
-    #[br(pre_assert(info_type == InfoType::FileSystem))]
-    InfoFilesystem(InfoFilesystem),
-    #[br(pre_assert(info_type == InfoType::Security))]
-    InfoSecurity(SecurityDescriptor),
-    #[br(pre_assert(info_type == InfoType::Quota))]
-    InfoQuota(FileQuotaInformation),
+/// Internal helper macro to easily generate fields & methods for [QueryInfoData].
+macro_rules! query_info_data {
+    ($($info_type:ident: $content:ident, )+) => {
+        paste! {
+            /// Represents information passed in get/set info requests.
+            /// This is the information matching [InfoType], and should be used
+            /// in the get info response and in the set info request.
+            #[binrw::binrw]
+            #[derive(Debug)]
+            #[brw(little)]
+            #[br(import(info_type: InfoType))]
+            pub enum QueryInfoData {
+                $(
+                    #[br(pre_assert(info_type == InfoType::$info_type))]
+                    $info_type($content),
+                )+
+            }
+
+            impl QueryInfoData {
+                $(
+                    pub fn [<unwrap_ $info_type:lower>](self) -> $content {
+                        match self {
+                            QueryInfoData::$info_type(data) => data,
+                            _ => panic!("Expected $info_type, got {:?}", self),
+                        }
+                    }
+                )+
+            }
+        }
+    };
 }
 
-impl QueryInfoData {
-    pub fn unwrap_file(self) -> QueryInfoFileRaw {
-        match self {
-            QueryInfoData::InfoFile(file) => file,
-            _ => panic!("Expected InfoFile, got {:?}", self),
-        }
-    }
-
-    pub fn unwrap_filesystem(self) -> InfoFilesystem {
-        match self {
-            QueryInfoData::InfoFilesystem(fs) => fs,
-            _ => panic!("Expected InfoFilesystem, got {:?}", self),
-        }
-    }
-
-    pub fn unwrap_security(self) -> SecurityDescriptor {
-        match self {
-            QueryInfoData::InfoSecurity(sec) => sec,
-            _ => panic!("Expected InfoSecurity, got {:?}", self),
-        }
-    }
-
-    pub fn unwrap_quota(self) -> FileQuotaInformation {
-        match self {
-            QueryInfoData::InfoQuota(q) => q,
-            _ => panic!("Expected InfoQuota, got {:?}", self),
-        }
-    }
+query_info_data! {
+    File: QueryInfoFileRaw,
+    FileSystem: InfoFilesystem,
+    Security: SecurityDescriptor,
+    Quota: QueryQuotaInfo,
 }
 
 /// File information class for QueryInfoRequest.
@@ -303,7 +294,7 @@ mod tests {
 
     #[test]
     pub fn test_query_info_resp_parse_file() {
-        let raw_data: QueryRawInfoData = [
+        let raw_data: QueryInfoResponseData = [
             0x5b, 0x6c, 0x44, 0xce, 0x6a, 0x58, 0xdb, 0x1, 0x4, 0x8f, 0xa1, 0xd, 0x51, 0x6b, 0xdb,
             0x1, 0x4, 0x8f, 0xa1, 0xd, 0x51, 0x6b, 0xdb, 0x1, 0x4, 0x8f, 0xa1, 0xd, 0x51, 0x6b,
             0xdb, 0x1, 0x20, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,

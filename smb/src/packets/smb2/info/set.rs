@@ -16,6 +16,7 @@ pub struct SetInfoRequest {
     #[bw(calc = 33)]
     #[br(assert(_structure_size == 33))]
     _structure_size: u16,
+    #[bw(calc = data.info_type())]
     pub info_type: InfoType,
     pub info_class: SetFileInfoClass,
     #[bw(calc = PosMarker::default())]
@@ -31,14 +32,6 @@ pub struct SetInfoRequest {
     #[br(args(info_type))]
     #[bw(write_with = PosMarker::write_aoff_size, args(&_buffer_offset, &buffer_length))]
     pub data: SetInfoData,
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-pub struct SetInfoResponse {
-    #[bw(calc = 2)]
-    #[br(assert(_structure_size == 2))]
-    _structure_size: u16,
 }
 
 #[binrw::binrw]
@@ -67,7 +60,6 @@ impl SetInfoData {
 
     pub fn to_req(self, info_class: SetFileInfoClass, file_id: Guid) -> SetInfoRequest {
         SetInfoRequest {
-            info_type: self.info_type(),
             info_class: info_class,
             additional_information: AdditionalInfo::new(),
             file_id,
@@ -102,6 +94,14 @@ impl From<SetFileInfo> for RawSetFileInfo {
             data: cursor.into_inner(),
         }
     }
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SetInfoResponse {
+    #[bw(calc = 2)]
+    #[br(assert(_structure_size == 2))]
+    _structure_size: u16,
 }
 
 #[cfg(test)]

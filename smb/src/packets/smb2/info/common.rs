@@ -3,6 +3,7 @@
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
+
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[brw(repr(u8))]
