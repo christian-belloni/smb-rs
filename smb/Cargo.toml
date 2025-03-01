@@ -73,4 +73,5 @@ encrypt = ["encrypt_aesccm", "encrypt_aesgcm"]
 # Signing
 sign_gmac = ["dep:aes-gcm"]
 sign_cmac = ["dep:cmac"]
-sign = ["sign_gmac", "sign_cmac"]
+sign_hmac = []
+sign = ["sign_gmac", "sign_cmac", "sign_hmac"]

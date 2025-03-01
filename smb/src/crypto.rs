@@ -9,12 +9,16 @@ pub use signing::{make_signing_algo, SigningAlgo, SIGNING_ALGOS};
 use crypto_common::InvalidLength;
 use thiserror::Error;
 
+use crate::packets::smb2::{EncryptionCipher, SigningAlgorithmId};
+
 #[derive(Debug, Error)]
 pub enum CryptoError {
     #[error("Invalid length")]
     InvalidLength(#[from] InvalidLength),
-    #[error("Unsupported algorithm")]
-    UnsupportedAlgorithm,
+    #[error("Unsupported encryption algorithm {0:?}")]
+    UnsupportedEncryptionAlgorithm(EncryptionCipher),
+    #[error("Unsupported signing algorithm")]
+    UnsupportedSigningAlgorithm(SigningAlgorithmId),
     #[cfg(any(
         feature = "encrypt_aes128ccm",
         feature = "encrypt_aes256ccm",

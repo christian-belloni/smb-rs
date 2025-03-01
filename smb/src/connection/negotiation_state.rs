@@ -16,7 +16,7 @@ pub struct NegotiateState {
 
     pub selected_dialect: Dialect,
 
-    pub signing_algo: SigningAlgorithmId,
+    pub signing_algo: Option<SigningAlgorithmId>,
     pub encryption_cipher: Option<EncryptionCipher>,
     pub compression: Option<CompressionCaps>,
 }
@@ -26,7 +26,7 @@ impl NegotiateState {
         &self.gss_token
     }
 
-    pub fn signing_algo(&self) -> SigningAlgorithmId {
+    pub fn signing_algo(&self) -> Option<SigningAlgorithmId> {
         self.signing_algo
     }
 

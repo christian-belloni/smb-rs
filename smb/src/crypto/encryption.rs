@@ -61,7 +61,9 @@ pub fn make_encrypting_algo(
     encrypting_key: &[u8],
 ) -> Result<Box<dyn EncryptingAlgo>, CryptoError> {
     if !ENCRYPTING_ALGOS.contains(&encrypting_algorithm) {
-        return Err(CryptoError::UnsupportedAlgorithm);
+        return Err(CryptoError::UnsupportedEncryptionAlgorithm(
+            encrypting_algorithm,
+        ));
     }
     match encrypting_algorithm {
         #[cfg(feature = "encrypt_aes128ccm")]
@@ -86,7 +88,9 @@ pub fn make_encrypting_algo(
             feature = "encrypt_aes128gcm",
             feature = "encrypt_aes256gcm"
         )))]
-        _ => Err(CryptoError::UnsupportedAlgorithm),
+        _ => Err(CryptoError::UnsupportedEncryptionAlgorithm(
+            encrypting_algorithm,
+        )),
     }
 }
 

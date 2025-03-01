@@ -151,12 +151,16 @@ impl Connection {
             ));
         }
 
-        let signing_algo: SigningAlgorithmId = smb2_negotiate_response.get_signing_algo().unwrap();
-        if !crypto::SIGNING_ALGOS.contains(&signing_algo) {
-            return Err(Error::NegotiationError(
-                "Unsupported signing algorithm received".into(),
-            ));
-        }
+        let signing_algo = if let Some(signing_algo) = smb2_negotiate_response.get_signing_algo() {
+            if !crypto::SIGNING_ALGOS.contains(&signing_algo) {
+                return Err(Error::NegotiationError(
+                    "Unsupported signing algorithm selected!".into(),
+                ));
+            }
+            Some(signing_algo)
+        } else {
+            None
+        };
 
         // Make sure preauth integrity capability is SHA-512, if it exists in response:
         if let Some(algo) = smb2_negotiate_response.get_preauth_integrity_algo() {

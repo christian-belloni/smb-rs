@@ -10,7 +10,7 @@ use crate::connection::preauth_hash::PreauthHashValue;
 use crate::crypto::{
     kbkdf_hmacsha256, make_encrypting_algo, make_signing_algo, CryptoError, DerivedKey, KeyToDerive,
 };
-use crate::packets::smb2::{EncryptionCipher, SessionFlags, SigningAlgorithmId};
+use crate::packets::smb2::{Dialect, EncryptionCipher, SessionFlags, SigningAlgorithmId};
 
 use super::{MessageDecryptor, MessageEncryptor, MessageSigner};
 
@@ -41,7 +41,20 @@ impl SessionState {
         negotation_state: &NegotiateState,
     ) -> crate::Result<()> {
         let deriver = KeyDeriver::new(session_key, preauth_hash);
-        let signer = Self::make_signer(&deriver, negotation_state.signing_algo())?;
+
+        let signer = if let Some(signing_algo) = negotation_state.signing_algo() {
+            Self::make_signer(&deriver, signing_algo)?
+        } else {
+            // Defaults to HMAC-SHA256 for SMB3.1.1, AES-CMAC for SMB3.1
+            Self::make_signer(
+                &deriver,
+                match negotation_state.selected_dialect {
+                    Dialect::Smb0311 => SigningAlgorithmId::AesCmac,
+                    _ => SigningAlgorithmId::HmacSha256,
+                },
+            )?
+        };
+
         let (dec, enc) = if let Some(cipher) = negotation_state.cipher() {
             (
                 Some(Self::make_decryptor(&deriver, cipher)?),
