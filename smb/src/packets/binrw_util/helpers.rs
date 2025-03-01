@@ -93,7 +93,7 @@ impl BinRead for Boolean {
         _: Endian,
         _: Self::Args<'_>,
     ) -> binrw::BinResult<Self> {
-        let value = u8::read_options(reader, Endian::Little, ())?;
+        let value: u8 = u8::read_options(reader, Endian::Little, ())?;
         Ok(Boolean(value != 0))
     }
 }
@@ -107,7 +107,7 @@ impl BinWrite for Boolean {
         _: Endian,
         _: Self::Args<'_>,
     ) -> binrw::BinResult<()> {
-        let value = if self.0 { 1 } else { 0 };
+        let value: u8 = if self.0 { 1 } else { 0 };
         value.write_options(writer, Endian::Little, ())
     }
 }
