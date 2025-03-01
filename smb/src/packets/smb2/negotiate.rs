@@ -24,6 +24,7 @@ pub struct NegotiateRequest {
     pub capabilities: GlobalCapabilities,
     pub client_guid: Guid,
     // TODO: The 3 fields below are possibly a union in older versions of SMB.
+    #[bw(calc = PosMarker::default())]
     negotiate_context_offset: PosMarker<u32>,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
     negotiate_context_count: u16,
@@ -76,57 +77,64 @@ impl NegotiateRequest {
         encrypting_algorithms: Vec<EncryptionCipher>,
         compression_algorithms: Vec<CompressionAlgorithm>,
     ) -> NegotiateRequest {
+        let mut caps = GlobalCapabilities::new();
+        let mut security_mode = NegotiateSecurityMode::new();
+        let mut ctx_list = vec![
+            NegotiateContext {
+                context_type: NegotiateContextType::PreauthIntegrityCapabilities,
+                data: NegotiateContextValue::PreauthIntegrityCapabilities(
+                    PreauthIntegrityCapabilities {
+                        hash_algorithms: vec![HashAlgorithm::Sha512],
+                        salt: (0..32).map(|_| OsRng.gen()).collect(),
+                    },
+                ),
+            },
+            NegotiateContext {
+                context_type: NegotiateContextType::NetnameNegotiateContextId,
+                data: NegotiateContextValue::NetnameNegotiateContextId(NetnameNegotiateContextId {
+                    netname: client_netname.into(),
+                }),
+            },
+        ];
+        if encrypting_algorithms.len() > 0 {
+            ctx_list.push(NegotiateContext {
+                context_type: NegotiateContextType::EncryptionCapabilities,
+                data: NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
+                    ciphers: encrypting_algorithms,
+                }),
+            });
+            caps.set_encryption(true);
+        }
+        if compression_algorithms.len() > 0 {
+            ctx_list.push(NegotiateContext {
+                context_type: NegotiateContextType::CompressionCapabilities,
+                data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
+                    flags: CompressionCapsFlags::new().with_chained(true),
+                    compression_algorithms,
+                }),
+            });
+        }
+        if signing_algorithms.len() > 0 {
+            ctx_list.push(NegotiateContext {
+                context_type: NegotiateContextType::SigningCapabilities,
+                data: NegotiateContextValue::SigningCapabilities(SigningCapabilities {
+                    signing_algorithms,
+                }),
+            });
+            security_mode.set_signing_enabled(true);
+        }
         NegotiateRequest {
-            security_mode: NegotiateSecurityMode::new().with_signing_enabled(true),
-            capabilities: GlobalCapabilities::new()
+            security_mode: security_mode,
+            capabilities: caps
                 .with_dfs(true)
                 .with_leasing(true)
                 .with_large_mtu(true)
                 .with_multi_channel(true)
                 .with_persistent_handles(true)
-                .with_directory_leasing(true)
-                .with_encryption(true),
+                .with_directory_leasing(true),
             client_guid,
             dialects: vec![Dialect::Smb0311],
-            negotiate_context_list: Some(vec![
-                NegotiateContext {
-                    context_type: NegotiateContextType::PreauthIntegrityCapabilities,
-                    data: NegotiateContextValue::PreauthIntegrityCapabilities(
-                        PreauthIntegrityCapabilities {
-                            hash_algorithms: vec![HashAlgorithm::Sha512],
-                            salt: (0..32).map(|_| OsRng.gen()).collect(),
-                        },
-                    ),
-                },
-                NegotiateContext {
-                    context_type: NegotiateContextType::EncryptionCapabilities,
-                    data: NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
-                        ciphers: encrypting_algorithms,
-                    }),
-                },
-                NegotiateContext {
-                    context_type: NegotiateContextType::CompressionCapabilities,
-                    data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
-                        flags: CompressionCapsFlags::new().with_chained(true),
-                        compression_algorithms,
-                    }),
-                },
-                NegotiateContext {
-                    context_type: NegotiateContextType::SigningCapabilities,
-                    data: NegotiateContextValue::SigningCapabilities(SigningCapabilities {
-                        signing_algorithms,
-                    }),
-                },
-                NegotiateContext {
-                    context_type: NegotiateContextType::NetnameNegotiateContextId,
-                    data: NegotiateContextValue::NetnameNegotiateContextId(
-                        NetnameNegotiateContextId {
-                            netname: client_netname.into(),
-                        },
-                    ),
-                },
-            ]),
-            negotiate_context_offset: PosMarker::default(),
+            negotiate_context_list: Some(ctx_list),
         }
     }
 }

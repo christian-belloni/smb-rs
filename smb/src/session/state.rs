@@ -42,13 +42,19 @@ impl SessionState {
     ) -> crate::Result<()> {
         let deriver = KeyDeriver::new(session_key, preauth_hash);
         let signer = Self::make_signer(&deriver, negotation_state.signing_algo())?;
-        let decryptor = Self::make_decryptor(&deriver, negotation_state.cipher())?;
-        let encryptor = Self::make_encryptor(&deriver, negotation_state.cipher())?;
+        let (dec, enc) = if let Some(cipher) = negotation_state.cipher() {
+            (
+                Some(Self::make_decryptor(&deriver, cipher)?),
+                Some(Self::make_encryptor(&deriver, cipher)?),
+            )
+        } else {
+            (None, None)
+        };
 
         let mut state = state.lock().await?;
         state.signer = Some(signer);
-        state.decryptor = Some(decryptor);
-        state.encryptor = Some(encryptor);
+        state.decryptor = dec;
+        state.encryptor = enc;
 
         Ok(())
     }

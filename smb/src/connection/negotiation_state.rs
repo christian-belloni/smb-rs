@@ -17,7 +17,7 @@ pub struct NegotiateState {
     pub selected_dialect: Dialect,
 
     pub signing_algo: SigningAlgorithmId,
-    pub encryption_cipher: EncryptionCipher,
+    pub encryption_cipher: Option<EncryptionCipher>,
     pub compression: Option<CompressionCaps>,
 }
 
@@ -30,7 +30,7 @@ impl NegotiateState {
         self.signing_algo
     }
 
-    pub fn cipher(&self) -> EncryptionCipher {
+    pub fn cipher(&self) -> Option<EncryptionCipher> {
         self.encryption_cipher
     }
 }

@@ -168,11 +168,13 @@ impl Connection {
         }
 
         // And verify that the encryption algorithm is supported.
-        let encryption_cipher = smb2_negotiate_response.get_encryption_cipher().unwrap();
-        if !crypto::ENCRYPTING_ALGOS.contains(&encryption_cipher) {
-            return Err(Error::NegotiationError(
-                "Unsupported encryption algorithm received".into(),
-            ));
+        let encryption_cipher = smb2_negotiate_response.get_encryption_cipher();
+        if let Some(encryption_cipher) = &encryption_cipher {
+            if !crypto::ENCRYPTING_ALGOS.contains(&encryption_cipher) {
+                return Err(Error::NegotiationError(
+                    "Unsupported encryption algorithm received".into(),
+                ));
+            }
         }
 
         let compression: Option<CompressionCaps> = match smb2_negotiate_response.get_compression() {
