@@ -2,11 +2,11 @@
 This project is the first full-rust implementation of a SMB client.
 
 ## Features
-✅ SMB 3.1.1 dialect support.
-✅ Async/Multi-threaded/Single-threaded backends.
-✅ File & Directory read/write/information (basic) operations. 
-✅ CLI tool for basic operations.
-✅ Windows, Linux & MacOS support.
+- ✅ SMB 3.1.1 dialect support.
+- ✅ Async/Multi-threaded/Single-threaded backends.
+- ✅ File & Directory read/write/information operations. 
+- ✅ CLI tool for basic operations.
+- ✅ Windows, Linux & MacOS support.
 
 You are welcome to see the project's roadmap in the [GitHub Project](https://github.com/users/AvivNaaman/projects/2).
 

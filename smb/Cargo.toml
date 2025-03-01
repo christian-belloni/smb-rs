@@ -1,6 +1,6 @@
 [package]
 name = "smb"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 description.workspace = true
 license.workspace = true
@@ -28,7 +28,7 @@ thiserror = "2.0"
 paste = "1.0"
 
 # APIs
-sspi = { version = "0.15.1" }
+sspi = "=0.15.1"
 gss-api = { version = "0.1.0", features = [] }
 
 # Crypto
@@ -52,7 +52,7 @@ default = ["sign", "encrypt", "compress"]
 
 # Threading models
 async = ["dep:tokio", "dep:tokio-util"]
-sync = ["maybe-async/is_sync"] # sync = not async: single/multi-threaded
+sync = ["maybe-async/is_sync"]          # sync = not async: single/multi-threaded
 multi_threaded = ["sync"]
 single_threaded = ["sync"]
 
