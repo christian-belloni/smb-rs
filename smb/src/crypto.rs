@@ -15,7 +15,12 @@ pub enum CryptoError {
     InvalidLength(#[from] InvalidLength),
     #[error("Unsupported algorithm")]
     UnsupportedAlgorithm,
-    #[cfg(feature = "encrypt")]
+    #[cfg(any(
+        feature = "encrypt_aes128ccm",
+        feature = "encrypt_aes256ccm",
+        feature = "encrypt_aes128gcm",
+        feature = "encrypt_aes256gcm"
+    ))]
     #[error("AEAD calculation error")]
     AeadError(#[from] aead::Error),
 }

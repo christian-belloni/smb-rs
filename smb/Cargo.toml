@@ -65,7 +65,10 @@ compress = ["compress_pattern_v1", "compress_lz4"]
 encrypt_aes128ccm = ["dep:ccm", "dep:aead"]
 encrypt_aes256ccm = ["dep:ccm", "dep:aead"]
 encrypt_aesccm = ["encrypt_aes128ccm", "encrypt_aes256ccm"]
-encrypt = ["encrypt_aesccm"]
+encrypt_aes128gcm = ["dep:aes-gcm", "dep:aead"]
+encrypt_aes256gcm = ["dep:aes-gcm", "dep:aead"]
+encrypt_aesgcm = ["encrypt_aes128gcm", "encrypt_aes256gcm"]
+encrypt = ["encrypt_aesccm", "encrypt_aesgcm"]
 
 # Signing
 sign_gmac = ["dep:aes-gcm"]
