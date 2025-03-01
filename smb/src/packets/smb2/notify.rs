@@ -132,8 +132,16 @@ mod tests {
             notify_response,
             ChangeNotifyResponse {
                 buffer: vec![
-                    FileNotifyInformation::new(NotifyAction::RenamedOldName, "New folder"),
-                    FileNotifyInformation::new(NotifyAction::RenamedNewName, "jdsa")
+                    FileNotifyInformationInner {
+                        action: NotifyAction::RenamedOldName,
+                        file_name: "New folder".into()
+                    }
+                    .into(),
+                    FileNotifyInformationInner {
+                        action: NotifyAction::RenamedNewName,
+                        file_name: "jdsa".into()
+                    }
+                    .into()
                 ]
             }
         );

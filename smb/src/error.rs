@@ -67,6 +67,8 @@ pub enum Error {
     ChannelRecvError(#[from] std::sync::mpsc::RecvError),
     #[error("Unexpected message with ID {0} (exp {1}).")]
     UnexpectedMessageId(u64, u64),
+    #[error("Expected info of type {0} but got {1}")]
+    UnexpectedInformationType(u8, u8),
 }
 
 impl<T> From<PoisonError<T>> for Error {

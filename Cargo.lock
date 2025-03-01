@@ -2036,6 +2036,7 @@ dependencies = [
  "lz4_flex",
  "maybe-async",
  "modular-bitfield",
+ "paste",
  "rand",
  "rust-kbkdf",
  "sha2",

@@ -1,15 +1,24 @@
 //! File System Control Codes (MS-FSCC)
 //!
 //! The FSCC types are widely used in SMB messages.
-
-use std::io::Cursor;
-
-use binrw::{io::TakeSeekExt, prelude::*, NullString};
+use crate::access_mask;
+use binrw::{io::TakeSeekExt, meta::ReadEndian, prelude::*};
 use modular_bitfield::prelude::*;
 
-use crate::access_mask;
+use super::{super::binrw_util::prelude::*, SID};
+pub mod chained_item;
+pub mod common_info;
+pub mod directory_info;
+pub mod filesystem_info;
+pub mod query_file_info;
+pub mod set_file_info;
 
-use super::super::binrw_util::prelude::*;
+pub use chained_item::ChainedItem;
+pub use common_info::*;
+pub use directory_info::*;
+pub use filesystem_info::*;
+pub use query_file_info::*;
+pub use set_file_info::*;
 
 /// MS-FSCC 2.6
 #[bitfield]
@@ -94,102 +103,17 @@ impl From<FileAccessMask> for DirAccessMask {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
-#[brw(import(c: QueryFileInfoClass))]
-#[brw(little)]
-pub enum QueryDirectoryInfoVector {
-    #[br(pre_assert(c == QueryFileInfoClass::IdBothDirectoryInformation))]
-    IdBothDirectoryInformation(IdBothDirectoryInfoVector),
-}
-
-impl QueryDirectoryInfoVector {
-    pub fn parse(payload: &[u8], class: QueryFileInfoClass) -> Result<Self, binrw::Error> {
-        let mut cursor = Cursor::new(payload);
-        Self::read_args(&mut cursor, (class,))
-    }
-}
-
-impl QueryDirectoryInfoVector {
-    pub const SUPPORTED_DIRECTORY_CLASSES: [QueryFileInfoClass; 1] =
-        [QueryFileInfoClass::DirectoryInformation];
-}
-
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct IdBothDirectoryInfoVector {
-    #[br(parse_with = binrw::helpers::until_eof)]
-    val: Vec<BothDirectoryInformationItem>,
-}
-
-impl Into<Vec<BothDirectoryInformationItem>> for IdBothDirectoryInfoVector {
-    fn into(self) -> Vec<BothDirectoryInformationItem> {
-        self.val
-    }
-}
-
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct BothDirectoryInformationItem {
-    #[bw(calc = PosMarker::default())]
-    _next_entry_offset: PosMarker<u32>,
-    pub file_index: u32,
-    pub creation_time: FileTime,
-    pub last_access_time: FileTime,
-    pub last_write_time: FileTime,
-    pub change_time: FileTime,
-    pub end_of_file: u64,
-    pub allocation_size: u64,
-    pub file_attributes: FileAttributes,
-    #[bw(try_calc = file_name.size().try_into())]
-    _file_name_length: u32, // bytes
-    pub ea_size: u32,
-    pub short_name_length: u8,
-    #[bw(calc = 0)]
-    #[br(assert(_reserved1 == 0))]
-    _reserved1: u8,
-    pub short_name: [u16; 12], // 8.3
-    #[bw(calc = 0)]
-    #[br(assert(_reserved2 == 0))]
-    _reserved2: u16,
-    pub fild_id: u64,
-    #[br(args(_file_name_length as u64))]
-    pub file_name: SizedWideString,
-    // Seek to next item if exists.
-    #[br(seek_before = _next_entry_offset.seek_relative(true))]
-    #[bw(calc = ())]
-    _seek_next_if_exists: (),
-}
-
-#[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[bw(import(has_next: bool))]
-pub struct FileNotifyInformation {
-    #[br(assert(next_entry_offset.value % 4 == 0))]
-    #[bw(calc = PosMarker::default())]
-    next_entry_offset: PosMarker<u32>,
+pub struct FileNotifyInformationInner {
     pub action: NotifyAction,
     #[bw(try_calc = file_name.size().try_into())]
     file_name_length: u32,
     #[br(args(file_name_length.into()))]
     pub file_name: SizedWideString,
-
-    // Handle next entry.
-    #[br(seek_before = next_entry_offset.seek_relative(true))]
-    #[bw(if(has_next))]
-    #[bw(align_before = 4)]
-    #[bw(write_with = PosMarker::write_aoff, args(&next_entry_offset))]
-    _seek_next: (),
 }
 
-impl FileNotifyInformation {
-    pub fn new(action: NotifyAction, file_name: &str) -> Self {
-        Self {
-            action,
-            file_name: SizedWideString::from(file_name),
-            _seek_next: (),
-        }
-    }
-}
+pub type FileNotifyInformation = ChainedItem<FileNotifyInformationInner>;
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
@@ -208,223 +132,131 @@ pub enum NotifyAction {
     TunnelledIdCollision = 0xb,
 }
 
+/// Trait for file information types.
+/// This trait contains all types of all file info types and classes, specified in MS-FSCC.
+///
+/// It's role is to allow converting an instance of a file information type to a class,
+/// and to provide the class type from the file information type.
+pub trait FileInfoType:
+    Sized + for<'a> BinRead<Args<'static> = (Self::Class,)> + ReadEndian + std::fmt::Debug
+{
+    /// The class of the file information.
+    type Class;
+
+    /// Get the class of the file information.
+    fn class(&self) -> Self::Class;
+}
+
+/// A macro for generating a file class enums,
+/// for both the file information class, and information value.
+/// including a trait for the value types.
+#[macro_export]
+macro_rules! file_info_classes {
+    ($svis:vis $name:ident {
+        $($vis:vis $field_name:ident = $cid:literal,)+
+    }) => {
+        #[allow(unused_imports)]
+        use binrw::prelude::*;
+        paste::paste! {
+            // Trait to be implemented for all the included value types.
+            pub trait [<$name Value>] : TryFrom<$name, Error = crate::Error> + BinRead<Args<'static> = ()> {
+                const CLASS_ID: [<$name Class>];
+            }
+
+            // Enum for Class IDs
+            #[binrw::binrw]
+            #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+            #[brw(repr(u8))]
+            $svis enum [<$name Class>] {
+                $(
+                    $vis [<$field_name Information>] = $cid,
+                )*
+            }
+
+            // Enum for class values
+            #[binrw::binrw]
+            #[derive(Debug, PartialEq, Eq)]
+            #[brw(little)]
+            #[br(import(c: [<$name Class>]))]
+            $svis enum $name {
+                $(
+                    #[br(pre_assert(matches!(c, [<$name Class>]::[<$field_name Information>])))]
+                    [<$field_name Information>]([<File $field_name Information>]),
+                )*
+            }
+
+            impl std::fmt::Display for [<$name Class>] {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    match self {
+                        $(
+                            [<$name Class>]::[<$field_name Information>] => write!(f, stringify!([<$field_name Information>])),
+                        )*
+                    }
+                }
+            }
+
+            impl crate::packets::smb2::fscc::FileInfoType for $name {
+                type Class = [<$name Class>];
+                fn class(&self) -> Self::Class {
+                    match self {
+                        $(
+                            $name::[<$field_name Information>](_) => [<$name Class>]::[<$field_name Information>],
+                        )*
+                    }
+                }
+            }
+
+            $(
+                impl Into<$name> for [<File $field_name Information>] {
+                    fn into(self) -> $name {
+                        $name::[<$field_name Information>](self)
+                    }
+                }
+
+                impl TryFrom<$name> for [<File $field_name Information>] {
+                    type Error = crate::Error;
+
+                    fn try_from(value: $name) -> Result<Self, Self::Error> {
+                        pub use crate::packets::smb2::fscc::FileInfoType;
+                        match value {
+                            $name::[<$field_name Information>](v) => Ok(v),
+                            _ => Err(crate::Error::UnexpectedInformationType(<Self as [<$name Value>]>::CLASS_ID as u8, value.class() as u8)),
+                        }
+                    }
+                }
+
+                impl [<$name Value>] for [<File $field_name Information>] {
+                    const CLASS_ID: [<$name Class>] = [<$name Class>]::[<$field_name Information>];
+                }
+            )*
+        }
+    }
+}
+
 #[binrw::binrw]
 #[derive(Debug)]
-#[bw(import(has_next: bool))]
-pub struct FileGetEaInformation {
+pub struct FileQuotaInformationInner {
     #[bw(calc = PosMarker::default())]
-    next_entry_offset: PosMarker<u32>,
-    // ea_name_length is the STRING LENGTH of ea_name -- excluding the null terminator!
-    #[bw(try_calc = ea_name.len().try_into())]
-    ea_name_length: u8,
-    #[br(map_stream = |s| s.take_seek(ea_name_length as u64))]
-    pub ea_name: NullString,
-
-    // Seek to next item if exists.
-    #[br(seek_before = next_entry_offset.seek_relative(true))]
-    #[bw(if(has_next))]
-    #[bw(write_with = PosMarker::write_aoff, args(&next_entry_offset))]
-    pub _seek_next_if_exists: (),
-}
-
-impl FileGetEaInformation {
-    pub fn new(ea_name: &str) -> Self {
-        Self {
-            ea_name: NullString::from(ea_name),
-            _seek_next_if_exists: (),
-        }
-    }
-
-    /// A [binrw::writer] function to write a list of [FileGetEaInformation] items.
-    /// It makes sure that next_entry_offset is properly set, and should always be used
-    /// to write a list of [FileGetEaInformation] items.
-    #[binrw::writer(writer, endian)]
-    pub fn write_list(value: &Vec<Self>) -> BinResult<()> {
-        for (i, item) in value.iter().enumerate() {
-            let has_next = i < value.len() - 1;
-            item.write_options(writer, endian, (has_next,))?;
-        }
-        Ok(())
-    }
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[brw(repr(u8))]
-pub enum QueryFileInfoClass {
-    /// this value is not specified in FSCC, but we need it for SMB.
-    None = 0,
-    // File stuff, general info
-    AccessInformation = 8,
-    AlignmentInformation = 17,
-    AllInformation = 18,
-    AlternateNameInformation = 21,
-    AttributeTagInformation = 35,
-    BasicInformation = 4,
-    CompressionInformation = 28,
-    EaInformation = 7,
-    FullEaInformation = 15,
-    IdInformation = 59,
-    InternalInformation = 6,
-    ModeInformation = 16,
-    NetworkOpenInformation = 34,
-    NormalizedNameInformation = 48,
-    PipeInformation = 23,
-    PipeLocalInformation = 24,
-    PipeRemoteInformation = 25,
-    PositionInformation = 14,
-    StandardInformation = 5,
-    StreamInformation = 22,
-
-    // Directory stuff
-    DirectoryInformation = 0x01,
-    FullDirectoryInformation = 0x02,
-    IdFullDirectoryInformation = 0x26,
-    BothDirectoryInformation = 0x03,
-    IdBothDirectoryInformation = 0x25,
-    NamesInformation = 0x0C,
-    IdExtdDirectoryInformation = 0x3c,
-    Id64ExtdDirectoryInformation = 0x4e,
-    Id64ExtdBothDirectoryInformation = 0x4f,
-    IdAllExtdDirectoryInformation = 0x50,
-    IdAllExtdBothDirectoryInformation = 0x51,
-
-    // reserved.
-    InformationClassReserved = 0x64,
-}
-
-impl QueryFileInfoClass {
-    pub const DIRECTORY_CLASSES: [Self; 11] = [
-        Self::DirectoryInformation,
-        Self::FullDirectoryInformation,
-        Self::IdFullDirectoryInformation,
-        Self::IdBothDirectoryInformation,
-        Self::BothDirectoryInformation,
-        Self::IdExtdDirectoryInformation,
-        Self::Id64ExtdDirectoryInformation,
-        Self::Id64ExtdBothDirectoryInformation,
-        Self::IdAllExtdDirectoryInformation,
-        Self::IdAllExtdBothDirectoryInformation,
-        Self::NamesInformation,
-    ];
-
-    pub const FILE_CLASSES: [Self; 20] = [
-        Self::AccessInformation,
-        Self::AlignmentInformation,
-        Self::AllInformation,
-        Self::AlternateNameInformation,
-        Self::AttributeTagInformation,
-        Self::BasicInformation,
-        Self::CompressionInformation,
-        Self::EaInformation,
-        Self::FullEaInformation,
-        Self::IdInformation,
-        Self::InternalInformation,
-        Self::ModeInformation,
-        Self::NetworkOpenInformation,
-        Self::NormalizedNameInformation,
-        Self::PipeInformation,
-        Self::PipeLocalInformation,
-        Self::PipeRemoteInformation,
-        Self::PositionInformation,
-        Self::StandardInformation,
-        Self::StreamInformation,
-    ];
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[brw(repr(u8))]
-pub enum SetFileInfoClass {
-    EndOfFileInformation = 20,
-    DispositionInformation = 13,
-    RenameInformation = 10,
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-#[brw(import(c: QueryFileInfoClass), little)]
-#[brw(assert(c != QueryFileInfoClass::None))]
-pub enum QueryFileInfo {
-    #[br(pre_assert(c == QueryFileInfoClass::BasicInformation))]
-    BasicInformation(FileBasicInformation),
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-#[brw(little)]
-#[br(import(c: SetFileInfoClass))]
-pub enum SetFileInfo {
-    #[br(pre_assert(c == SetFileInfoClass::EndOfFileInformation))]
-    EndOfFileInformation(FileEndOfFileInformation),
-    #[br(pre_assert(c == SetFileInfoClass::DispositionInformation))]
-    DispositionInformation(FileDispositionInformation),
-    #[br(pre_assert(c == SetFileInfoClass::RenameInformation))]
-    RenameInformation(RenameInformation2),
-}
-
-impl SetFileInfo {
-    pub fn info_class(&self) -> SetFileInfoClass {
-        match self {
-            SetFileInfo::EndOfFileInformation(_) => SetFileInfoClass::EndOfFileInformation,
-            SetFileInfo::DispositionInformation(_) => SetFileInfoClass::DispositionInformation,
-            SetFileInfo::RenameInformation(_) => SetFileInfoClass::RenameInformation,
-        }
-    }
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-pub struct FileBasicInformation {
-    pub creation_time: FileTime,
-    pub last_access_time: FileTime,
-    pub last_write_time: FileTime,
-    pub change_time: FileTime,
-    pub file_attributes: FileAttributes,
-    #[bw(calc = 0)]
-    #[br(assert(_reserved == 0))]
-    _reserved: u32,
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-pub struct FileEndOfFileInformation {
-    pub end_of_file: u64,
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-pub struct FileDispositionInformation {
-    pub delete_pending: u8,
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-pub struct RenameInformation2 {
-    pub replace_if_exists: u8,
-    #[bw(calc = 0)]
-    _reserved: u8,
-    #[bw(calc = 0)]
-    _reserved2: u16,
-    #[bw(calc = 0)]
-    _reserved3: u32,
-    pub root_directory: u64,
-    #[bw(try_calc = file_name.size().try_into())]
-    _file_name_length: u32,
-    #[br(args(_file_name_length as u64))]
-    pub file_name: SizedWideString,
-}
-
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct FileQuotaInformation {
-    _next_entry_offset: u32,
-    sid_length: u32,
+    sid_length: PosMarker<u32>,
     change_time: FileTime,
     quota_used: u64,
     quota_threshold: u64,
     quota_limit: u64,
-    // TODO: Parse properly.
-    #[br(count = sid_length)]
-    sid: Vec<u8>,
+    #[br(map_stream = |s| s.take_seek(sid_length.value as u64))]
+    #[bw(write_with = PosMarker::write_size, args(&sid_length))]
+    sid: SID,
 }
+
+pub type FileQuotaInformation = ChainedItem<FileQuotaInformationInner>;
+
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct FileGetQuotaInformationInner {
+    #[bw(calc = PosMarker::default())]
+    sid_length: PosMarker<u32>,
+    #[br(map_stream = |s| s.take_seek(sid_length.value as u64))]
+    #[bw(write_with = PosMarker::write_size, args(&sid_length))]
+    sid: SID,
+}
+
+pub type FileGetQuotaInformation = ChainedItem<FileGetQuotaInformationInner>;

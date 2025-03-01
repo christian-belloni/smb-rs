@@ -31,12 +31,15 @@ impl File {
     }
 
     #[maybe_async]
-    pub async fn query_info(&self) -> crate::Result<FileBasicInformation> {
+    pub async fn query_info<T>(&self) -> crate::Result<T>
+    where
+        T: QueryFileInfoValue,
+    {
         let response = self
             .handle
             .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
                 info_type: InfoType::File,
-                file_info_class: QueryFileInfoClass::BasicInformation,
+                info_class: QueryInfoClass::File(T::CLASS_ID),
                 output_buffer_length: 1024,
                 additional_information: AdditionalInfo::new(),
                 flags: QueryInfoFlags::new()
@@ -53,11 +56,8 @@ impl File {
         let result = query_info_response
             .parse(InfoType::File)?
             .unwrap_file()
-            .parse(QueryFileInfoClass::BasicInformation)?;
-        let result = match result {
-            QueryFileInfo::BasicInformation(val) => val,
-        };
-        Ok(result)
+            .parse(T::CLASS_ID)?;
+        Ok(result.try_into()?)
     }
 
     #[maybe_async]
@@ -66,12 +66,10 @@ impl File {
             .handle
             .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
                 info_type: InfoType::Security,
-                file_info_class: QueryFileInfoClass::None,
+                info_class: Default::default(),
                 output_buffer_length: 1024,
                 additional_information: AdditionalInfo::new().with_owner_security_information(true),
-                flags: QueryInfoFlags::new()
-                    .with_restart_scan(true)
-                    .with_return_single_entry(true),
+                flags: QueryInfoFlags::new(),
                 file_id: self.handle.file_id(),
                 data: GetInfoRequestData::None(()),
             }))

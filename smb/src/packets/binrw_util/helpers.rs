@@ -1,3 +1,5 @@
+use std::io::{Read, Seek, Write};
+
 use binrw::{prelude::*, Endian};
 
 #[binrw::writer(writer, endian)]
@@ -75,5 +77,43 @@ mod test {
         buf.clear();
         PARSED_BE.write_be(&mut Cursor::new(&mut buf)).unwrap();
         assert_eq!(buf, DATA_BYTES);
+    }
+}
+
+/// A simple Boolean type that reads and writes as a single byte.
+/// Any non-zero value is considered `true`, as defined by MS-FSCC 2.1.8.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Boolean(bool);
+
+impl BinRead for Boolean {
+    type Args<'a> = ();
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _: Endian,
+        _: Self::Args<'_>,
+    ) -> binrw::BinResult<Self> {
+        let value: u8 = u8::read_options(reader, Endian::Little, ())?;
+        Ok(Boolean(value != 0))
+    }
+}
+
+impl BinWrite for Boolean {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _: Endian,
+        _: Self::Args<'_>,
+    ) -> binrw::BinResult<()> {
+        let value: u8 = if self.0 { 1 } else { 0 };
+        value.write_options(writer, Endian::Little, ())
+    }
+}
+
+impl From<bool> for Boolean {
+    fn from(value: bool) -> Self {
+        Boolean(value)
     }
 }

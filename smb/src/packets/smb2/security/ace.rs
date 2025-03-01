@@ -51,6 +51,7 @@ macro_rules! access_mask {
             pub generic_read: bool,
         }
     };
+
 }
 
 #[binrw::binrw]

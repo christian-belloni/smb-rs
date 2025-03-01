@@ -17,7 +17,7 @@ pub struct QueryDirectoryRequest {
     #[bw(calc = 33)]
     #[br(assert(_structure_size == 33))]
     _structure_size: u16,
-    pub file_information_class: QueryFileInfoClass,
+    pub file_information_class: QueryDirectoryInfoClass,
     pub flags: QueryDirectoryFlags,
     // If SMB2_INDEX_SPECIFIED is set in Flags, this value MUST be supplied.
     // Otherwise, it MUST be set to zero and the server MUST ignore it.
@@ -64,10 +64,23 @@ pub struct QueryDirectoryResponse {
     pub output_buffer: Vec<u8>,
 }
 
+impl QueryDirectoryResponse {
+    pub fn read_output<T>(&self) -> BinResult<Vec<T>>
+    where
+        T: QueryDirectoryInfoValue,
+    {
+        let mut reader = std::io::Cursor::new(&self.output_buffer);
+        let mut result = vec![];
+        while reader.position() < self.output_buffer.len() as u64 {
+            let item = T::read_options(&mut reader, binrw::Endian::Little, ())?;
+            result.push(item);
+        }
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::*;
     #[test]
     pub fn test_both_directory_information_attribute_parse() {
@@ -116,10 +129,11 @@ mod tests {
             0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xbc, 0xf8, 0x0, 0x0,
             0x0, 0x0, 0x4, 0x0, 0x64, 0x0, 0x2e, 0x0, 0x74, 0x0, 0x78, 0x0, 0x74, 0x0,
         ];
-        QueryDirectoryInfoVector::read_args(
-            &mut Cursor::new(&data),
-            (QueryFileInfoClass::IdBothDirectoryInformation,),
-        )
+
+        let _res: Vec<FileIdBothDirectoryInformation> = QueryDirectoryResponse {
+            output_buffer: data.to_vec(),
+        }
+        .read_output()
         .unwrap();
 
         // TODO: Test the contents of the result, not just that it parses.
