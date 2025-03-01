@@ -2,10 +2,10 @@
 //!
 //! The FSCC types are widely used in SMB messages.
 use crate::access_mask;
-use binrw::{io::TakeSeekExt, prelude::*, NullString};
+use binrw::{io::TakeSeekExt, meta::ReadEndian, prelude::*};
 use modular_bitfield::prelude::*;
 
-use super::super::binrw_util::prelude::*;
+use super::{super::binrw_util::prelude::*, SID};
 pub mod chained_item;
 pub mod common_info;
 pub mod directory_info;
@@ -132,17 +132,20 @@ pub enum NotifyAction {
     TunnelledIdCollision = 0xb,
 }
 
-#[binrw::binrw]
-#[derive(Debug)]
-#[bw(import(has_next: bool))]
-pub struct FileGetEaInformationInner {
-    #[bw(try_calc = ea_name.len().try_into())]
-    ea_name_length: u8,
-    #[br(map_stream = |s| s.take_seek(ea_name_length as u64))]
-    pub ea_name: NullString,
-}
+/// Trait for file information types.
+/// This trait contains all types of all file info types and classes, specified in MS-FSCC.
+///
+/// It's role is to allow converting an instance of a file information type to a class,
+/// and to provide the class type from the file information type.
+pub trait FileInfoType:
+    Sized + for<'a> BinRead<Args<'static> = (Self::Class,)> + ReadEndian + std::fmt::Debug
+{
+    /// The class of the file information.
+    type Class;
 
-pub type FileGetEaInformation = ChainedItem<FileGetEaInformationInner>;
+    /// Get the class of the file information.
+    fn class(&self) -> Self::Class;
+}
 
 /// A macro for generating a file class enums,
 /// for both the file information class, and information value.
@@ -152,10 +155,9 @@ macro_rules! file_info_classes {
     ($svis:vis $name:ident {
         $($vis:vis $field_name:ident = $cid:literal,)+
     }) => {
-        use paste::paste;
         #[allow(unused_imports)]
         use binrw::prelude::*;
-        paste! {
+        paste::paste! {
             // Trait to be implemented for all the included value types.
             pub trait [<$name Value>] : TryFrom<$name, Error = crate::Error> + BinRead<Args<'static> = ()> {
                 const CLASS_ID: [<$name Class>];
@@ -193,8 +195,9 @@ macro_rules! file_info_classes {
                 }
             }
 
-            impl $name {
-                $svis fn class(&self) -> [<$name Class>] {
+            impl crate::packets::smb2::fscc::FileInfoType for $name {
+                type Class = [<$name Class>];
+                fn class(&self) -> Self::Class {
                     match self {
                         $(
                             $name::[<$field_name Information>](_) => [<$name Class>]::[<$field_name Information>],
@@ -214,9 +217,10 @@ macro_rules! file_info_classes {
                     type Error = crate::Error;
 
                     fn try_from(value: $name) -> Result<Self, Self::Error> {
+                        pub use crate::packets::smb2::fscc::FileInfoType;
                         match value {
                             $name::[<$field_name Information>](v) => Ok(v),
-                            _ => Err(crate::Error::UnexpectedInformationType(Self::CLASS_ID as u8, value.class() as u8)),
+                            _ => Err(crate::Error::UnexpectedInformationType(<Self as [<$name Value>]>::CLASS_ID as u8, value.class() as u8)),
                         }
                     }
                 }
@@ -232,14 +236,27 @@ macro_rules! file_info_classes {
 #[binrw::binrw]
 #[derive(Debug)]
 pub struct FileQuotaInformationInner {
-    sid_length: u32,
+    #[bw(calc = PosMarker::default())]
+    sid_length: PosMarker<u32>,
     change_time: FileTime,
     quota_used: u64,
     quota_threshold: u64,
     quota_limit: u64,
-    // TODO: Parse properly.
-    #[br(count = sid_length)]
-    sid: Vec<u8>,
+    #[br(map_stream = |s| s.take_seek(sid_length.value as u64))]
+    #[bw(write_with = PosMarker::write_size, args(&sid_length))]
+    sid: SID,
 }
 
 pub type FileQuotaInformation = ChainedItem<FileQuotaInformationInner>;
+
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct FileGetQuotaInformationInner {
+    #[bw(calc = PosMarker::default())]
+    sid_length: PosMarker<u32>,
+    #[br(map_stream = |s| s.take_seek(sid_length.value as u64))]
+    #[bw(write_with = PosMarker::write_size, args(&sid_length))]
+    sid: SID,
+}
+
+pub type FileGetQuotaInformation = ChainedItem<FileGetQuotaInformationInner>;

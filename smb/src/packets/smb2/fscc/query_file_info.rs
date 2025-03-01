@@ -1,14 +1,17 @@
 use std::ops::Deref;
 
-use binrw::prelude::*;
+use binrw::{io::TakeSeekExt, prelude::*, NullString};
 
 use crate::{
     file_info_classes,
-    packets::binrw_util::prelude::{FileTime, SizedWideString},
+    packets::binrw_util::{
+        helpers::Boolean,
+        prelude::{FileTime, SizedWideString},
+    },
 };
 
 use super::{
-    FileAccessMask, FileAttributes, FileBasicInformation, FileFullEaInformation,
+    ChainedItem, FileAccessMask, FileAttributes, FileBasicInformation, FileFullEaInformation,
     FileModeInformation, FileNameInformation, FilePipeInformation, FilePositionInformation,
 };
 
@@ -226,8 +229,8 @@ pub struct FileStandardInformation {
     allocation_size: u64,
     end_of_file: u64,
     number_of_links: u32,
-    delete_pending: u8,
-    directory: u8,
+    delete_pending: Boolean,
+    directory: Boolean,
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
     reserved: u16,
@@ -243,3 +246,15 @@ pub struct FileStreamInformation {
     #[br(args(stream_name_length as u64))]
     stream_name: SizedWideString,
 }
+
+#[binrw::binrw]
+#[derive(Debug)]
+#[bw(import(has_next: bool))]
+pub struct FileGetEaInformationInner {
+    #[bw(try_calc = ea_name.len().try_into())]
+    ea_name_length: u8,
+    #[br(map_stream = |s| s.take_seek(ea_name_length as u64))]
+    pub ea_name: NullString,
+}
+
+pub type FileGetEaInformation = ChainedItem<FileGetEaInformationInner>;

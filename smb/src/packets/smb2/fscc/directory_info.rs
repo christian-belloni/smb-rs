@@ -21,21 +21,6 @@ file_info_classes! {
     }
 }
 
-impl QueryDirectoryInfo {
-    pub fn read_output<T>(output: &Vec<u8>) -> BinResult<Vec<T>>
-    where
-        T: QueryDirectoryInfoValue,
-    {
-        let mut reader = std::io::Cursor::new(output);
-        let mut result = vec![];
-        while reader.position() < output.len() as u64 {
-            let item = T::read_options(&mut reader, binrw::Endian::Little, ())?;
-            result.push(item);
-        }
-        Ok(result)
-    }
-}
-
 macro_rules! query_dir_type {
     (
         $svis:vis struct $name:ident {
@@ -45,7 +30,7 @@ macro_rules! query_dir_type {
             )*
         }
     ) => {
-        paste! {
+        paste::paste! {
             #[binrw::binrw]
             #[derive(Debug, PartialEq, Eq)]
             $svis struct [<$name Inner>] {

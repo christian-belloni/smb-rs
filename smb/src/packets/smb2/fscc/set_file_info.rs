@@ -1,6 +1,9 @@
 use std::ops::Deref;
 
-use crate::{file_info_classes, packets::binrw_util::prelude::SizedWideString};
+use crate::{
+    file_info_classes,
+    packets::binrw_util::{helpers::Boolean, prelude::SizedWideString},
+};
 
 use super::{
     FileBasicInformation, FileFullEaInformation, FileModeInformation, FileNameInformation,
@@ -33,13 +36,13 @@ pub struct FileEndOfFileInformation {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileDispositionInformation {
-    pub delete_pending: u8,
+    pub delete_pending: Boolean,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileRenameInformation2 {
-    pub replace_if_exists: u8,
+    pub replace_if_exists: Boolean,
     #[bw(calc = 0)]
     _reserved: u8,
     #[bw(calc = 0)]
@@ -64,9 +67,7 @@ pub struct FileAllocationInformation {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileLinkInformation {
-    #[br(assert(replace_if_exists == 0 || replace_if_exists == 1))]
-    #[bw(assert(*replace_if_exists == 0 || *replace_if_exists == 1))]
-    pub replace_if_exists: u8, // TODO: Add boolean?
+    pub replace_if_exists: Boolean,
     #[bw(calc = 0)]
     _reserved: u8,
     #[bw(calc = 0)]

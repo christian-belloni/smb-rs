@@ -1,9 +1,9 @@
 //! Get/Set Info Request/Response
 
-use crate::packets::smb2::SecurityDescriptor;
+use crate::packets::smb2::{SecurityDescriptor, SID};
+use crate::query_info_data;
 use binrw::{io::TakeSeekExt, prelude::*};
 use modular_bitfield::prelude::*;
-use paste::paste;
 use std::io::{Cursor, SeekFrom};
 
 use super::super::{super::binrw_util::prelude::*, super::guid::Guid, fscc::*};
@@ -44,9 +44,11 @@ pub enum QueryInfoClass {
     #[br(pre_assert(matches!(info_type, InfoType::File)))]
     #[bw(assert(matches!(info_type, InfoType::File)))]
     File(QueryFileInfoClass),
+
     #[br(pre_assert(matches!(info_type, InfoType::FileSystem)))]
     #[bw(assert(matches!(info_type, InfoType::FileSystem)))]
     FileSystem(QueryFileSystemInfoClass),
+
     Empty(NullByte),
 }
 
@@ -107,14 +109,30 @@ pub enum GetInfoRequestData {
 #[binrw::binrw]
 #[derive(Debug)]
 pub struct QueryQuotaInfo {
-    return_single: u8,
-    restart_scan: u8,
+    pub return_single: Boolean,
+    pub restart_scan: Boolean,
+    #[bw(calc = 0)]
+    #[br(assert(_reserved == 0))]
     _reserved: u16,
-    sid_list_length: u32,  // type 1: list of FileGetQuotaInformation structs.
-    start_sid_length: u32, // type 2: SIDs list
-    start_sid_offset: u32,
-    #[br(count = sid_list_length.max(start_sid_length))] // TODO: differentiate to t1/t2.
-    sid_buffer: Vec<u8>,
+    #[bw(calc = PosMarker::default())]
+    sid_list_length: PosMarker<u32>, // type 1: list of FileGetQuotaInformation structs.
+    #[bw(calc = PosMarker::default())]
+    start_sid_length: PosMarker<u32>, // type 2: SIDs list
+    #[bw(calc = PosMarker::default())]
+    start_sid_offset: PosMarker<u32>,
+
+    // Option 1: list of FileGetQuotaInformation structs.
+    #[br(if(sid_list_length.value > 0))]
+    #[br(map_stream = |s| s.take_seek(sid_list_length.value as u64), parse_with = binrw::helpers::until_eof)]
+    get_quota_info_content: Option<Vec<FileGetQuotaInformation>>,
+
+    // Option 2: SID (usually not used).
+    #[br(if(start_sid_length.value > 0))]
+    #[br(seek_before = SeekFrom::Current(start_sid_offset.value as i64))]
+    #[bw(if(sid.is_some()))]
+    #[bw(write_with = PosMarker::write_size, args(&start_sid_length))]
+    // offset is 0, the default anyway.
+    sid: Option<SID>,
 }
 
 #[binrw::binrw]
@@ -170,76 +188,12 @@ impl From<Vec<u8>> for QueryInfoResponseData {
     }
 }
 
-/// Internal helper macro to easily generate fields & methods for [QueryInfoData].
-macro_rules! query_info_data {
-    ($($info_type:ident: $content:ident, )+) => {
-        paste! {
-            /// Represents information passed in get/set info requests.
-            /// This is the information matching [InfoType], and should be used
-            /// in the get info response and in the set info request.
-            #[binrw::binrw]
-            #[derive(Debug)]
-            #[brw(little)]
-            #[br(import(info_type: InfoType))]
-            pub enum QueryInfoData {
-                $(
-                    #[br(pre_assert(info_type == InfoType::$info_type))]
-                    $info_type($content),
-                )+
-            }
-
-            impl QueryInfoData {
-                $(
-                    pub fn [<unwrap_ $info_type:lower>](self) -> $content {
-                        match self {
-                            QueryInfoData::$info_type(data) => data,
-                            _ => panic!("Expected $info_type, got {:?}", self),
-                        }
-                    }
-                )+
-            }
-        }
-    };
-}
-
 query_info_data! {
-    File: QueryInfoFileRaw,
-    FileSystem: QueryInfoRawFilesystem,
+    QueryInfoData
+    File: RawQueryInfoData<QueryFileInfo>,
+    FileSystem: RawQueryInfoData<QueryFileSystemInfo>,
     Security: SecurityDescriptor,
     Quota: QueryQuotaInfo,
-}
-
-/// File information class for QueryInfoRequest.
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct QueryInfoFileRaw {
-    #[br(parse_with = binrw::helpers::until_eof)]
-    data: Vec<u8>,
-}
-
-impl QueryInfoFileRaw {
-    /// Call this method to parse the raw data into a [QueryFileInfo] struct.
-    ///
-    /// This method requires [FileInfoClass] to be passed as an argument.
-    pub fn parse(&self, class: QueryFileInfoClass) -> Result<QueryFileInfo, binrw::Error> {
-        let mut cursor = Cursor::new(&self.data);
-        QueryFileInfo::read_args(&mut cursor, (class,))
-    }
-}
-
-/// Same for FileSystem:
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct QueryInfoRawFilesystem {
-    #[br(parse_with = binrw::helpers::until_eof)]
-    data: Vec<u8>,
-}
-
-impl QueryInfoRawFilesystem {
-    pub fn parse(&self, class: QueryFileSystemInfoClass) -> Result<QueryFileSystemInfo, binrw::Error> {
-        let mut cursor = Cursor::new(&self.data);
-        QueryFileSystemInfo::read_args(&mut cursor, (class,))
-    }
 }
 
 #[cfg(test)]

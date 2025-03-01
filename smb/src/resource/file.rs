@@ -68,10 +68,7 @@ impl File {
                 info_type: InfoType::Security,
                 info_class: Default::default(),
                 output_buffer_length: 1024,
-                additional_information: AdditionalInfo::new()
-                    .with_owner_security_information(true)
-                    .with_dacl_security_information(true)
-                    .with_sacl_security_information(true),
+                additional_information: AdditionalInfo::new().with_owner_security_information(true),
                 flags: QueryInfoFlags::new(),
                 file_id: self.handle.file_id(),
                 data: GetInfoRequestData::None(()),

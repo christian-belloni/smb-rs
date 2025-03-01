@@ -7,21 +7,21 @@ use modular_bitfield::prelude::*;
 
 file_info_classes! {
     pub QueryFileSystemInfo {
-        FsAttribute = 5,
-        FsControl = 6,
-        FsDevice = 4,
-        FsFullSize = 7,
-        FsObjectId = 8,
-        FsSectorSize = 11,
-        FsSize = 3,
-        FsVolume = 1,
+        pub FsAttribute = 5,
+        pub FsControl = 6,
+        pub FsDevice = 4,
+        pub FsFullSize = 7,
+        pub FsObjectId = 8,
+        pub FsSectorSize = 11,
+        pub FsSize = 3,
+        pub FsVolume = 1,
     }
 }
 
 file_info_classes! {
     pub SetFileSystemInfo {
-        FsControl = 6,
-        FsObjectId = 8,
+        pub FsControl = 6,
+        pub FsObjectId = 8,
     }
 }
 
@@ -77,6 +77,51 @@ pub struct FileFsControlInformation {
     pub default_quota_threshold: u64,
     pub default_quota_limit: u64,
     pub file_system_control_flags: FileSystemControlFlags,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileFsDeviceInformation {
+    pub device_type: FsDeviceType,
+    pub characteristics: FsDeviceCharacteristics,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[brw(repr(u32))]
+pub enum FsDeviceType {
+    CdRom = 2,
+    Disk = 7,
+}
+
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct FsDeviceCharacteristics {
+    pub removable_media: bool,
+    pub read_only: bool,
+    pub floppy_diskette: bool,
+    pub write_once_media: bool,
+
+    pub remote: bool,
+    pub device_is_mounted: bool,
+    pub virtual_volume: bool,
+    #[skip]
+    __: bool,
+
+    pub secure_open: bool,
+    #[skip]
+    __: B3,
+
+    pub ts: bool,
+    pub webda: bool,
+    #[skip]
+    __: B3,
+
+    pub allow_appcontainer_traversal: bool,
+    pub portable: bool,
+    #[skip]
+    __: B13,
 }
 
 #[bitfield]
@@ -156,7 +201,7 @@ pub struct FileFsVolumeInformation {
     pub volume_creation_time: FileTime,
     pub volume_serial_number: u32,
     pub volume_label_length: u32,
-    pub supports_objects: u8,
+    pub supports_objects: Boolean,
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
     reserved: u8,

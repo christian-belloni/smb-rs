@@ -64,6 +64,21 @@ pub struct QueryDirectoryResponse {
     pub output_buffer: Vec<u8>,
 }
 
+impl QueryDirectoryResponse {
+    pub fn read_output<T>(&self) -> BinResult<Vec<T>>
+    where
+        T: QueryDirectoryInfoValue,
+    {
+        let mut reader = std::io::Cursor::new(&self.output_buffer);
+        let mut result = vec![];
+        while reader.position() < self.output_buffer.len() as u64 {
+            let item = T::read_options(&mut reader, binrw::Endian::Little, ())?;
+            result.push(item);
+        }
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,8 +129,12 @@ mod tests {
             0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xbc, 0xf8, 0x0, 0x0,
             0x0, 0x0, 0x4, 0x0, 0x64, 0x0, 0x2e, 0x0, 0x74, 0x0, 0x78, 0x0, 0x74, 0x0,
         ];
-        let _data: Vec<FileIdBothDirectoryInformation> =
-            QueryDirectoryInfo::read_output(&data.into()).unwrap();
+
+        let _res: Vec<FileIdBothDirectoryInformation> = QueryDirectoryResponse {
+            output_buffer: data.to_vec(),
+        }
+        .read_output()
+        .unwrap();
 
         // TODO: Test the contents of the result, not just that it parses.
     }

@@ -41,9 +41,6 @@ impl Directory {
             Content::QueryDirectoryResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
-        let result = QueryDirectoryInfo::read_output(
-            &content.output_buffer,
-        )?;
-        Ok(result)
+        Ok(content.read_output()?)
     }
 }

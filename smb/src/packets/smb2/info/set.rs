@@ -1,12 +1,15 @@
 //! SMB2 Set Info Request/Response messages.
 
-use crate::packets::smb2::SecurityDescriptor;
+use crate::{packets::smb2::SecurityDescriptor, query_info_data};
 
-use super::super::{
-    super::{binrw_util::prelude::*, guid::Guid},
-    fscc::*,
-};
 use super::common::*;
+use super::{
+    super::{
+        super::{binrw_util::prelude::*, guid::Guid},
+        fscc::*,
+    },
+    QueryQuotaInfo,
+};
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 
@@ -34,93 +37,21 @@ pub struct SetInfoRequest {
     pub data: SetInfoData,
 }
 
-#[binrw::binrw]
-#[derive(Debug)]
-#[br(import(info_type: InfoType))]
-pub enum SetInfoData {
-    #[br(pre_assert(info_type == InfoType::File))]
-    File(RawSetFileInfo),
-    #[br(pre_assert(info_type == InfoType::FileSystem))]
-    FileSystem(RawSetFileSystemInfo),
-    #[br(pre_assert(info_type == InfoType::Security))]
-    Security(SecurityDescriptor),
-    #[br(pre_assert(info_type == InfoType::Quota))]
-    Quota(FileQuotaInformation),
+query_info_data! {
+    SetInfoData
+    File: RawSetInfoData<SetFileInfo>,
+    FileSystem: RawSetInfoData<SetFileSystemInfo>,
+    Security: SecurityDescriptor,
+    Quota: QueryQuotaInfo,
 }
 
 impl SetInfoData {
-    pub fn info_type(&self) -> InfoType {
-        match self {
-            SetInfoData::File(_) => InfoType::File,
-            SetInfoData::FileSystem(_) => InfoType::FileSystem,
-            SetInfoData::Security(_) => InfoType::Security,
-            SetInfoData::Quota(_) => InfoType::Quota,
-        }
-    }
-
     pub fn to_req(self, info_class: SetFileInfoClass, file_id: Guid) -> SetInfoRequest {
         SetInfoRequest {
             info_class: info_class,
             additional_information: AdditionalInfo::new(),
             file_id,
             data: self,
-        }
-    }
-}
-
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct RawSetFileInfo {
-    #[br(parse_with = binrw::helpers::until_eof)]
-    data: Vec<u8>,
-}
-
-impl RawSetFileInfo {
-    pub fn to_set_data(self) -> SetInfoData {
-        SetInfoData::File(self)
-    }
-
-    pub fn parse(&self, class: SetFileInfoClass) -> Result<SetFileInfo, binrw::Error> {
-        let mut cursor = std::io::Cursor::new(&self.data);
-        SetFileInfo::read_args(&mut cursor, (class,))
-    }
-}
-
-impl From<SetFileInfo> for RawSetFileInfo {
-    fn from(value: SetFileInfo) -> Self {
-        let mut cursor = std::io::Cursor::new(Vec::new());
-        value.write(&mut cursor).unwrap();
-        RawSetFileInfo {
-            data: cursor.into_inner(),
-        }
-    }
-}
-
-// All same for filesystem:
-#[binrw::binrw]
-#[derive(Debug)]
-pub struct RawSetFileSystemInfo {
-    #[br(parse_with = binrw::helpers::until_eof)]
-    data: Vec<u8>,
-}
-
-impl RawSetFileSystemInfo {
-    pub fn to_set_data(self) -> SetInfoData {
-        SetInfoData::FileSystem(self)
-    }
-
-    pub fn parse(&self) -> Result<SetFileSystemInfo, binrw::Error> {
-        let mut cursor = std::io::Cursor::new(&self.data);
-        SetFileSystemInfo::read(&mut cursor)
-    }
-}
-
-impl From<SetFileSystemInfo> for RawSetFileSystemInfo {
-    fn from(value: SetFileSystemInfo) -> Self {
-        let mut cursor = std::io::Cursor::new(Vec::new());
-        value.write(&mut cursor).unwrap();
-        RawSetFileSystemInfo {
-            data: cursor.into_inner(),
         }
     }
 }
@@ -142,14 +73,13 @@ mod tests {
     #[test]
     fn test_set_info_request_write() {
         let set_info = SetFileInfo::RenameInformation(FileRenameInformation2 {
-            replace_if_exists: false as u8,
+            replace_if_exists: false.into(),
             root_directory: 0,
             file_name: "hello\\myNewFile.txt".into(),
         });
 
         let cls = set_info.class();
-        let req = RawSetFileInfo::from(set_info)
-            .to_set_data()
+        let req = SetInfoData::from(RawSetInfoData::<SetFileInfo>::from(set_info))
             .to_req(cls, "00000042-000e-0000-0500-10000e000000".parse().unwrap());
         let req_data = encode_content(Content::SetInfoRequest(req));
         assert_eq!(
