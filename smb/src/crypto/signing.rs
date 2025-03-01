@@ -9,18 +9,23 @@ pub fn make_signing_algo(
     signing_key: &SigningKey,
 ) -> Result<Box<dyn SigningAlgo>, CryptoError> {
     if !SIGNING_ALGOS.contains(&signing_algorithm) {
-        return Err(CryptoError::UnsupportedAlgorithm);
+        return Err(CryptoError::UnsupportedSigningAlgorithm(signing_algorithm));
     }
     match signing_algorithm {
+        #[cfg(feature = "sign_hmac")]
+        SigningAlgorithmId::HmacSha256 => Ok(hmac_signer::HmacSha256Signer::build(signing_key)),
         #[cfg(feature = "sign_cmac")]
         SigningAlgorithmId::AesCmac => Ok(cmac_signer::Cmac128Signer::build(signing_key)?),
         #[cfg(feature = "sign_gmac")]
-        SigningAlgorithmId::AesGmac => Ok(gmac_signer::Gmac128Signer::new(signing_key)),
-        _ => Err(CryptoError::UnsupportedAlgorithm),
+        SigningAlgorithmId::AesGmac => Ok(gmac_signer::Gmac128Signer::build(signing_key)),
+        #[cfg(not(all(feature = "sign_cmac", feature = "sign_gmac", feature = "sign_hmac")))]
+        _ => Err(CryptoError::UnsupportedSigningAlgorithm(signing_algorithm)),
     }
 }
 
 pub const SIGNING_ALGOS: &[SigningAlgorithmId] = &[
+    #[cfg(feature = "sign_hmac")]
+    SigningAlgorithmId::HmacSha256,
     #[cfg(feature = "sign_cmac")]
     SigningAlgorithmId::AesCmac,
     #[cfg(feature = "sign_gmac")]
@@ -50,6 +55,44 @@ pub trait SigningAlgo: std::fmt::Debug + Send {
     /// Clone the algo into a boxed trait object.
     /// See [EncryptionAlgo::clone_box](super::encryption::EncryptingAlgo::clone_box) for more information.
     fn clone_box(&self) -> Box<dyn SigningAlgo>;
+}
+
+#[cfg(feature = "sign_hmac")]
+mod hmac_signer {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    use super::*;
+
+    type HmacSha256 = Hmac<Sha256>;
+
+    #[derive(Debug, Clone)]
+    pub struct HmacSha256Signer {
+        hmac: Option<HmacSha256>,
+    }
+
+    impl HmacSha256Signer {
+        pub fn build(signing_key: &SigningKey) -> Box<dyn SigningAlgo> {
+            Box::new(HmacSha256Signer {
+                hmac: Some(HmacSha256::new_from_slice(signing_key).unwrap()),
+            })
+        }
+    }
+
+    impl SigningAlgo for HmacSha256Signer {
+        fn update(&mut self, data: &[u8]) {
+            self.hmac.as_mut().unwrap().update(data);
+        }
+
+        fn finalize(&mut self) -> u128 {
+            let result = self.hmac.take().unwrap().finalize().into_bytes();
+            u128::from_le_bytes(result[0..16].try_into().unwrap())
+        }
+
+        fn clone_box(&self) -> Box<dyn SigningAlgo> {
+            Box::new(self.clone())
+        }
+    }
 }
 
 #[cfg(feature = "sign_cmac")]
@@ -126,7 +169,7 @@ mod gmac_signer {
     }
 
     impl Gmac128Signer {
-        pub fn new(key: &SigningKey) -> Box<dyn SigningAlgo> {
+        pub fn build(key: &SigningKey) -> Box<dyn SigningAlgo> {
             let key = Key::<Aes128>::from_slice(key);
             Box::new(Gmac128Signer {
                 gmac: Aes128Gcm::new(&key),

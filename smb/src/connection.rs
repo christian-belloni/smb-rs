@@ -151,12 +151,16 @@ impl Connection {
             ));
         }
 
-        let signing_algo: SigningAlgorithmId = smb2_negotiate_response.get_signing_algo().unwrap();
-        if !crypto::SIGNING_ALGOS.contains(&signing_algo) {
-            return Err(Error::NegotiationError(
-                "Unsupported signing algorithm received".into(),
-            ));
-        }
+        let signing_algo = if let Some(signing_algo) = smb2_negotiate_response.get_signing_algo() {
+            if !crypto::SIGNING_ALGOS.contains(&signing_algo) {
+                return Err(Error::NegotiationError(
+                    "Unsupported signing algorithm selected!".into(),
+                ));
+            }
+            Some(signing_algo)
+        } else {
+            None
+        };
 
         // Make sure preauth integrity capability is SHA-512, if it exists in response:
         if let Some(algo) = smb2_negotiate_response.get_preauth_integrity_algo() {
@@ -168,11 +172,13 @@ impl Connection {
         }
 
         // And verify that the encryption algorithm is supported.
-        let encryption_cipher = smb2_negotiate_response.get_encryption_cipher().unwrap();
-        if !crypto::ENCRYPTING_ALGOS.contains(&encryption_cipher) {
-            return Err(Error::NegotiationError(
-                "Unsupported encryption algorithm received".into(),
-            ));
+        let encryption_cipher = smb2_negotiate_response.get_encryption_cipher();
+        if let Some(encryption_cipher) = &encryption_cipher {
+            if !crypto::ENCRYPTING_ALGOS.contains(&encryption_cipher) {
+                return Err(Error::NegotiationError(
+                    "Unsupported encryption algorithm received".into(),
+                ));
+            }
         }
 
         let compression: Option<CompressionCaps> = match smb2_negotiate_response.get_compression() {

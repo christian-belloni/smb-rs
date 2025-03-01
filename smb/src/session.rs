@@ -229,6 +229,11 @@ impl SessionMessageHandler {
             return Ok(());
         }
 
+        if !SessionState::is_set_up(&self.session_state).await? {
+            log::trace!("Session not set up/already logged-off.");
+            return Ok(());
+        }
+
         log::debug!("Logging off session.");
 
         let _response = self
