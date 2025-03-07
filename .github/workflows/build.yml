@@ -1,4 +1,4 @@
-name: Rust
+name: Build
 
 on:
   push:
@@ -12,9 +12,12 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build_and_test:
+  test:
 
     runs-on: ubuntu-latest
+    container: 
+      image: rust:latest
+
     strategy:
       matrix:
         compile_features: [ async, multi_threaded, single_threaded ]
@@ -31,10 +34,24 @@ jobs:
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.ACCESS_TOKEN }}
+        options: --name samba --privileged --cap-add NET_ADMIN
 
     steps:
     - uses: actions/checkout@v4
+    - name: check
+      run: |
+        apt update
+        apt install -y iputils-ping net-tools netcat-traditional samba smbclient tcpdump
+        ping -c 4 samba
+        nc -zv samba 445
+        find / -name smbclient
+        echo "ls" | smbclient --user=LocalAdmin --password=123456 "\\\\samba\\MyShare"
     - name: Build/${{ matrix.compile_features }}
       run: cargo build --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress"
     - name: Tests/${{ matrix.compile_features }}
-      run: cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress"
+      run: |
+        export SMB_RUST_TESTS_SERVER=samba:445
+        echo "ls" | smbclient --debuglevel=10 --user=LocalAdmin --password=123456 "\\\\samba\\MyShare"
+        # run tcpdump in background to capture SMB traffic, log to stdout
+        tcpdump -i any -w - -s 0 -nn -vv -X -c 100 'port 445' &
+        cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress" -- --nocapture

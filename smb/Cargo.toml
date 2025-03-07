@@ -47,6 +47,10 @@ lz4_flex = { version = "0.11", default-features = false, features = [
     "std",
 ], optional = true }
 
+# Dev - Tests
+[dev-dependencies]
+env_logger = "0.11"
+
 [features]
 default = ["sign", "encrypt", "compress"]
 
