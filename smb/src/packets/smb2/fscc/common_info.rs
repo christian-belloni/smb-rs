@@ -36,7 +36,7 @@ pub struct FileFullEaInformationInner {
     pub ea_value: Option<Vec<u8>>,
 }
 
-pub type FileFullEaInformation = ChainedItem<FileFullEaInformationInner>;
+pub type FileFullEaInformationCommon = ChainedItem<FileFullEaInformationInner>;
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]

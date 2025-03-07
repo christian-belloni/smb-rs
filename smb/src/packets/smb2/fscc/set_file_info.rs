@@ -6,7 +6,7 @@ use crate::{
 };
 
 use super::{
-    FileBasicInformation, FileFullEaInformation, FileModeInformation, FileNameInformation,
+    FileBasicInformation, FileFullEaInformationCommon, FileModeInformation, FileNameInformation,
     FilePipeInformation, FilePositionInformation,
 };
 
@@ -24,6 +24,25 @@ file_info_classes! {
         pub Rename = 10,
         pub ShortName = 40,
         pub ValidDataLength = 39,
+    }, Write
+}
+
+/// This is a wrapper around `FileFullEaInformationCommon` to implement `BinWrite` WITH NO ARGUMENTS for it.
+/// This should ONLY be used when WRITING FOR SINGLE FILE INFRORMATION ENTRY!
+#[derive(BinRead, Debug, PartialEq, Eq)]
+pub struct FileFullEaInformation(FileFullEaInformationCommon);
+
+impl BinWrite for FileFullEaInformation {
+    type Args<'a> = ();
+
+    fn write_options<W: std::io::Write + std::io::Seek>(
+        &self,
+        writer: &mut W,
+        endian: binrw::Endian,
+        _args: Self::Args<'_>,
+    ) -> BinResult<()> {
+        // last = true.
+        self.0.write_options(writer, endian, (true,))
     }
 }
 

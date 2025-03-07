@@ -48,14 +48,14 @@ impl Session {
 
     /// Sets up the session with the specified username and password.
     #[maybe_async]
-    pub async fn setup(&mut self, user_name: String, password: String) -> crate::Result<()> {
+    pub async fn setup(&mut self, user_name: &str, password: String) -> crate::Result<()> {
         if *self.handler.session_id.read().await? != 0 {
             return Err(Error::InvalidState("Session already set up!".to_string()));
         }
 
         log::debug!("Setting up session for user {}.", user_name);
 
-        let username = Username::new(&user_name, Some("WORKGROUP")).map_err(|e| {
+        let username = Username::new(user_name, Some("WORKGROUP")).map_err(|e| {
             Error::UsernameError(format!("Failed to create username: {}", e.to_string()))
         })?;
 
@@ -182,7 +182,7 @@ impl Session {
 
     /// Connects to the specified tree using the current session.
     #[maybe_async]
-    pub async fn tree_connect(&mut self, name: String) -> crate::Result<Tree> {
+    pub async fn tree_connect(&mut self, name: &str) -> crate::Result<Tree> {
         let mut tree = Tree::new(name, self.handler.clone());
         tree.connect().await?;
         Ok(tree)

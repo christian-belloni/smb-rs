@@ -72,7 +72,7 @@ impl QueryDirectoryResponse {
         let mut reader = std::io::Cursor::new(&self.output_buffer);
         let mut result = vec![];
         while reader.position() < self.output_buffer.len() as u64 {
-            let item = T::read_options(&mut reader, binrw::Endian::Little, ())?;
+            let item = T::read_le(&mut reader)?;
             result.push(item);
         }
         Ok(result)

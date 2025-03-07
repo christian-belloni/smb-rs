@@ -25,7 +25,7 @@ pub enum Resource {
 impl Resource {
     #[maybe_async]
     pub async fn create(
-        name: String,
+        name: &str,
         upstream: Upstream,
         create_disposition: CreateDisposition,
         desired_access: FileAccessMask,
@@ -42,7 +42,7 @@ impl Resource {
                     .with_delete(true),
                 create_disposition,
                 create_options: CreateOptions::new(),
-                name: name.clone().into(),
+                name: name.into(),
                 contexts: vec![
                     CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
                         timeout: 0,
@@ -74,7 +74,7 @@ impl Resource {
 
         // Common information is held in the handle object.
         let handle = ResourceHandle {
-            name,
+            name: name.to_string(),
             handler: MessageHandleHandler::new(upstream),
             file_id: content.file_id,
             created: content.creation_time.date_time(),

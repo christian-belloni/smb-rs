@@ -31,7 +31,7 @@ impl ThreadingBackend {
             netbios_client.can_read() && netbios_client.read_timeout().unwrap().is_some()
         );
         while !self.is_cancelled() {
-            let next = netbios_client.recieve_bytes();
+            let next = netbios_client.received_bytes();
             // Handle polling fail
             if let Err(Error::IoError(ref e)) = next {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -153,7 +153,7 @@ impl MultiWorkerBackend for ThreadingBackend {
         handles
             .0
             .join()
-            .map_err(|_| Error::JoinError("Error stopping reciever".to_string()))?;
+            .map_err(|_| Error::JoinError("Error stopping receivedr".to_string()))?;
 
         handles
             .1

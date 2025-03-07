@@ -12,12 +12,25 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build_and_test:
 
     runs-on: ubuntu-latest
     strategy:
       matrix:
         compile_features: [ async, multi_threaded, single_threaded ]
+
+    services:
+      samba:
+        image: ghcr.io/avivnaaman/smb-tests:latest
+        ports:
+          - 445:445
+        env:
+          ACCOUNT_LocalAdmin: 123456
+          SAMBA_CONF_LOG_LEVEL: 1
+          SAMBA_VOLUME_CONFIG_MyShare: "[MyShare]; path=/shares/MyShare; read only = no; browseable = yes"
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.ACCESS_TOKEN }}
 
     steps:
     - uses: actions/checkout@v4

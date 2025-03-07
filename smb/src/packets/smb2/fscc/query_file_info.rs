@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    ChainedItem, FileAccessMask, FileAttributes, FileBasicInformation, FileFullEaInformation,
+    ChainedItem, FileAccessMask, FileAttributes, FileBasicInformation, FileFullEaInformationCommon,
     FileModeInformation, FileNameInformation, FilePipeInformation, FilePositionInformation,
 };
 
@@ -37,8 +37,10 @@ file_info_classes! {
         pub Position = 14,
         pub Standard = 5,
         pub Stream = 22,
-    }
+    }, Read
 }
+
+pub type FileFullEaInformation = FileFullEaInformationCommon;
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]

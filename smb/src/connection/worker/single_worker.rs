@@ -50,7 +50,7 @@ impl Worker for SingleWorker {
     }
 
     fn receive(self: &Self, msg_id: u64) -> crate::Result<IncomingMessage> {
-        let msg = self.netbios_client.borrow_mut().recieve_bytes()?;
+        let msg = self.netbios_client.borrow_mut().received_bytes()?;
         let im = self.transformer.transform_incoming(msg)?;
         // Make sure this is our message.
         // In async clients, this is no issue, but here, we can't deal with unordered/unexpected message IDs.

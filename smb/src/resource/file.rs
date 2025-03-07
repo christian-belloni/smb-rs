@@ -84,6 +84,25 @@ impl File {
         Ok(result)
     }
 
+    #[maybe_async]
+    pub async fn set_file_info<T>(&self, info: T) -> crate::Result<()>
+    where
+        T: SetFileInfoValue,
+    {
+        let set_file_info: SetFileInfo = info.into();
+        let data = SetInfoData::from(RawSetInfoData::from(set_file_info))
+            .to_req(T::CLASS_ID, self.handle.file_id());
+        let response = self
+            .handle
+            .send_receive(Content::SetInfoRequest(data))
+            .await?;
+        let _response = match response.message.content {
+            Content::SetInfoResponse(response) => response,
+            _ => panic!("Unexpected response"),
+        };
+        Ok(())
+    }
+
     /// Reads up to `buf.len()` bytes from the file into `buf`, beginning in offset `pos`.
     #[maybe_async]
     pub async fn read_block(&self, buf: &mut [u8], pos: u64) -> std::io::Result<usize> {
