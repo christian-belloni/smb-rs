@@ -78,7 +78,7 @@ impl SessionState {
     ) -> Result<MessageSigner, CryptoError> {
         let signing_key = deriver.derive(Self::SIGNING_KEY_LABEL)?;
         Ok(MessageSigner::new(make_signing_algo(
-            signing_algo,
+            dbg!(signing_algo),
             &signing_key,
         )?))
     }

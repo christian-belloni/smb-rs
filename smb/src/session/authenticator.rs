@@ -4,8 +4,8 @@ use gss_api::negotiation::*;
 use gss_api::InitialContextToken;
 use sspi::{
     ntlm::NtlmConfig, AcquireCredentialsHandleResult, AuthIdentity, AuthIdentityBuffers,
-    ClientRequestFlags, CredentialUse, DataRepresentation, InitializeSecurityContextResult, Ntlm,
-    OwnedSecurityBuffer, SecurityBuffer, SecurityBufferType, Sspi, SspiImpl,
+    BufferType, ClientRequestFlags, CredentialUse, DataRepresentation,
+    InitializeSecurityContextResult, Ntlm, SecurityBuffer, SecurityBufferRef, Sspi, SspiImpl,
 };
 
 use crate::Error;
@@ -175,8 +175,8 @@ impl GssAuthenticator {
 
 pub trait GssAuthTokenHandler {
     fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> crate::Result<Vec<u8>>;
-    fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> crate::Result<Vec<u8>>;
-    fn gss_validatemic(&mut self, buffer: &mut Vec<u8>, signature: &mut [u8]) -> crate::Result<()>;
+    fn gss_getmic(&mut self, buffer: &mut [u8]) -> crate::Result<Vec<u8>>;
+    fn gss_validatemic(&mut self, buffer: &mut [u8], signature: &mut [u8]) -> crate::Result<()>;
     fn is_complete(&self) -> crate::Result<bool>;
     fn session_key(&self) -> crate::Result<[u8; 16]>;
 }
@@ -218,10 +218,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
             ));
         }
 
-        let mut output_buffer = vec![OwnedSecurityBuffer::new(
-            Vec::new(),
-            SecurityBufferType::Token,
-        )];
+        let mut output_buffer = vec![SecurityBuffer::new(Vec::new(), BufferType::Token)];
 
         let mut builder = self
             .ntlm
@@ -239,10 +236,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
         let mut input_buffers = vec![];
         // let mut expected_next_state: SecurityStatus = sspi::SecurityStatus::ContinueNeeded;
         if let Some(ntlm_token) = ntlm_token {
-            input_buffers.push(OwnedSecurityBuffer::new(
-                ntlm_token,
-                SecurityBufferType::Token,
-            ));
+            input_buffers.push(SecurityBuffer::new(ntlm_token, BufferType::Token));
             builder = builder.with_input(&mut input_buffers);
         }
 
@@ -264,27 +258,23 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
             == sspi::SecurityStatus::Ok)
     }
 
-    fn gss_getmic(&mut self, buffer: &mut Vec<u8>) -> crate::Result<Vec<u8>> {
-        let data_buffer = SecurityBuffer::with_security_buffer_type(SecurityBufferType::Data)?
-            .with_data(buffer)?;
-        let mut token_dest = vec![0; 16];
-        let token_dest_buffer =
-            SecurityBuffer::with_security_buffer_type(SecurityBufferType::Token)?
-                .with_data(&mut token_dest)?;
+    fn gss_getmic(&mut self, buffer: &mut [u8]) -> crate::Result<Vec<u8>> {
+        let data_buffer = SecurityBufferRef::data_buf(buffer);
+        let mut signature = vec![0u8; 16];
+        let token_dest_buffer = SecurityBufferRef::token_buf(&mut signature);
         let mut ntlm_copy = self.ntlm.clone();
         ntlm_copy.make_signature(0, &mut [data_buffer, token_dest_buffer], self.seq_num)?;
-        Ok(token_dest)
+        Ok(signature)
     }
 
-    fn gss_validatemic(&mut self, buffer: &mut Vec<u8>, signature: &mut [u8]) -> crate::Result<()> {
-        let mut ntlm_copy = self.ntlm.clone();
-        let data_buffer = SecurityBuffer::with_security_buffer_type(SecurityBufferType::Data)?
-            .with_data(buffer)?;
-        let signature_buffer =
-            SecurityBuffer::with_security_buffer_type(SecurityBufferType::Token)?
-                .with_data(signature)?;
-        let mut buffers = [data_buffer, signature_buffer];
-        ntlm_copy.verify_signature(&mut buffers, self.seq_num)?;
+    fn gss_validatemic(&mut self, buffer: &mut [u8], signature: &mut [u8]) -> crate::Result<()> {
+        let data_buffer = SecurityBufferRef::data_buf(buffer);
+        let signature_buffer = SecurityBufferRef::token_buf(signature);
+
+        // Avoid changing the state of the session when validating gss initial mic.
+        self.ntlm
+            .clone()
+            .verify_signature(&mut [data_buffer, signature_buffer], self.seq_num)?;
         Ok(())
     }
 

@@ -1,0 +1,31 @@
+services:
+  tests:
+    build:
+      context: smb/tests
+      dockerfile: Dockerfile
+    ports:
+      - 445:445
+    networks:
+      - default
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+    environment:
+      ACCOUNT_LocalAdmin: 123456
+      SAMBA_CONF_LOG_LEVEL: 10
+      SAMBA_VOLUME_CONFIG_MyShare: "[MyShare]; path=/shares/MyShare; read only = no; browseable = yes; create mask = 0777; directory mask = 0777"
+  dev:
+    image: rust:latest
+    environment:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+      RUST_LOG: debug
+    entrypoint: tail -f /dev/null
+    networks:
+      - default
+    volumes: 
+      - .:/smb
+
+networks:
+  default:
+    driver: bridge
