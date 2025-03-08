@@ -35,7 +35,7 @@ gss-api = { version = "0.1.0", features = [] }
 # Crypto
 hmac = "0.12.1"
 sha2 = "0.10.8"
-rust-kbkdf = { version = "1.0.1" }
+rust-kbkdf = { version = "1.1.1" }
 crypto-common = { version = "0.1" }
 aes = "0.8.4"
 aes-gcm = { version = "0.10.3", features = ["std"], optional = true }

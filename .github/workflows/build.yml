@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     container: 
       image: rust:latest
-
+    timeout-minutes: 5
     strategy:
       matrix:
         compile_features: [ async, multi_threaded, single_threaded ]

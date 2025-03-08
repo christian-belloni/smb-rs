@@ -1831,9 +1831,9 @@ dependencies = [
 
 [[package]]
 name = "rust-kbkdf"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7154b066d77b7a5fe90728ed6e281fc26b4c207351ae0d9d937578c8f9a8596"
+checksum = "bdb211667cbc3291d401a54f7499904001c2cfc3347844120443bffca6fa0590"
 dependencies = [
  "generic-array",
  "typenum",

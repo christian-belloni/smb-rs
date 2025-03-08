@@ -46,7 +46,7 @@ where
     /// Stores the awaiting tasks that are waiting for a specific message ID.
     pub awaiting: HashMap<u64, T::AwaitingNotifier>,
     /// Stores the pending messages, waiting to be receive()-d.
-    pub pending: HashMap<u64, IncomingMessage>,
+    pub pending: HashMap<u64, crate::Result<IncomingMessage>>,
 }
 
 impl<T> WorkerAwaitState<T>
@@ -79,19 +79,33 @@ where
     ) -> crate::Result<()> {
         log::trace!("Received message from server.");
         let message = { message? };
-        let msg = self.transformer.transform_incoming(message).await?;
+        let msg = self.transformer.transform_incoming(message).await;
 
         // 2. Handle the message.
-        let msg_id = msg.message.header.message_id;
+        let (data, msg_id) = match msg {
+            Ok(msg) => {
+                let msg_id = msg.message.header.message_id;
+                (Ok(msg), msg_id)
+            }
+            // If we have a message ID to notify the error, use it.
+            Err(crate::Error::TranformFailed(e)) => match e.msg_id {
+                Some(msg_id) => (Err(crate::Error::TranformFailed(e)), msg_id),
+                None => return Err(Error::TranformFailed(e)),
+            },
+            Err(e) => {
+                log::error!("Failed to transform message: {:?}", e);
+                return Err(e);
+            }
+        };
 
         // Update the state: If awaited, wake up the task. Else, store it.
         let mut state = self.state.lock().await?;
         if let Some(tx) = state.awaiting.remove(&msg_id) {
             log::trace!("Waking up awaiting task for message ID {}.", msg_id);
-            T::send_notify(tx, Ok(msg))?;
+            T::send_notify(tx, data)?;
         } else {
             log::trace!("Storing message until awaited: {}.", msg_id);
-            state.pending.insert(msg_id, msg);
+            state.pending.insert(msg_id, data);
         }
         Ok(())
     }
@@ -205,7 +219,10 @@ where
                     "Message with ID {} is already received, remove from pending.",
                     msg_id
                 );
-                return Ok(state.pending.remove(&msg_id).unwrap());
+                let data = state.pending.remove(&msg_id).ok_or_else(|| {
+                    Error::InvalidState("Message ID not found in pending messages.".to_string())
+                })?;
+                return data;
             }
 
             log::trace!(
