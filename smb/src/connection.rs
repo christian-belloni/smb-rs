@@ -76,7 +76,7 @@ impl Connection {
                 .await?;
 
             // 2. Expect SMB2 negotiate response
-            let response = netbios_client.recieve_bytes().await?.parse_content()?;
+            let response = netbios_client.received_bytes().await?.parse_content()?;
             let message = match response {
                 NetBiosMessageContent::SMB2Message(Message::Plain(m)) => m,
                 _ => {
@@ -243,7 +243,7 @@ impl Connection {
     #[maybe_async]
     pub async fn authenticate(
         self: &mut Connection,
-        user_name: String,
+        user_name: &str,
         password: String,
     ) -> crate::Result<Session> {
         let mut session = Session::new(self.handler.clone());
@@ -432,7 +432,10 @@ impl MessageHandler for ConnectionMessageHandler {
         if msg.message.header.status != options.status {
             // Return error only if it is unexpected.
             if let Content::ErrorResponse(error_res) = msg.message.content {
-                return Err(Error::RecievedErrorMessage(error_res));
+                return Err(Error::ReceivedErrorMessage(
+                    msg.message.header.status,
+                    error_res,
+                ));
             }
             return Err(Error::UnexpectedMessageStatus(msg.message.header.status));
         }

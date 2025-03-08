@@ -34,8 +34,8 @@ pub enum Error {
     SignatureVerificationFailed,
     #[error("Unexpected message status: {0}")]
     UnexpectedMessageStatus(Status),
-    #[error("Server returned an error message.")]
-    RecievedErrorMessage(ErrorResponse),
+    #[error("Server returned an error message with status {0}.")]
+    ReceivedErrorMessage(Status, ErrorResponse),
     #[error("Unexpected command: {0}")]
     UnexpectedCommand(Command),
     #[error("Missing permissions to perform {0}")]

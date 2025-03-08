@@ -18,7 +18,7 @@ file_info_classes! {
         pub Id64ExtdBothDirectory = 0x4f,
         pub IdAllExtdDirectory = 0x50,
         pub IdAllExtdBothDirectory = 0x51,
-    }
+    }, Read
 }
 
 macro_rules! query_dir_type {

@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  # manual:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+
+    runs-on: ubuntu-latest
+    container: 
+      image: rust:latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        compile_features: [ async, multi_threaded, single_threaded ]
+
+    services:
+      samba:
+        image: ghcr.io/avivnaaman/smb-tests:latest
+        ports:
+          - 445:445
+        env:
+          ACCOUNT_LocalAdmin: 123456
+          SAMBA_CONF_LOG_LEVEL: 1
+          SAMBA_VOLUME_CONFIG_MyShare: "[MyShare]; path=/shares/MyShare; read only = no; browseable = yes"
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.ACCESS_TOKEN }}
+        options: --name samba --privileged --cap-add NET_ADMIN
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build/${{ matrix.compile_features }}
+      run: cargo build --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress"
+    - name: Tests/${{ matrix.compile_features }}
+      run: |
+        export SMB_RUST_TESTS_SERVER=samba:445
+        cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress" -- --nocapture

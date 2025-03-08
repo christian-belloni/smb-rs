@@ -215,6 +215,7 @@ impl Transformer {
                         phase: TranformPhase::EncryptDecrypt,
                         session_id: Some(set_session_id),
                         why: "Message is encrypted, but no encryptor is set up!",
+                        msg_id: Some(msg.message.header.message_id),
                     }));
                 }
             } else {
@@ -240,6 +241,7 @@ impl Transformer {
             phase: TranformPhase::EncodeDecode,
             session_id: None,
             why: "Message is not an SMB2 message!",
+            msg_id: None,
         }))?;
 
         let mut form = MessageForm::default();
@@ -259,6 +261,7 @@ impl Transformer {
                         phase: TranformPhase::EncryptDecrypt,
                         session_id: Some(encrypted_message.header.session_id),
                         why: "Message is encrypted, but no decryptor is set up!",
+                        msg_id: None,
                     }))
                 }
             }
@@ -279,6 +282,7 @@ impl Transformer {
                         phase: TranformPhase::CompressDecompress,
                         session_id: None,
                         why: "Compression is requested, but no decompressor is set up!",
+                        msg_id: None,
                     }))
                 }
             }
@@ -291,40 +295,72 @@ impl Transformer {
             _ => panic!("Unexpected message type"),
         };
 
-        // 1. Verify signature (if required, according to the spec)
-        if !form.encrypted
-            && message.header.message_id != u64::MAX
-            && message.header.status != Status::Pending
-            && message.header.flags.signed()
+        // If fails, return TranformFailed, with message id.
+        // this allows to notify the error to the task that was waiting for this message.
+        match self
+            .verify_plain_incoming(&mut message, &raw, &mut form)
+            .await
         {
-            let session_id = message.header.session_id;
-            let session = self.get_session(session_id).await?;
-            let verifier = { session.lock().await?.signer().cloned() };
-            if let Some(mut verifier) = verifier {
-                form.signed = true;
-                verifier.verify_signature(&mut message.header, &raw)?;
-            } else {
+            Ok(_) => {}
+            Err(e) => {
+                log::error!("Failed to verify incoming message: {:?}", e);
                 return Err(crate::Error::TranformFailed(TransformError {
                     outgoing: false,
                     phase: TranformPhase::SignVerify,
-                    session_id: Some(session_id),
-                    why: "Message is signed, but no verifier is set up!",
+                    session_id: Some(message.header.session_id),
+                    why: "Failed to verify incoming message!",
+                    msg_id: Some(message.header.message_id),
                 }));
             }
-        }
+        };
 
         self.step_preauth_hash(&raw).await?;
 
         Ok(IncomingMessage { message, raw, form })
     }
+
+    #[maybe_async]
+    async fn verify_plain_incoming(
+        &self,
+        message: &mut PlainMessage,
+        raw: &Vec<u8>,
+        form: &mut MessageForm,
+    ) -> crate::Result<()> {
+        if form.encrypted
+            || message.header.message_id == u64::MAX
+            || message.header.status == Status::Pending
+            || !message.header.flags.signed()
+        {
+            return Ok(());
+        }
+        // 1. Verify signature (if required, according to the spec)
+        let session_id = message.header.session_id;
+        let session = self.get_session(session_id).await?;
+        let verifier = { session.lock().await?.signer().cloned() };
+        if let Some(mut verifier) = verifier {
+            form.signed = true;
+            verifier.verify_signature(&mut message.header, raw)?;
+            Ok(())
+        } else {
+            Err(crate::Error::TranformFailed(TransformError {
+                outgoing: false,
+                phase: TranformPhase::SignVerify,
+                session_id: Some(session_id),
+                why: "Message is signed, but no verifier is set up!",
+                msg_id: Some(message.header.message_id),
+            }))
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct TransformError {
-    outgoing: bool,
-    phase: TranformPhase,
-    session_id: Option<u64>,
-    why: &'static str,
+    pub outgoing: bool,
+    pub phase: TranformPhase,
+    pub session_id: Option<u64>,
+    pub why: &'static str,
+    /// Allows error-notifying if there was a message ID associated with the error.
+    pub msg_id: Option<u64>,
 }
 
 impl std::fmt::Display for TransformError {

@@ -116,23 +116,23 @@ macro_rules! query_info_data {
             impl<T> [<Raw $name>]<T>
             where
                 T: Sized,
-                T: BinRead<Args<'static> = (T::Class,)> + WriteEndian + FileInfoType,
+                T: BinRead<Args<'static> = (T::Class,)> + FileInfoType,
             {
                 // A parse method that accepts the class of T as an argument, reads the data and returns the T.
                 pub fn parse(&self, class: T::Class) -> Result<T, crate::Error> {
                     let mut cursor = std::io::Cursor::new(self.data.clone());
-                    let value = T::read_args(&mut cursor, (class,))?;
+                    let value = T::read_le_args(&mut cursor, (class,))?;
                     Ok(value)
                 }
             }
 
             impl<T> From<T> for [<Raw $name>]<T>
             where
-                for<'a> T: BinWrite<Args<'a> = ()> + WriteEndian,
+                for<'a> T: BinWrite<Args<'a> = ()>,
             {
                 fn from(value: T) -> Self {
                     let mut cursor = std::io::Cursor::new(Vec::new());
-                    value.write(&mut cursor).unwrap();
+                    value.write_le(&mut cursor).unwrap();
                     Self {
                         data: cursor.into_inner(),
                         phantom: std::marker::PhantomData,

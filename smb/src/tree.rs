@@ -28,10 +28,10 @@ pub struct Tree {
 }
 
 impl Tree {
-    pub fn new(name: String, upstream: Upstream) -> Tree {
+    pub fn new(name: &str, upstream: Upstream) -> Tree {
         Tree {
-            handler: TreeMessageHandler::new(upstream, name.clone()),
-            name,
+            handler: TreeMessageHandler::new(upstream, name.to_string()),
+            name: name.to_string(),
         }
     }
 
@@ -70,7 +70,7 @@ impl Tree {
     #[maybe_async]
     pub async fn create(
         &mut self,
-        file_name: String,
+        file_name: &str,
         disposition: CreateDisposition,
         desired_access: FileAccessMask,
     ) -> crate::Result<Resource> {

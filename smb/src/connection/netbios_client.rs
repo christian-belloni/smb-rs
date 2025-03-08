@@ -31,7 +31,7 @@ type TcpWrite = TcpStream;
 /// This client is NOT thread-safe, and should only be used for SMB wraaping.
 ///
 /// Use [connect](NetBiosClient::connect), [send](NetBiosClient::send),
-/// and [receive_bytes](NetBiosClient::recieve_bytes) to interact with a server.
+/// and [receive_bytes](NetBiosClient::received_bytes) to interact with a server.
 
 #[derive(Debug)]
 pub struct NetBiosClient {
@@ -86,12 +86,12 @@ impl NetBiosClient {
         Ok(())
     }
 
-    // Recieves and parses a NetBios message header, without parsing the message data.
+    // Receiveds and parses a NetBios message header, without parsing the message data.
     #[maybe_async]
-    pub async fn recieve_bytes(&mut self) -> crate::Result<NetBiosTcpMessage> {
+    pub async fn received_bytes(&mut self) -> crate::Result<NetBiosTcpMessage> {
         let tcp = self.reader.as_mut().ok_or(crate::Error::NotConnected)?;
 
-        // Recieve header.
+        // Received header.
         let mut header_data = vec![0; NetBiosTcpMessageHeader::SIZE];
         Self::read_exact(tcp, &mut header_data).await?;
         let header = NetBiosTcpMessageHeader::read(&mut Cursor::new(header_data))?;
@@ -100,7 +100,7 @@ impl NetBiosClient {
             return Err(crate::Error::InvalidMessage("Message too large.".into()));
         }
 
-        // Recieve message data.
+        // Received message data.
         let mut data = vec![0; header.stream_protocol_length.value as usize];
         Self::read_exact(tcp, &mut data).await?;
 

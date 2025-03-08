@@ -22,15 +22,15 @@ impl UncPath {
         smb.connect(format!("{}:{}", self.server, cli.port).as_str())
             .await?;
         let mut session = smb
-            .authenticate(cli.username.clone(), cli.password.clone())
+            .authenticate(&cli.username, cli.password.clone())
             .await?;
         let mut tree = session
-            .tree_connect(format!(r"\\{}\{}", self.server, self.tree))
+            .tree_connect(&format!(r"\\{}\{}", self.server, self.tree))
             .await?;
         if let Some(path) = &self.path {
             let file = tree
                 .create(
-                    path.clone(),
+                    path.clone().as_str(),
                     CreateDisposition::Open,
                     FileAccessMask::new()
                         .with_generic_read(true)

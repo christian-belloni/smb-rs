@@ -154,12 +154,15 @@ pub trait FileInfoType:
 macro_rules! file_info_classes {
     ($svis:vis $name:ident {
         $($vis:vis $field_name:ident = $cid:literal,)+
-    }) => {
+    }, $brw_ty:ty) => {
         #[allow(unused_imports)]
         use binrw::prelude::*;
         paste::paste! {
             // Trait to be implemented for all the included value types.
-            pub trait [<$name Value>] : TryFrom<$name, Error = crate::Error> + BinRead<Args<'static> = ()> {
+            pub trait [<$name Value>] :
+                TryFrom<$name, Error = crate::Error>
+                + Into<$name>
+                + for <'a> [<Bin $brw_ty>]<Args<'a> = ()> {
                 const CLASS_ID: [<$name Class>];
             }
 
