@@ -25,22 +25,35 @@ use netbios_client::NetBiosClient;
 use std::cmp::max;
 use std::sync::atomic::{AtomicU16, AtomicU64};
 use std::sync::Arc;
+use std::time::Duration;
 pub use transformer::TransformError;
 use worker::{Worker, WorkerImpl};
 
 pub struct Connection {
     handler: HandlerReference<ConnectionMessageHandler>,
+    timeout: Option<std::time::Duration>,
 }
 
 impl Connection {
     pub fn new() -> Connection {
         Connection {
             handler: HandlerReference::new(ConnectionMessageHandler::new()),
+            timeout: None,
         }
     }
+
+    #[maybe_async]
+    pub async fn set_timeout(&mut self, timeout: Option<Duration>) -> crate::Result<()> {
+        self.timeout = timeout;
+        if let Some(worker) = self.handler.worker.get() {
+            worker.set_timeout(timeout).await?;
+        }
+        Ok(())
+    }
+
     #[maybe_async]
     pub async fn connect(&mut self, address: &str) -> crate::Result<()> {
-        let mut netbios_client = NetBiosClient::new();
+        let mut netbios_client = NetBiosClient::new(self.timeout);
 
         log::debug!("Connecting to {}...", address);
         netbios_client.connect(address).await?;
@@ -105,7 +118,7 @@ impl Connection {
             }
         }
 
-        Ok(WorkerImpl::start(netbios_client).await?)
+        Ok(WorkerImpl::start(netbios_client, self.timeout).await?)
     }
 
     #[maybe_async]

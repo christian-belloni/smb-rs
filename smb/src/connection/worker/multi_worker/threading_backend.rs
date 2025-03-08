@@ -171,10 +171,22 @@ impl MultiWorkerBackend for ThreadingBackend {
         std::sync::mpsc::channel()
     }
 
-    fn wait_on_waiter(waiter: Self::AwaitingWaiter) -> crate::Result<IncomingMessage> {
-        waiter
-            .recv()
-            .map_err(|_| Error::MessageProcessingError("Failed to receive message.".to_string()))?
+    fn wait_on_waiter(
+        waiter: Self::AwaitingWaiter,
+        timeout: Option<Duration>,
+    ) -> crate::Result<IncomingMessage> {
+        if let None = timeout {
+            return waiter.recv().map_err(|_| {
+                Error::MessageProcessingError("Failed to receive message.".to_string())
+            })?;
+        }
+        waiter.recv_timeout(timeout.unwrap()).map_err(|e| match e {
+            std::sync::mpsc::RecvTimeoutError::Timeout => Error::OperationTimeout(
+                "Waiting for message receive.".to_string(),
+                timeout.unwrap(),
+            ),
+            _ => Error::MessageProcessingError("Failed to receive message.".to_string()),
+        })?
     }
 
     fn send_notify(

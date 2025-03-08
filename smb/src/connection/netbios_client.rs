@@ -1,15 +1,16 @@
 use maybe_async::*;
-use std::io::Cursor;
+use std::{io::Cursor, time::Duration};
 
 #[cfg(feature = "sync")]
 use std::{
     io::{self, Read, Write},
-    net::TcpStream,
+    net::{TcpStream, ToSocketAddrs},
 };
 #[cfg(feature = "async")]
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::{tcp, TcpStream},
+    select,
 };
 
 use binrw::prelude::*;
@@ -37,24 +38,55 @@ type TcpWrite = TcpStream;
 pub struct NetBiosClient {
     reader: Option<TcpRead>,
     writer: Option<TcpWrite>,
+    timeout: Option<Duration>,
 }
 
 impl NetBiosClient {
-    pub fn new() -> NetBiosClient {
+    pub fn new(timeout: Option<Duration>) -> NetBiosClient {
         NetBiosClient {
             reader: None,
             writer: None,
+            timeout,
         }
     }
 
     /// Connects to a NetBios server in the specified address.
     #[maybe_async]
     pub async fn connect(&mut self, address: &str) -> crate::Result<()> {
-        let socket = TcpStream::connect(address).await?;
+        let socket = self.connect_timeout(address).await?;
         let (r, w) = Self::split_socket(socket);
         self.reader = Some(r);
         self.writer = Some(w);
         Ok(())
+    }
+
+    #[cfg(feature = "sync")]
+    fn connect_timeout(&mut self, address: &str) -> crate::Result<TcpStream> {
+        if let Some(t) = self.timeout {
+            log::debug!("Connecting to {} with timeout {:?}.", address, t);
+            // convert to SocketAddr:
+            let address = address
+                .to_socket_addrs()?
+                .next()
+                .ok_or(crate::Error::InvalidAddress(address.to_string()))?;
+            TcpStream::connect_timeout(&address, t).map_err(Into::into)
+        } else {
+            log::debug!("Connecting to {}.", address);
+            TcpStream::connect(&address).map_err(Into::into)
+        }
+    }
+
+    #[cfg(feature = "async")]
+    async fn connect_timeout(&mut self, address: &str) -> crate::Result<TcpStream> {
+        if let None = self.timeout {
+            log::debug!("Connecting to {}.", address);
+            return TcpStream::connect(&address).await.map_err(Into::into);
+        }
+
+        select! {
+            res = TcpStream::connect(&address) => res.map_err(Into::into),
+            _ = tokio::time::sleep(self.timeout.unwrap()) => Err(crate::Error::OperationTimeout("Tcp connect".to_string(), self.timeout.unwrap())),
+        }
     }
 
     pub fn is_connected(&self) -> bool {
@@ -197,10 +229,12 @@ impl NetBiosClient {
             NetBiosClient {
                 reader: self.reader,
                 writer: None,
+                timeout: self.timeout,
             },
             NetBiosClient {
                 reader: None,
                 writer: self.writer,
+                timeout: self.timeout,
             },
         ))
     }

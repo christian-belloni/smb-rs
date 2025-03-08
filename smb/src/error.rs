@@ -52,6 +52,8 @@ pub enum Error {
     UsernameError(String),
     #[error("Message processing failed. {0}")]
     MessageProcessingError(String),
+    #[error("Operation timed out: {0}, took >{1:?}")]
+    OperationTimeout(String, std::time::Duration),
     #[error("Lock error.")]
     LockError,
     #[cfg(feature = "async")]
@@ -69,6 +71,8 @@ pub enum Error {
     UnexpectedMessageId(u64, u64),
     #[error("Expected info of type {0} but got {1}")]
     UnexpectedInformationType(u8, u8),
+    #[error("Invalid address {0}")]
+    InvalidAddress(String),
 }
 
 impl<T> From<PoisonError<T>> for Error {

@@ -1,4 +1,4 @@
-FROM ghcr.io/servercontainers/samba:latest
+FROM ghcr.io/servercontainers/samba:smbd-only-latest
 
 ENV NETBIOS_DISABLE=1
 ENV AVAHI_DISABLE=1

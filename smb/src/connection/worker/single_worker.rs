@@ -1,4 +1,4 @@
-use std::{cell::RefCell, sync::Arc};
+use std::{cell::RefCell, sync::Arc, time::Duration};
 
 use crate::{
     connection::{netbios_client::NetBiosClient, transformer::Transformer},
@@ -18,10 +18,11 @@ pub struct SingleWorker {
 }
 
 impl Worker for SingleWorker {
-    fn start(netbios_client: NetBiosClient) -> crate::Result<Arc<Self>> {
+    fn start(netbios_client: NetBiosClient, timeout: Option<Duration>) -> crate::Result<Arc<Self>> {
         if !netbios_client.is_connected() {
             Err(crate::Error::NotConnected)
         } else {
+            netbios_client.set_read_timeout(timeout)?;
             Ok(Arc::new(Self {
                 netbios_client: RefCell::new(netbios_client),
                 transformer: Transformer::default(),
@@ -65,5 +66,9 @@ impl Worker for SingleWorker {
 
     fn transformer(&self) -> &Transformer {
         &self.transformer
+    }
+
+    fn set_timeout(&self, timeout: Option<Duration>) -> crate::Result<()> {
+        self.netbios_client.borrow_mut().set_read_timeout(timeout)
     }
 }

@@ -8,7 +8,7 @@ use std::env::var;
 fn init_logger() {
     env_logger::builder()
         .is_test(true)
-        .filter_level(log::LevelFilter::Trace)
+        .filter_level(log::LevelFilter::Debug)
         .init();
 }
 
@@ -22,6 +22,8 @@ pub async fn test_smb_integration_basic() -> Result<(), Box<dyn std::error::Erro
     use smb::packets::smb2::FileDispositionInformation;
 
     let mut smb = Connection::new();
+    smb.set_timeout(Some(std::time::Duration::from_secs(10)))
+        .await?;
     // Default to localhost, LocalAdmin, 123456
     let server = var("SMB_RUST_TESTS_SERVER").unwrap_or("127.0.0.1:445".to_string());
     let user = var("SMB_RUST_TESTS_USER_NAME").unwrap_or("LocalAdmin".to_string());
@@ -34,7 +36,12 @@ pub async fn test_smb_integration_basic() -> Result<(), Box<dyn std::error::Erro
     info!("Connected, authenticating...");
     let mut session = smb.authenticate(&user, password).await?;
     info!("Authenticated!");
-    let mut tree = session.tree_connect("MyShare").await?;
+
+    // String before ':', after is port:
+    let server_name = server.split(':').next().unwrap();
+    let mut tree = session
+        .tree_connect(format!("\\\\{}\\MyShare", server_name).as_str())
+        .await?;
     info!("Connected to share, start test basic");
 
     // Hello, World! > test.txt

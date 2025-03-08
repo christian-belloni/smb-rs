@@ -19,6 +19,8 @@ impl UncPath {
         cli: &Cli,
     ) -> Result<(Connection, Session, Tree, Option<Resource>), Box<dyn Error>> {
         let mut smb = Connection::new();
+        smb.set_timeout(Some(std::time::Duration::from_secs(10)))
+            .await?;
         smb.connect(format!("{}:{}", self.server, cli.port).as_str())
             .await?;
         let mut session = smb
