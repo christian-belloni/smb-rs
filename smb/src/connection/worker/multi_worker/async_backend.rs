@@ -1,5 +1,6 @@
 use crate::sync_helpers::*;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::{select, sync::oneshot};
 
 use crate::{msg_handler::IncomingMessage, packets::netbios::NetBiosTcpMessage, Error};
@@ -190,10 +191,25 @@ impl MultiWorkerBackend for AsyncBackend {
         oneshot::channel()
     }
 
-    async fn wait_on_waiter(waiter: Self::AwaitingWaiter) -> crate::Result<IncomingMessage> {
-        waiter
-            .await
-            .map_err(|_| Error::MessageProcessingError("Failed to receive message.".to_string()))?
+    async fn wait_on_waiter(
+        waiter: Self::AwaitingWaiter,
+        timeout: Option<Duration>,
+    ) -> crate::Result<IncomingMessage> {
+        match timeout {
+            Some(timeout) => {
+                tokio::select! {
+                    msg = waiter => {
+                        msg.map_err(|_| Error::MessageProcessingError("Failed to receive message.".to_string()))?
+                    },
+                    _ = tokio::time::sleep(timeout) => {
+                        Err(Error::OperationTimeout("Waiting for message receive.".to_string(), timeout))
+                    }
+                }
+            }
+            None => waiter.await.map_err(|_| {
+                Error::MessageProcessingError("Failed to receive message.".to_string())
+            })?,
+        }
     }
 
     fn send_notify(

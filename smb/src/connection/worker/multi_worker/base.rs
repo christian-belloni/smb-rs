@@ -4,6 +4,7 @@ use crate::connection::worker::Worker;
 use crate::sync_helpers::*;
 use maybe_async::*;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
@@ -34,6 +35,9 @@ where
     /// A channel to send messages to the worker.
     pub(crate) sender: mpsc::Sender<T::SendMessage>,
     stopped: AtomicBool,
+
+    /// atomic duration:
+    timeout: RwLock<Option<Duration>>,
 }
 
 /// Holds state for the worker, regarding messages to be received.
@@ -140,7 +144,10 @@ where
     T::AwaitingNotifier: std::fmt::Debug,
 {
     #[maybe_async]
-    async fn start(netbios_client: NetBiosClient) -> crate::Result<Arc<Self>> {
+    async fn start(
+        netbios_client: NetBiosClient,
+        timeout: Option<Duration>,
+    ) -> crate::Result<Arc<Self>> {
         // Build the worker
         let (tx, rx) = T::make_send_channel_pair();
         let worker = Arc::new(MultiWorkerBase::<T> {
@@ -149,6 +156,7 @@ where
             transformer: Transformer::default(),
             sender: tx,
             stopped: AtomicBool::new(false),
+            timeout: RwLock::new(timeout),
         });
 
         worker
@@ -235,7 +243,8 @@ where
             rx
         };
 
-        let wait_result = T::wait_on_waiter(wait_for_receive).await;
+        let timeout = { *self.timeout.read().await? };
+        let wait_result = T::wait_on_waiter(wait_for_receive, timeout).await;
 
         // Wait for the message to be received.
         Ok(wait_result.map_err(|_| {
@@ -245,6 +254,12 @@ where
 
     fn transformer(&self) -> &Transformer {
         &self.transformer
+    }
+
+    #[maybe_async]
+    async fn set_timeout(&self, timeout: Option<Duration>) -> crate::Result<()> {
+        *self.timeout.write().await? = timeout;
+        Ok(())
     }
 }
 

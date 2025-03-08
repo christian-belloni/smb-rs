@@ -1,7 +1,7 @@
 use crate::connection::netbios_client::NetBiosClient;
 use crate::sync_helpers::*;
 use maybe_async::*;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::{msg_handler::IncomingMessage, packets::netbios::NetBiosTcpMessage};
 
@@ -32,7 +32,10 @@ pub trait MultiWorkerBackend {
         mpsc::Receiver<Self::SendMessage>,
     );
 
-    async fn wait_on_waiter(waiter: Self::AwaitingWaiter) -> crate::Result<IncomingMessage>;
+    async fn wait_on_waiter(
+        waiter: Self::AwaitingWaiter,
+        timeout: Option<Duration>,
+    ) -> crate::Result<IncomingMessage>;
     fn send_notify(
         tx: Self::AwaitingNotifier,
         msg: crate::Result<IncomingMessage>,
