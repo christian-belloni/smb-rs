@@ -9,14 +9,12 @@ use binrw::prelude::*;
 use maybe_async::*;
 use std::{collections::HashMap, io::Cursor, sync::Arc};
 
-use super::{
-    negotiation_state::NegotiateState,
-    preauth_hash::{PreauthHashState, PreauthHashValue},
-};
+use super::negotiation_state::ConnectionInfo;
+use super::preauth_hash::{PreauthHashState, PreauthHashValue};
 
 /// This struct is tranforming messages to plain, parsed SMB2,
 /// including (en|de)cryption, (de)compression, and signing/verifying.
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Transformer {
     /// Sessions opened from this connection.
     sessions: Mutex<HashMap<u64, Arc<Mutex<SessionState>>>>,
@@ -38,7 +36,7 @@ impl Transformer {
     /// When the connection is negotiated, this function is called to set up additional transformers,
     /// according to the allowed in the negotiation state.
     #[maybe_async]
-    pub async fn negotiated(&self, neg_state: &NegotiateState) -> crate::Result<()> {
+    pub async fn negotiated(&self, neg_info: &ConnectionInfo) -> crate::Result<()> {
         {
             let config = self.config.read().await?;
             if config.negotiated {
@@ -49,15 +47,21 @@ impl Transformer {
         }
 
         let mut config = self.config.write().await?;
+        if neg_info.dialect.supports_compression() {
+            let compress = match &neg_info.state.compression {
+                Some(compression) => {
+                    Some((Compressor::new(compression), Decompressor::new(compression)))
+                }
+                None => None,
+            };
+            config.compress = compress;
+        }
 
-        let compress = match &neg_state.compression {
-            Some(compression) => {
-                Some((Compressor::new(compression), Decompressor::new(compression)))
-            }
-            None => None,
-        };
-        config.compress = compress;
         config.negotiated = true;
+
+        if !neg_info.dialect.preauth_hash_supported() {
+            *self.preauth_hash.lock().await? = None;
+        }
 
         Ok(())
     }
@@ -112,9 +116,9 @@ impl Transformer {
         if matches!(*pa_hash, Some(PreauthHashState::Finished(_))) {
             return Ok(());
         }
-        // Initialize the hash if it's not initialized.
+        // Do not touch if not set at all.
         if pa_hash.is_none() {
-            *pa_hash = Some(PreauthHashState::default());
+            return Ok(());
         }
         // Otherwise, update the hash!
         *pa_hash = pa_hash.take().unwrap().next(&raw).into();
@@ -122,24 +126,22 @@ impl Transformer {
     }
 
     /// Finalizes the preauth hash, if it's not already finalized, and returns the value.
+    /// If the hash is not supported, returns None.
     #[maybe_async]
-    pub async fn finalize_preauth_hash(&self) -> crate::Result<PreauthHashValue> {
+    pub async fn finalize_preauth_hash(&self) -> crate::Result<Option<PreauthHashValue>> {
         // TODO: Move into preauth hash structure.
-
         let mut pa_hash = self.preauth_hash.lock().await?;
         if let Some(PreauthHashState::Finished(hash)) = &*pa_hash {
-            return Ok(hash.clone());
+            return Ok(Some(hash.clone()));
         }
-        *pa_hash = pa_hash
-            .take()
-            .ok_or(crate::Error::InvalidState(
-                "Preauth hash not initialized!".to_string(),
-            ))?
-            .finish()
-            .into();
+
+        *pa_hash = match pa_hash.take() {
+            Some(pah) => pah.finish().into(),
+            _ => return Ok(None),
+        };
 
         match &*pa_hash {
-            Some(PreauthHashState::Finished(hash)) => Ok(hash.clone()),
+            Some(PreauthHashState::Finished(hash)) => Ok(Some(hash.clone())),
             _ => panic!("Preauth hash not finished!"),
         }
     }
@@ -214,7 +216,7 @@ impl Transformer {
                         outgoing: true,
                         phase: TranformPhase::EncryptDecrypt,
                         session_id: Some(set_session_id),
-                        why: "Message is encrypted, but no encryptor is set up!",
+                        why: "Message is required to be encrypted, but no encryptor is set up!",
                         msg_id: Some(msg.message.header.message_id),
                     }));
                 }
@@ -349,6 +351,17 @@ impl Transformer {
                 why: "Message is signed, but no verifier is set up!",
                 msg_id: Some(message.header.message_id),
             }))
+        }
+    }
+}
+
+impl Default for Transformer {
+    fn default() -> Self {
+        Self {
+            sessions: Default::default(),
+            config: Default::default(),
+            // if not supported, will be set to None post-negotiation.
+            preauth_hash: Mutex::new(Some(PreauthHashState::default())),
         }
     }
 }

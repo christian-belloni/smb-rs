@@ -192,7 +192,7 @@ where
         let message = { self.transformer.transform_outgoing(msg).await? };
 
         let hash = match finalize_preauth_hash {
-            true => Some(self.transformer.finalize_preauth_hash().await?),
+            true => self.transformer.finalize_preauth_hash().await?,
             false => None,
         };
 

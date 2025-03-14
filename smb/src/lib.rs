@@ -18,6 +18,7 @@ compile_error!(
 pub mod compression;
 pub mod connection;
 pub mod crypto;
+pub mod dialects;
 pub mod error;
 pub mod msg_handler;
 pub mod packets;
@@ -25,7 +26,7 @@ pub mod resource;
 pub mod session;
 pub mod tree;
 
-pub use connection::Connection;
+pub use connection::{Connection, ConnectionConfig};
 pub use error::Error;
 
 type Result<T> = std::result::Result<T, crate::Error>;

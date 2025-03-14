@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
+use crate::dialects::DialectImpl;
 use crate::sync_helpers::*;
 use maybe_async::*;
 
-use crate::connection::negotiation_state::NegotiateState;
+use crate::connection::negotiation_state::ConnectionInfo;
 use crate::connection::preauth_hash::PreauthHashValue;
 use crate::crypto::{
     kbkdf_hmacsha256, make_encrypting_algo, make_signing_algo, CryptoError, DerivedKey, KeyToDerive,
@@ -29,85 +30,138 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub const SIGNING_KEY_LABEL: &[u8] = b"SMBSigningKey\x00";
-    pub const S2C_DECRYPTION_KEY_LABEL: &[u8] = b"SMBS2CCipherKey\x00";
-    pub const C2S_ENCRYPTION_KEY_LABEL: &[u8] = b"SMBC2SCipherKey\x00";
+    pub const NO_PREAUTH_HASH_DERIVE_SIGN_CTX: &[u8] = b"SmbSign\x00";
+    pub const NO_PREAUTH_HASH_DERIVE_ECRNYPT_S2C_CTX: &[u8] = b"ServerOut\x00";
+    pub const NO_PREAUTH_HASH_DERIVE_ENCRYPT_C2S_CTX: &[u8] = b"ServerIn \x00";
 
     #[maybe_async]
     pub async fn set(
         state: &mut Arc<Mutex<Self>>,
         session_key: &KeyToDerive,
-        preauth_hash: &PreauthHashValue,
-        negotation_state: &NegotiateState,
+        preauth_hash: &Option<PreauthHashValue>,
+        info: &ConnectionInfo,
     ) -> crate::Result<()> {
-        let deriver = KeyDeriver::new(session_key, preauth_hash);
+        if (info.state.dialect_rev == Dialect::Smb0311) != preauth_hash.is_some() {
+            return Err(crate::Error::InvalidMessage(
+                "Preauth hash must be present for SMB3.1.1, and not present for SMB3.0.2 or older revisions."
+                    .to_string(),
+            ));
+        }
 
-        let signer = if let Some(signing_algo) = negotation_state.signing_algo() {
-            Self::make_signer(&deriver, signing_algo)?
-        } else {
-            // Defaults to HMAC-SHA256 for SMB3.1.1, AES-CMAC for SMB3.1
-            Self::make_signer(
-                &deriver,
-                match negotation_state.selected_dialect {
-                    Dialect::Smb0311 => SigningAlgorithmId::AesCmac,
-                    _ => SigningAlgorithmId::HmacSha256,
-                },
-            )?
-        };
+        let deriver = KeyDeriver::new(session_key);
 
-        let (dec, enc) = if let Some(cipher) = negotation_state.cipher() {
-            (
-                Some(Self::make_decryptor(&deriver, cipher)?),
-                Some(Self::make_encryptor(&deriver, cipher)?),
-            )
+        let signer = Self::make_signer(
+            &deriver,
+            info.state.signing_algo(),
+            &info.dialect,
+            preauth_hash,
+        )?;
+
+        let (enc, dec) = if let Some((e, d)) = Self::make_cipher_pair(&deriver, info, preauth_hash)?
+        {
+            (Some(e), Some(d))
         } else {
+            if info.config.encryption_mode.is_required() {
+                return Err(crate::Error::InvalidMessage(
+                    "Encryption is required, seems to be unsupported by the server with current config.".to_string(),
+                ));
+            };
             (None, None)
         };
 
-        let mut state = state.lock().await?;
-        state.signer = Some(signer);
-        state.decryptor = dec;
-        state.encryptor = enc;
+        {
+            let mut state = state.lock().await?;
+            state.signer = Some(signer);
+            state.decryptor = dec;
+            state.encryptor = enc;
+            log::trace!("Session state set up: {:?}", state);
+        }
 
         Ok(())
     }
 
     fn make_signer(
         deriver: &KeyDeriver,
-        signing_algo: SigningAlgorithmId,
+        signing_algo: Option<SigningAlgorithmId>,
+        dialect: &Arc<dyn DialectImpl>,
+        preauth_hash: &Option<PreauthHashValue>,
     ) -> Result<MessageSigner, CryptoError> {
-        let signing_key = deriver.derive(Self::SIGNING_KEY_LABEL)?;
+        let signing_key = deriver.derive(
+            dialect.get_signing_nonce(),
+            Self::preauth_hash_or(preauth_hash, Self::NO_PREAUTH_HASH_DERIVE_SIGN_CTX),
+        )?;
+        let signing_algo = match signing_algo {
+            Some(a) => a,
+            None => dialect.default_signing_algo(),
+        };
         Ok(MessageSigner::new(make_signing_algo(
-            dbg!(signing_algo),
+            signing_algo,
             &signing_key,
         )?))
     }
 
-    fn make_encryptor(
+    fn make_cipher_pair(
         deriver: &KeyDeriver,
-        cipher: EncryptionCipher,
-    ) -> Result<MessageEncryptor, CryptoError> {
-        let c2s_encryption_key = deriver.derive(Self::C2S_ENCRYPTION_KEY_LABEL)?;
-        Ok(MessageEncryptor::new(make_encrypting_algo(
-            cipher,
-            &c2s_encryption_key,
-        )?))
+        info: &ConnectionInfo,
+        preauth_hash: &Option<PreauthHashValue>,
+    ) -> Result<Option<(MessageEncryptor, MessageDecryptor)>, CryptoError> {
+        // Not supported
+        if !info.dialect.supports_encryption() {
+            return Ok(None);
+        }
+        // Disabled in config
+        if info.config.encryption_mode.is_disabled() {
+            return Ok(None);
+        }
+        // Cipher is selected only for SMB3.1.1
+        debug_assert_eq!(
+            (info.state.dialect_rev == Dialect::Smb0311),
+            info.state.cipher().is_some()
+        );
+        // Use AES-128-CCM by default.
+        let cipher = match info.state.cipher() {
+            Some(c) => c,
+            None => EncryptionCipher::Aes128Ccm,
+        };
+
+        // Make the keys.
+        let enc_key = deriver.derive(
+            info.dialect.c2s_encryption_key_label(),
+            Self::preauth_hash_or(preauth_hash, Self::NO_PREAUTH_HASH_DERIVE_ENCRYPT_C2S_CTX),
+        )?;
+        let dec_key = deriver.derive(
+            info.dialect.s2c_encryption_key_label(),
+            Self::preauth_hash_or(preauth_hash, Self::NO_PREAUTH_HASH_DERIVE_ECRNYPT_S2C_CTX),
+        )?;
+
+        Ok(Some((
+            MessageEncryptor::new(make_encrypting_algo(cipher, &enc_key)?),
+            MessageDecryptor::new(make_encrypting_algo(cipher, &dec_key)?),
+        )))
     }
 
-    fn make_decryptor(
-        deriver: &KeyDeriver,
-        cipher: EncryptionCipher,
-    ) -> Result<MessageDecryptor, CryptoError> {
-        let s2c_decryption_key = deriver.derive(Self::S2C_DECRYPTION_KEY_LABEL)?;
-
-        Ok(MessageDecryptor::new(make_encrypting_algo(
-            cipher,
-            &s2c_decryption_key,
-        )?))
+    fn preauth_hash_or<'a>(
+        preauth_hash: &'a Option<PreauthHashValue>,
+        else_val: &'a [u8],
+    ) -> &'a [u8] {
+        preauth_hash
+            .as_ref()
+            .map(|h| h.as_ref())
+            .unwrap_or(else_val)
     }
 
     #[maybe_async]
-    pub async fn set_flags(state: &mut Arc<Mutex<Self>>, flags: SessionFlags) -> crate::Result<()> {
+    pub async fn set_flags(
+        state: &mut Arc<Mutex<Self>>,
+        flags: SessionFlags,
+        conn_info: &ConnectionInfo,
+    ) -> crate::Result<()> {
+        if conn_info.config.encryption_mode.is_required() && !flags.encrypt_data() {
+            return Err(crate::Error::InvalidMessage(
+                "Encryption is required, but not enabled for this session by the server."
+                    .to_string(),
+            ));
+        }
         state.lock().await?.flags = flags;
         Ok(())
     }
@@ -155,21 +209,17 @@ impl SessionState {
 /// A helper struct for deriving SMB2 keys from a session key and preauth hash.
 struct KeyDeriver<'a> {
     session_key: &'a KeyToDerive,
-    preauth_hash: &'a PreauthHashValue,
 }
 
 impl<'a> KeyDeriver<'a> {
     #[inline]
-    pub fn new(session_key: &'a KeyToDerive, preauth_hash: &'a PreauthHashValue) -> Self {
-        Self {
-            session_key,
-            preauth_hash,
-        }
+    pub fn new(session_key: &'a KeyToDerive) -> Self {
+        Self { session_key }
     }
 
     #[inline]
-    pub fn derive(&self, label: &[u8]) -> Result<DerivedKey, CryptoError> {
-        kbkdf_hmacsha256::<16>(self.session_key, label, self.preauth_hash)
+    pub fn derive(&self, label: &[u8], context: &'a [u8]) -> Result<DerivedKey, CryptoError> {
+        kbkdf_hmacsha256::<16>(self.session_key, label, context)
     }
 }
 
@@ -187,7 +237,7 @@ impl Default for SessionState {
 
 #[cfg(test)]
 mod tests {
-    use super::{KeyDeriver, SessionState};
+    use super::KeyDeriver;
 
     static SESSION_KEY: [u8; 16] = [
         0xDA, 0x90, 0xB1, 0xDF, 0x80, 0x5C, 0x34, 0x9F, 0x88, 0x86, 0xBA, 0x02, 0x9E, 0xA4, 0x5C,
@@ -209,8 +259,8 @@ mod tests {
 
     #[test]
     pub fn test_key_deriver() {
-        let d = KeyDeriver::new(&SESSION_KEY, &PREAUTH_HASH);
-        let k = d.derive(SessionState::SIGNING_KEY_LABEL).unwrap();
+        let d = KeyDeriver::new(&SESSION_KEY);
+        let k = d.derive(b"SMBSigningKey\x00", &PREAUTH_HASH).unwrap();
         assert_eq!(k, SIGNING_KEY);
     }
 }
