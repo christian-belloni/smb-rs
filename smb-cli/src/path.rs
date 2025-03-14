@@ -1,7 +1,11 @@
 use crate::cli::Cli;
 use maybe_async::*;
 use smb::{
-    connection::Connection, packets::smb2::*, resource::Resource, session::Session, tree::Tree,
+    connection::{Connection, EncryptionMode},
+    packets::smb2::*,
+    resource::Resource,
+    session::Session,
+    tree::Tree,
     ConnectionConfig,
 };
 use std::{error::Error, str::FromStr};
@@ -19,7 +23,11 @@ impl UncPath {
         &self,
         cli: &Cli,
     ) -> Result<(Connection, Session, Tree, Option<Resource>), Box<dyn Error>> {
-        let mut smb = Connection::new(ConnectionConfig::default());
+        let mut smb = Connection::build(ConnectionConfig {
+            max_dialect: Some(Dialect::MAX),
+            encryption_mode: EncryptionMode::Allowed,
+            ..Default::default()
+        })?;
         smb.set_timeout(Some(std::time::Duration::from_secs(10)))
             .await?;
         smb.connect(format!("{}:{}", self.server, cli.port).as_str())

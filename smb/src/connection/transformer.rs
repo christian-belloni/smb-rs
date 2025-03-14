@@ -9,7 +9,7 @@ use binrw::prelude::*;
 use maybe_async::*;
 use std::{collections::HashMap, io::Cursor, sync::Arc};
 
-use super::negotiation_state::NegotiateInfo;
+use super::negotiation_state::ConnectionInfo;
 use super::preauth_hash::{PreauthHashState, PreauthHashValue};
 
 /// This struct is tranforming messages to plain, parsed SMB2,
@@ -36,7 +36,7 @@ impl Transformer {
     /// When the connection is negotiated, this function is called to set up additional transformers,
     /// according to the allowed in the negotiation state.
     #[maybe_async]
-    pub async fn negotiated(&self, neg_info: &NegotiateInfo) -> crate::Result<()> {
+    pub async fn negotiated(&self, neg_info: &ConnectionInfo) -> crate::Result<()> {
         {
             let config = self.config.read().await?;
             if config.negotiated {
@@ -216,7 +216,7 @@ impl Transformer {
                         outgoing: true,
                         phase: TranformPhase::EncryptDecrypt,
                         session_id: Some(set_session_id),
-                        why: "Message is encrypted, but no encryptor is set up!",
+                        why: "Message is required to be encrypted, but no encryptor is set up!",
                         msg_id: Some(msg.message.header.message_id),
                     }));
                 }

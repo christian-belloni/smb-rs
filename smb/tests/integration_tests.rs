@@ -1,6 +1,7 @@
 use log::info;
 use serial_test::serial;
 use smb::{
+    connection::EncryptionMode,
     packets::smb2::{CreateDisposition, Dialect, FileAccessMask},
     Connection, ConnectionConfig,
 };
@@ -29,13 +30,31 @@ parametrize_dialect!(Smb0302, Smb0311);
 pub async fn test_smb_integration_basic(
     force_dialect: Dialect,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use smb::packets::smb2::FileDispositionInformation;
+    for encryption_mode in &[EncryptionMode::Required, EncryptionMode::Disabled] {
+        info!("Testing with encryption mode: {:?}", encryption_mode);
+        test_smb_integration_basic_with_encryption(force_dialect, *encryption_mode).await?;
+    }
+    Ok(())
+}
 
-    let mut smb = Connection::new(ConnectionConfig {
+#[maybe_async::maybe_async]
+async fn test_smb_integration_basic_with_encryption(
+    force_dialect: Dialect,
+    encryption_mode: EncryptionMode,
+) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!(
+        "Testing with dialect: {:?}, enc? {:?}",
+        force_dialect,
+        encryption_mode
+    );
+
+    use smb::packets::smb2::FileDispositionInformation;
+    let mut smb = Connection::build(ConnectionConfig {
         min_dialect: Some(force_dialect),
         max_dialect: Some(force_dialect),
+        encryption_mode,
         ..Default::default()
-    });
+    })?;
     smb.set_timeout(Some(std::time::Duration::from_secs(10)))
         .await?;
     // Default to localhost, LocalAdmin, 123456

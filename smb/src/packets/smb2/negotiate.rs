@@ -73,23 +73,14 @@ impl NegotiateRequest {
     pub fn new(
         client_netname: String,
         client_guid: Guid,
-        min_dialect: Option<Dialect>,
-        max_dialect: Option<Dialect>,
+        supported_dialects: Vec<Dialect>,
         signing_algorithms: Vec<SigningAlgorithmId>,
         encrypting_algorithms: Vec<EncryptionCipher>,
         compression_algorithms: Vec<CompressionAlgorithm>,
     ) -> NegotiateRequest {
         let mut caps = GlobalCapabilities::new();
         let mut security_mode = NegotiateSecurityMode::new();
-        let max_dialect = max_dialect.unwrap_or(Dialect::MAX);
-        let min_dialect = min_dialect.unwrap_or(Dialect::MIN);
-        let supported_dialects: Vec<Dialect> = Dialect::ALL
-            .iter()
-            .filter(|dialect| **dialect >= min_dialect && **dialect <= max_dialect)
-            .copied()
-            .collect();
-
-        if supported_dialects.contains(&Dialect::Smb0302) && signing_algorithms.len() > 0 {
+        if signing_algorithms.len() > 0 {
             caps.set_encryption(true);
         }
 

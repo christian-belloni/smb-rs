@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use crate::{
-    connection::{negotiation_state::NegotiateState, preauth_hash},
+    connection::{negotiation_state::NegotiatedProperties, preauth_hash},
     crypto,
     packets::smb2::{
         CompressionCaps, Dialect, GlobalCapabilities, NegotiateResponse, SigningAlgorithmId,
     },
-    Error,
+    ConnectionConfig, Error,
 };
 
 pub trait DialectImpl: std::fmt::Debug + Send + Sync {
@@ -17,7 +17,8 @@ pub trait DialectImpl: std::fmt::Debug + Send + Sync {
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
-        state: &mut NegotiateState,
+        state: &mut NegotiatedProperties,
+        config: &ConnectionConfig,
     ) -> crate::Result<()>;
 
     fn get_signing_nonce(&self) -> &[u8];
@@ -33,6 +34,8 @@ pub trait DialectImpl: std::fmt::Debug + Send + Sync {
     fn supports_encryption(&self) -> bool {
         false
     }
+    fn s2c_encryption_key_label(&self) -> &[u8];
+    fn c2s_encryption_key_label(&self) -> &[u8];
 }
 
 /// Get the dialect implementation for the given dialect.
@@ -55,7 +58,8 @@ impl DialectImpl for Smb0311Dialect {
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
-        state: &mut NegotiateState,
+        state: &mut NegotiatedProperties,
+        config: &ConnectionConfig,
     ) -> crate::Result<()> {
         if let None = response.negotiate_context_list {
             return Err(Error::InvalidMessage(
@@ -91,6 +95,10 @@ impl DialectImpl for Smb0311Dialect {
                     "Unsupported encryption algorithm received".into(),
                 ));
             }
+        } else if config.encryption_mode.is_required() {
+            return Err(Error::NegotiationError(
+                "Encryption is required, but no algorithms provided by the server".into(),
+            ));
         }
 
         let compression: Option<CompressionCaps> = match response.get_ctx_compression() {
@@ -135,7 +143,15 @@ impl DialectImpl for Smb0311Dialect {
     fn supports_encryption(&self) -> bool {
         true
     }
+    fn s2c_encryption_key_label(&self) -> &[u8] {
+        b"SMBS2CCipherKey\x00"
+    }
+    fn c2s_encryption_key_label(&self) -> &[u8] {
+        b"SMBC2SCipherKey\x00"
+    }
 }
+
+const SMB2_ENCRYPTION_KEY_LABEL: &[u8] = b"SMB2AESCCM\x00";
 
 #[derive(Debug)]
 struct Smb302Dialect;
@@ -148,11 +164,18 @@ impl DialectImpl for Smb302Dialect {
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
-        _state: &mut NegotiateState,
+        _state: &mut NegotiatedProperties,
+        config: &ConnectionConfig,
     ) -> crate::Result<()> {
         if response.negotiate_context_list.is_some() {
             return Err(Error::InvalidMessage(
                 "Negotiate context list not expected".to_string(),
+            ));
+        }
+
+        if config.encryption_mode.is_required() && !response.capabilities.encryption() {
+            return Err(Error::NegotiationError(
+                "Encryption is required, but cap not supported by the server.".into(),
             ));
         }
 
@@ -185,5 +208,13 @@ impl DialectImpl for Smb302Dialect {
 
     fn supports_encryption(&self) -> bool {
         true
+    }
+
+    fn s2c_encryption_key_label(&self) -> &[u8] {
+        SMB2_ENCRYPTION_KEY_LABEL
+    }
+
+    fn c2s_encryption_key_label(&self) -> &[u8] {
+        SMB2_ENCRYPTION_KEY_LABEL
     }
 }

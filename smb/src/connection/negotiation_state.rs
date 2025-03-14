@@ -5,8 +5,10 @@ use crate::packets::guid::Guid;
 use crate::packets::smb2::*;
 use binrw::prelude::*;
 
+use super::ConnectionConfig;
+
 #[derive(Debug)]
-pub struct NegotiateState {
+pub struct NegotiatedProperties {
     pub server_guid: Guid,
 
     pub caps: GlobalCapabilities,
@@ -24,7 +26,7 @@ pub struct NegotiateState {
     pub dialect_rev: Dialect,
 }
 
-impl NegotiateState {
+impl NegotiatedProperties {
     pub fn gss_token(&self) -> &[u8] {
         &self.gss_token
     }
@@ -39,7 +41,8 @@ impl NegotiateState {
 }
 
 #[derive(Debug)]
-pub struct NegotiateInfo {
-    pub state: NegotiateState,
+pub struct ConnectionInfo {
+    pub state: NegotiatedProperties,
     pub dialect: Arc<dyn DialectImpl>,
+    pub config: ConnectionConfig,
 }

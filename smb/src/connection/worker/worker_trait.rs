@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{connection::negotiation_state::NegotiateInfo, sync_helpers::*};
+use crate::{connection::negotiation_state::ConnectionInfo, sync_helpers::*};
 
 use maybe_async::*;
 
@@ -38,7 +38,7 @@ pub trait Worker: Sized + std::fmt::Debug {
     fn transformer(&self) -> &Transformer;
 
     #[maybe_async]
-    async fn negotaite_complete(&self, neg: &NegotiateInfo) {
+    async fn negotaite_complete(&self, neg: &ConnectionInfo) {
         self.transformer().negotiated(neg).await.unwrap();
     }
 

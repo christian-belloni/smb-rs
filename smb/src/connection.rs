@@ -1,3 +1,4 @@
+pub mod config;
 pub mod negotiation_state;
 pub mod netbios_client;
 pub mod preauth_hash;
@@ -20,8 +21,9 @@ use crate::{
     session::Session,
 };
 use binrw::prelude::*;
+pub use config::*;
 use maybe_async::*;
-use negotiation_state::{NegotiateInfo, NegotiateState};
+use negotiation_state::{ConnectionInfo, NegotiatedProperties};
 use netbios_client::NetBiosClient;
 use std::cmp::max;
 use std::sync::atomic::{AtomicU16, AtomicU64};
@@ -30,24 +32,18 @@ use std::time::Duration;
 pub use transformer::TransformError;
 use worker::{Worker, WorkerImpl};
 
-#[derive(Debug, Default)]
-pub struct ConnectionConfig {
-    pub timeout: Option<Duration>,
-    pub min_dialect: Option<Dialect>,
-    pub max_dialect: Option<Dialect>,
-}
-
 pub struct Connection {
     handler: HandlerReference<ConnectionMessageHandler>,
     config: ConnectionConfig,
 }
 
 impl Connection {
-    pub fn new(config: ConnectionConfig) -> Connection {
-        Connection {
+    pub fn build(config: ConnectionConfig) -> crate::Result<Connection> {
+        config.validate()?;
+        Ok(Connection {
             handler: HandlerReference::new(ConnectionMessageHandler::new()),
             config,
-        }
+        })
     }
 
     #[maybe_async]
@@ -138,6 +134,27 @@ impl Connection {
 
         log::debug!("Negotiating SMB2");
 
+        // List possible versions to run with.
+        let min_dialect = self.config.min_dialect.unwrap_or(Dialect::MIN);
+        let max_dialect = self.config.max_dialect.unwrap_or(Dialect::MAX);
+        let dialects: Vec<Dialect> = Dialect::ALL
+            .iter()
+            .filter(|dialect| **dialect >= min_dialect && **dialect <= max_dialect)
+            .copied()
+            .collect();
+
+        if dialects.is_empty() {
+            return Err(Error::InvalidConfiguration(
+                "No dialects to negotiate".to_string(),
+            ));
+        }
+
+        let encryption_algos = if !self.config.encryption_mode.is_disabled() {
+            crypto::SIGNING_ALGOS.into()
+        } else {
+            vec![]
+        };
+
         // Send SMB2 negotiate request
         let client_guid = self.handler.client_guid;
         let response = self
@@ -145,9 +162,8 @@ impl Connection {
             .send_recv(Content::NegotiateRequest(NegotiateRequest::new(
                 "AVIV-MBP".to_string(),
                 client_guid,
-                self.config.min_dialect,
-                self.config.max_dialect,
-                crypto::SIGNING_ALGOS.into(),
+                dialects.clone(),
+                encryption_algos,
                 crypto::ENCRYPTING_ALGOS.to_vec(),
                 compression::SUPPORTED_ALGORITHMS.to_vec(),
             )))
@@ -162,17 +178,15 @@ impl Connection {
         ))?;
 
         // well, only 3.1 is supported for starters.
-        if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb0311
-            && smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb0302
-        {
-            return Err(Error::UnsupportedDialect(
-                smb2_negotiate_response.dialect_revision,
+        if !dialects.contains(&smb2_negotiate_response.dialect_revision.try_into()?) {
+            return Err(Error::NegotiationError(
+                "Server selected an unsupported dialect.".into(),
             ));
         }
 
         let dialect_rev = smb2_negotiate_response.dialect_revision.try_into()?;
         let dialect_impl = get_dialect_impl(&dialect_rev);
-        let mut state = NegotiateState {
+        let mut state = NegotiatedProperties {
             server_guid: smb2_negotiate_response.server_guid,
             caps: smb2_negotiate_response.capabilities.clone(),
             max_transact_size: smb2_negotiate_response.max_transact_size,
@@ -185,7 +199,11 @@ impl Connection {
             dialect_rev,
         };
 
-        dialect_impl.process_negotiate_request(&smb2_negotiate_response, &mut state)?;
+        dialect_impl.process_negotiate_request(
+            &smb2_negotiate_response,
+            &mut state,
+            &self.config,
+        )?;
         if ((!u32::from_le_bytes(dialect_impl.get_negotiate_caps_mask().into_bytes()))
             & u32::from_le_bytes(state.caps.into_bytes()))
             != 0
@@ -203,9 +221,10 @@ impl Connection {
 
         self.handler
             .negotiate_info
-            .set(NegotiateInfo {
+            .set(ConnectionInfo {
                 state,
                 dialect: dialect_impl,
+                config: self.config.clone(),
             })
             .unwrap();
 
@@ -267,7 +286,7 @@ pub struct ConnectionMessageHandler {
     worker: OnceCell<Arc<WorkerImpl>>,
 
     // Negotiation-related state.
-    negotiate_info: OnceCell<NegotiateInfo>,
+    negotiate_info: OnceCell<ConnectionInfo>,
 
     /// Number of credits available to the client at the moment, for the next requests.
     curr_credits: Semaphore,
@@ -290,7 +309,7 @@ impl ConnectionMessageHandler {
         }
     }
 
-    pub fn negotiate_info(&self) -> Option<&NegotiateInfo> {
+    pub fn negotiate_info(&self) -> Option<&ConnectionInfo> {
         self.negotiate_info.get()
     }
 

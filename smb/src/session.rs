@@ -149,8 +149,8 @@ impl Session {
             };
         }
         log::info!("Session setup complete.");
-        // Setup is complete, session is now ready to use.
-        SessionState::set_flags(&mut self.session_state, flags.unwrap()).await?;
+        let conn_info = self.handler.upstream().negotiate_info().unwrap();
+        SessionState::set_flags(&mut self.session_state, flags.unwrap(), conn_info).await?;
         Ok(())
     }
 
@@ -161,12 +161,12 @@ impl Session {
         exchanged_session_key: &KeyToDerive,
         preauth_hash: &Option<PreauthHashValue>,
     ) -> crate::Result<()> {
-        let state = self.handler.upstream().negotiate_info().unwrap();
+        let conn_info = self.handler.upstream().negotiate_info().unwrap();
         SessionState::set(
             &mut self.session_state,
             exchanged_session_key,
             preauth_hash,
-            state,
+            conn_info,
         )
         .await?;
         log::trace!("Session signing key set.");

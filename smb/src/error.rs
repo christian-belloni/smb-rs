@@ -73,6 +73,8 @@ pub enum Error {
     UnexpectedInformationType(u8, u8),
     #[error("Invalid address {0}")]
     InvalidAddress(String),
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(String),
 }
 
 impl<T> From<PoisonError<T>> for Error {
