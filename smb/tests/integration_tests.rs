@@ -1,27 +1,41 @@
 use log::info;
+use serial_test::serial;
 use smb::{
-    packets::smb2::{CreateDisposition, FileAccessMask},
-    Connection,
+    packets::smb2::{CreateDisposition, Dialect, FileAccessMask},
+    Connection, ConnectionConfig,
 };
 use std::env::var;
 
-fn init_logger() {
-    env_logger::builder()
-        .is_test(true)
-        .filter_level(log::LevelFilter::Debug)
-        .init();
+macro_rules! parametrize_dialect {
+    ($($dialect:ident),*) => {
+        $(
+            paste::paste! {
+                #[maybe_async::test(
+                    feature = "sync",
+                    async(feature = "async", tokio::test(flavor = "multi_thread"))
+                )]
+                #[serial]
+                pub async fn [<test_smb_integration_ $dialect:lower>]() -> Result<(), Box<dyn std::error::Error>> {
+                    test_smb_integration_basic(Dialect::$dialect).await
+                }
+            }
+        )*
+    };
 }
 
-#[maybe_async::test(
-    feature = "sync",
-    async(feature = "async", tokio::test(flavor = "multi_thread"))
-)]
-pub async fn test_smb_integration_basic() -> Result<(), Box<dyn std::error::Error>> {
-    init_logger();
+parametrize_dialect!(Smb0302, Smb0311);
 
+#[maybe_async::maybe_async]
+pub async fn test_smb_integration_basic(
+    force_dialect: Dialect,
+) -> Result<(), Box<dyn std::error::Error>> {
     use smb::packets::smb2::FileDispositionInformation;
 
-    let mut smb = Connection::new();
+    let mut smb = Connection::new(ConnectionConfig {
+        min_dialect: Some(force_dialect),
+        max_dialect: Some(force_dialect),
+        ..Default::default()
+    });
     smb.set_timeout(Some(std::time::Duration::from_secs(10)))
         .await?;
     // Default to localhost, LocalAdmin, 123456

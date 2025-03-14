@@ -4,6 +4,7 @@ pub mod preauth_hash;
 pub mod transformer;
 pub mod worker;
 
+use crate::dialects::get_dialect_impl;
 use crate::packets::guid::Guid;
 use crate::packets::smb2::{Command, Message};
 use crate::Error;
@@ -20,7 +21,7 @@ use crate::{
 };
 use binrw::prelude::*;
 use maybe_async::*;
-use negotiation_state::NegotiateState;
+use negotiation_state::{NegotiateInfo, NegotiateState};
 use netbios_client::NetBiosClient;
 use std::cmp::max;
 use std::sync::atomic::{AtomicU16, AtomicU64};
@@ -29,22 +30,29 @@ use std::time::Duration;
 pub use transformer::TransformError;
 use worker::{Worker, WorkerImpl};
 
+#[derive(Debug, Default)]
+pub struct ConnectionConfig {
+    pub timeout: Option<Duration>,
+    pub min_dialect: Option<Dialect>,
+    pub max_dialect: Option<Dialect>,
+}
+
 pub struct Connection {
     handler: HandlerReference<ConnectionMessageHandler>,
-    timeout: Option<std::time::Duration>,
+    config: ConnectionConfig,
 }
 
 impl Connection {
-    pub fn new() -> Connection {
+    pub fn new(config: ConnectionConfig) -> Connection {
         Connection {
             handler: HandlerReference::new(ConnectionMessageHandler::new()),
-            timeout: None,
+            config,
         }
     }
 
     #[maybe_async]
     pub async fn set_timeout(&mut self, timeout: Option<Duration>) -> crate::Result<()> {
-        self.timeout = timeout;
+        self.config.timeout = timeout;
         if let Some(worker) = self.handler.worker.get() {
             worker.set_timeout(timeout).await?;
         }
@@ -53,7 +61,7 @@ impl Connection {
 
     #[maybe_async]
     pub async fn connect(&mut self, address: &str) -> crate::Result<()> {
-        let mut netbios_client = NetBiosClient::new(self.timeout);
+        let mut netbios_client = NetBiosClient::new(self.config.timeout);
 
         log::debug!("Connecting to {}...", address);
         netbios_client.connect(address).await?;
@@ -118,13 +126,13 @@ impl Connection {
             }
         }
 
-        Ok(WorkerImpl::start(netbios_client, self.timeout).await?)
+        Ok(WorkerImpl::start(netbios_client, self.config.timeout).await?)
     }
 
     #[maybe_async]
     async fn negotiate_smb2(&mut self) -> crate::Result<()> {
         // Confirm that we're not already negotiated.
-        if self.handler.negotiate_state().is_some() {
+        if self.handler.negotiate_info().is_some() {
             return Err(Error::InvalidState("Already negotiated".into()));
         }
 
@@ -137,6 +145,8 @@ impl Connection {
             .send_recv(Content::NegotiateRequest(NegotiateRequest::new(
                 "AVIV-MBP".to_string(),
                 client_guid,
+                self.config.min_dialect,
+                self.config.max_dialect,
                 crypto::SIGNING_ALGOS.into(),
                 crypto::ENCRYPTING_ALGOS.to_vec(),
                 compression::SUPPORTED_ALGORITHMS.to_vec(),
@@ -152,72 +162,52 @@ impl Connection {
         ))?;
 
         // well, only 3.1 is supported for starters.
-        if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb0311 {
+        if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb0311
+            && smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb0302
+        {
             return Err(Error::UnsupportedDialect(
                 smb2_negotiate_response.dialect_revision,
             ));
         }
 
-        if let None = smb2_negotiate_response.negotiate_context_list {
-            return Err(Error::InvalidMessage(
-                "Expected negotiate context list".to_string(),
-            ));
-        }
-
-        let signing_algo = if let Some(signing_algo) = smb2_negotiate_response.get_signing_algo() {
-            if !crypto::SIGNING_ALGOS.contains(&signing_algo) {
-                return Err(Error::NegotiationError(
-                    "Unsupported signing algorithm selected!".into(),
-                ));
-            }
-            Some(signing_algo)
-        } else {
-            None
-        };
-
-        // Make sure preauth integrity capability is SHA-512, if it exists in response:
-        if let Some(algo) = smb2_negotiate_response.get_preauth_integrity_algo() {
-            if !preauth_hash::SUPPORTED_ALGOS.contains(&algo) {
-                return Err(Error::NegotiationError(
-                    "Unsupported preauth integrity algorithm received".into(),
-                ));
-            }
-        }
-
-        // And verify that the encryption algorithm is supported.
-        let encryption_cipher = smb2_negotiate_response.get_encryption_cipher();
-        if let Some(encryption_cipher) = &encryption_cipher {
-            if !crypto::ENCRYPTING_ALGOS.contains(&encryption_cipher) {
-                return Err(Error::NegotiationError(
-                    "Unsupported encryption algorithm received".into(),
-                ));
-            }
-        }
-
-        let compression: Option<CompressionCaps> = match smb2_negotiate_response.get_compression() {
-            Some(compression) => Some(compression.clone()),
-            None => None,
-        };
-
-        let negotiate_state = NegotiateState {
+        let dialect_rev = smb2_negotiate_response.dialect_revision.try_into()?;
+        let dialect_impl = get_dialect_impl(&dialect_rev);
+        let mut state = NegotiateState {
             server_guid: smb2_negotiate_response.server_guid,
-            global_caps: smb2_negotiate_response.capabilities.clone(),
+            caps: smb2_negotiate_response.capabilities.clone(),
             max_transact_size: smb2_negotiate_response.max_transact_size,
             max_read_size: smb2_negotiate_response.max_read_size,
             max_write_size: smb2_negotiate_response.max_write_size,
-            gss_token: smb2_negotiate_response.buffer,
-            selected_dialect: smb2_negotiate_response.dialect_revision.try_into()?,
-            signing_algo,
-            encryption_cipher,
-            compression,
+            gss_token: smb2_negotiate_response.buffer.clone(),
+            signing_algo: None,
+            encryption_cipher: None,
+            compression: None,
+            dialect_rev,
         };
+
+        dialect_impl.process_negotiate_request(&smb2_negotiate_response, &mut state)?;
+        if ((!u32::from_le_bytes(dialect_impl.get_negotiate_caps_mask().into_bytes()))
+            & u32::from_le_bytes(state.caps.into_bytes()))
+            != 0
+        {
+            return Err(Error::NegotiationError(
+                "Server capabilities are invalid for the selected dialect.".into(),
+            ));
+        }
+
         log::trace!(
             "Negotiated SMB results: dialect={:?}, state={:?}",
-            negotiate_state.selected_dialect,
-            &negotiate_state
+            dialect_rev,
+            &state
         );
 
-        self.handler.negotiate_state.set(negotiate_state).unwrap();
+        self.handler
+            .negotiate_info
+            .set(NegotiateInfo {
+                state,
+                dialect: dialect_impl,
+            })
+            .unwrap();
 
         Ok(())
     }
@@ -229,7 +219,7 @@ impl Connection {
         netbios_client: NetBiosClient,
         multi_protocol: bool,
     ) -> crate::Result<()> {
-        if self.handler.negotiate_state().is_some() {
+        if self.handler.negotiate_info().is_some() {
             return Err(Error::InvalidState("Already negotiated".into()));
         }
 
@@ -247,7 +237,7 @@ impl Connection {
             .get()
             .ok_or("Worker is uninitialized")
             .unwrap()
-            .negotaite_complete(&self.handler.negotiate_state().unwrap())
+            .negotaite_complete(&self.handler.negotiate_info().unwrap())
             .await;
         log::info!("Negotiation successful");
         Ok(())
@@ -277,7 +267,7 @@ pub struct ConnectionMessageHandler {
     worker: OnceCell<Arc<WorkerImpl>>,
 
     // Negotiation-related state.
-    negotiate_state: OnceCell<NegotiateState>,
+    negotiate_info: OnceCell<NegotiateInfo>,
 
     /// Number of credits available to the client at the moment, for the next requests.
     curr_credits: Semaphore,
@@ -292,7 +282,7 @@ impl ConnectionMessageHandler {
         ConnectionMessageHandler {
             client_guid: Guid::gen(),
             worker: OnceCell::new(),
-            negotiate_state: OnceCell::new(),
+            negotiate_info: OnceCell::new(),
             extra_credits_to_request: 4,
             curr_credits: Semaphore::new(1),
             curr_msg_id: AtomicU64::new(1),
@@ -300,8 +290,8 @@ impl ConnectionMessageHandler {
         }
     }
 
-    pub fn negotiate_state(&self) -> Option<&NegotiateState> {
-        self.negotiate_state.get()
+    pub fn negotiate_info(&self) -> Option<&NegotiateInfo> {
+        self.negotiate_info.get()
     }
 
     pub fn worker(&self) -> Option<&Arc<WorkerImpl>> {
@@ -319,8 +309,8 @@ impl ConnectionMessageHandler {
 
     #[maybe_async]
     async fn process_sequence_outgoing(&self, msg: &mut OutgoingMessage) -> crate::Result<()> {
-        if let Some(neg) = self.negotiate_state() {
-            if neg.selected_dialect > Dialect::Smb0202 && neg.global_caps.large_mtu() {
+        if let Some(neg) = self.negotiate_info() {
+            if neg.state.dialect_rev > Dialect::Smb0202 && neg.state.caps.large_mtu() {
                 // Calculate the cost of the message (charge).
                 let cost = if Self::SET_CREDIT_CHARGE_CMDS
                     .iter()
@@ -370,8 +360,8 @@ impl ConnectionMessageHandler {
 
     #[maybe_async]
     async fn process_sequence_incoming(&self, msg: &IncomingMessage) -> crate::Result<()> {
-        if let Some(neg) = self.negotiate_state() {
-            if neg.selected_dialect > Dialect::Smb0202 && neg.global_caps.large_mtu() {
+        if let Some(neg) = self.negotiate_info() {
+            if neg.state.dialect_rev > Dialect::Smb0202 && neg.state.caps.large_mtu() {
                 let granted_credits = msg.message.header.credit_request;
                 let charged_credits = msg.message.header.credit_charge;
                 // Update the pool size - return how many EXTRA credits were granted.
@@ -400,8 +390,8 @@ impl MessageHandler for ConnectionMessageHandler {
     #[maybe_async]
     async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         // TODO: Add assertion in the struct regarding the selected dialect!
-        let priority_value = match self.negotiate_state.get() {
-            Some(negotiate_state) => match negotiate_state.selected_dialect {
+        let priority_value = match self.negotiate_info.get() {
+            Some(neg_info) => match neg_info.state.dialect_rev {
                 Dialect::Smb0311 => 1,
                 _ => 0,
             },

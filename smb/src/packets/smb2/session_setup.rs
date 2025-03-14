@@ -52,10 +52,10 @@ pub struct NegotiateCapabilities {
 }
 
 impl SessionSetupRequest {
-    pub fn new(buffer: Vec<u8>) -> SessionSetupRequest {
+    pub fn new(buffer: Vec<u8>, security_mode: SessionSecurityMode) -> SessionSetupRequest {
         SessionSetupRequest {
             flags: SetupRequestFlags::new(),
-            security_mode: SessionSecurityMode::new().with_signing_enabled(true),
+            security_mode,
             capabilities: NegotiateCapabilities::new().with_dfs(true),
             channel: 0,
             previous_session_id: 0,
@@ -131,6 +131,7 @@ mod tests {
                 0x56, 0x49, 0x56, 0x56, 0x4d, 0x57, 0x4f, 0x52, 0x4b, 0x47, 0x52, 0x4f, 0x55, 0x50,
             ]
             .to_vec(),
+            SessionSecurityMode::new().with_signing_enabled(true),
         )));
 
         assert_eq!(

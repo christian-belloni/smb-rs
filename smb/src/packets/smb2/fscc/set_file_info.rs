@@ -27,12 +27,18 @@ file_info_classes! {
     }, Write
 }
 
-/// This is a wrapper around `FileFullEaInformationCommon` to implement `BinWrite` WITH NO ARGUMENTS for it.
-/// This should ONLY be used when WRITING FOR SINGLE FILE INFRORMATION ENTRY!
+// This is a wrapper around `FileFullEaInformationCommon` to implement `BinWrite` WITH NO ARGUMENTS for it.
+// This should ONLY be used when WRITING FOR SINGLE FILE INFRORMATION ENTRY!
+/// A [FileFullEaInformation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/0eb94f48-6aac-41df-a878-79f4dcfd8989)
+/// structure to be used when setting for extended attributes. You may use [super::QueryFileFullEaInformation] for querying.
 #[derive(BinRead, Debug, PartialEq, Eq)]
-pub struct FileFullEaInformation(FileFullEaInformationCommon);
+pub struct SetFileFullEaInformation(FileFullEaInformationCommon);
 
-impl BinWrite for FileFullEaInformation {
+/// For internal use only - for file_info_classes! macro.
+/// Use [SetFileFullEaInformation] instead, or [super::QueryFileFullEaInformation] for querying.
+type FileFullEaInformation = SetFileFullEaInformation;
+
+impl BinWrite for SetFileFullEaInformation {
     type Args<'a> = ();
 
     fn write_options<W: std::io::Write + std::io::Seek>(

@@ -35,6 +35,8 @@ pub use state::SessionState;
 pub struct Session {
     handler: HandlerReference<SessionMessageHandler>,
     session_state: Arc<Mutex<SessionState>>,
+    /// Requested security mode from the server.
+    req_security_mode: SessionSecurityMode,
 }
 
 impl Session {
@@ -43,6 +45,7 @@ impl Session {
         Session {
             handler: SessionMessageHandler::new(upstream, session_state.clone()),
             session_state: session_state,
+            req_security_mode: SessionSecurityMode::new().with_signing_enabled(true),
         }
     }
 
@@ -61,16 +64,16 @@ impl Session {
 
         // Build the authenticator.
         let (mut authenticator, next_buf) = {
-            let negotate_state = self.handler.upstream().negotiate_state().unwrap();
+            let negotate_state = self.handler.upstream().negotiate_info().unwrap();
             let identity = AuthIdentity {
                 username,
                 password: Secret::new(password),
             };
-            GssAuthenticator::build(negotate_state.gss_token(), identity)?
+            GssAuthenticator::build(negotate_state.state.gss_token(), identity)?
         };
 
         let request = OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
-            SessionSetupRequest::new(next_buf),
+            SessionSetupRequest::new(next_buf, self.req_security_mode),
         )));
 
         // response hash is processed later, in the loop.
@@ -116,9 +119,10 @@ impl Session {
                 Some(next_buf) => {
                     // We'd like to update preauth hash with the last request before accept.
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
-                    let mut request = OutgoingMessage::new(PlainMessage::new(
-                        Content::SessionSetupRequest(SessionSetupRequest::new(next_buf)),
-                    ));
+                    let mut request =
+                        OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
+                            SessionSetupRequest::new(next_buf, self.req_security_mode),
+                        )));
                     let is_about_to_finish = authenticator.keys_exchanged()
                         && !SessionState::is_set_up(&self.session_state).await?;
                     request.finalize_preauth_hash = is_about_to_finish;
@@ -127,8 +131,7 @@ impl Session {
                     // If keys are exchanged, set them up, to enable validation of next response!
                     if is_about_to_finish {
                         let ntlm_key: KeyToDerive = authenticator.session_key()?;
-                        self.key_setup(&ntlm_key, &result.preauth_hash.unwrap())
-                            .await?;
+                        self.key_setup(&ntlm_key, &result.preauth_hash).await?;
                     }
 
                     let expected_status = if is_about_to_finish {
@@ -156,9 +159,9 @@ impl Session {
     async fn key_setup(
         &mut self,
         exchanged_session_key: &KeyToDerive,
-        preauth_hash: &PreauthHashValue,
+        preauth_hash: &Option<PreauthHashValue>,
     ) -> crate::Result<()> {
-        let state = self.handler.upstream().negotiate_state().unwrap();
+        let state = self.handler.upstream().negotiate_info().unwrap();
         SessionState::set(
             &mut self.session_state,
             exchanged_session_key,

@@ -73,56 +73,76 @@ impl NegotiateRequest {
     pub fn new(
         client_netname: String,
         client_guid: Guid,
+        min_dialect: Option<Dialect>,
+        max_dialect: Option<Dialect>,
         signing_algorithms: Vec<SigningAlgorithmId>,
         encrypting_algorithms: Vec<EncryptionCipher>,
         compression_algorithms: Vec<CompressionAlgorithm>,
     ) -> NegotiateRequest {
         let mut caps = GlobalCapabilities::new();
         let mut security_mode = NegotiateSecurityMode::new();
-        let mut ctx_list = vec![
-            NegotiateContext {
-                context_type: NegotiateContextType::PreauthIntegrityCapabilities,
-                data: NegotiateContextValue::PreauthIntegrityCapabilities(
-                    PreauthIntegrityCapabilities {
-                        hash_algorithms: vec![HashAlgorithm::Sha512],
-                        salt: (0..32).map(|_| OsRng.gen()).collect(),
-                    },
-                ),
-            },
-            NegotiateContext {
-                context_type: NegotiateContextType::NetnameNegotiateContextId,
-                data: NegotiateContextValue::NetnameNegotiateContextId(NetnameNegotiateContextId {
-                    netname: client_netname.into(),
-                }),
-            },
-        ];
-        if encrypting_algorithms.len() > 0 {
-            ctx_list.push(NegotiateContext {
-                context_type: NegotiateContextType::EncryptionCapabilities,
-                data: NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
-                    ciphers: encrypting_algorithms,
-                }),
-            });
+        let max_dialect = max_dialect.unwrap_or(Dialect::MAX);
+        let min_dialect = min_dialect.unwrap_or(Dialect::MIN);
+        let supported_dialects: Vec<Dialect> = Dialect::ALL
+            .iter()
+            .filter(|dialect| **dialect >= min_dialect && **dialect <= max_dialect)
+            .copied()
+            .collect();
+
+        if supported_dialects.contains(&Dialect::Smb0302) && signing_algorithms.len() > 0 {
             caps.set_encryption(true);
         }
-        if compression_algorithms.len() > 0 {
-            ctx_list.push(NegotiateContext {
-                context_type: NegotiateContextType::CompressionCapabilities,
-                data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
-                    flags: CompressionCapsFlags::new().with_chained(true),
-                    compression_algorithms,
-                }),
-            });
-        }
-        if signing_algorithms.len() > 0 {
-            ctx_list.push(NegotiateContext {
-                context_type: NegotiateContextType::SigningCapabilities,
-                data: NegotiateContextValue::SigningCapabilities(SigningCapabilities {
-                    signing_algorithms,
-                }),
-            });
-            security_mode.set_signing_enabled(true);
-        }
+
+        let ctx_list = if supported_dialects.contains(&Dialect::Smb0311) {
+            let mut ctx_list = vec![
+                NegotiateContext {
+                    context_type: NegotiateContextType::PreauthIntegrityCapabilities,
+                    data: NegotiateContextValue::PreauthIntegrityCapabilities(
+                        PreauthIntegrityCapabilities {
+                            hash_algorithms: vec![HashAlgorithm::Sha512],
+                            salt: (0..32).map(|_| OsRng.gen()).collect(),
+                        },
+                    ),
+                },
+                NegotiateContext {
+                    context_type: NegotiateContextType::NetnameNegotiateContextId,
+                    data: NegotiateContextValue::NetnameNegotiateContextId(
+                        NetnameNegotiateContextId {
+                            netname: client_netname.into(),
+                        },
+                    ),
+                },
+            ];
+            if encrypting_algorithms.len() > 0 {
+                ctx_list.push(NegotiateContext {
+                    context_type: NegotiateContextType::EncryptionCapabilities,
+                    data: NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
+                        ciphers: encrypting_algorithms,
+                    }),
+                });
+            }
+            if compression_algorithms.len() > 0 {
+                ctx_list.push(NegotiateContext {
+                    context_type: NegotiateContextType::CompressionCapabilities,
+                    data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
+                        flags: CompressionCapsFlags::new().with_chained(true),
+                        compression_algorithms,
+                    }),
+                });
+            }
+            if signing_algorithms.len() > 0 {
+                ctx_list.push(NegotiateContext {
+                    context_type: NegotiateContextType::SigningCapabilities,
+                    data: NegotiateContextValue::SigningCapabilities(SigningCapabilities {
+                        signing_algorithms,
+                    }),
+                });
+                security_mode.set_signing_enabled(true);
+            }
+            Some(ctx_list)
+        } else {
+            None
+        };
         NegotiateRequest {
             security_mode: security_mode,
             capabilities: caps
@@ -133,8 +153,8 @@ impl NegotiateRequest {
                 .with_persistent_handles(true)
                 .with_directory_leasing(true),
             client_guid,
-            dialects: vec![Dialect::Smb0311],
-            negotiate_context_list: Some(ctx_list),
+            dialects: supported_dialects,
+            negotiate_context_list: ctx_list,
         }
     }
 }
@@ -174,7 +194,7 @@ pub struct NegotiateResponse {
 }
 
 impl NegotiateResponse {
-    pub fn get_signing_algo(&self) -> Option<SigningAlgorithmId> {
+    pub fn get_ctx_signing_algo(&self) -> Option<SigningAlgorithmId> {
         self.negotiate_context_list.as_ref().and_then(|contexts| {
             contexts
                 .iter()
@@ -190,7 +210,7 @@ impl NegotiateResponse {
         })
     }
 
-    pub fn get_preauth_integrity_algo(&self) -> Option<HashAlgorithm> {
+    pub fn get_ctx_integrity_algo(&self) -> Option<HashAlgorithm> {
         self.negotiate_context_list.as_ref().and_then(|contexts| {
             contexts
                 .iter()
@@ -206,7 +226,7 @@ impl NegotiateResponse {
         })
     }
 
-    pub fn get_compression(&self) -> Option<&CompressionCaps> {
+    pub fn get_ctx_compression(&self) -> Option<&CompressionCaps> {
         self.negotiate_context_list.as_ref().and_then(|contexts| {
             contexts
                 .iter()
@@ -220,7 +240,7 @@ impl NegotiateResponse {
         })
     }
 
-    pub fn get_encryption_cipher(&self) -> Option<EncryptionCipher> {
+    pub fn get_ctx_encrypt_cipher(&self) -> Option<EncryptionCipher> {
         self.negotiate_context_list.as_ref().and_then(|contexts| {
             contexts
                 .iter()
@@ -237,7 +257,7 @@ impl NegotiateResponse {
     }
 }
 
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 #[brw(repr(u16))]
 pub enum Dialect {
     Smb0202 = 0x0202,
@@ -247,9 +267,21 @@ pub enum Dialect {
     Smb0311 = 0x0311,
 }
 
+impl Dialect {
+    pub const MAX: Dialect = Dialect::Smb0311;
+    pub const MIN: Dialect = Dialect::Smb0202;
+    pub const ALL: [Dialect; 5] = [
+        Dialect::Smb0202,
+        Dialect::Smb021,
+        Dialect::Smb030,
+        Dialect::Smb0302,
+        Dialect::Smb0311,
+    ];
+}
+
 /// Dialects that may be used in the SMB Negotiate Request.
 /// The same as [Dialect] but with a wildcard for SMB 2.0.
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u16))]
 pub enum NegotiateDialect {
     Smb0202 = Dialect::Smb0202 as isize,

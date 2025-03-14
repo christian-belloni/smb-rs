@@ -40,7 +40,13 @@ file_info_classes! {
     }, Read
 }
 
-pub type FileFullEaInformation = FileFullEaInformationCommon;
+/// For internal use in-module - for file_info_classes! macro.
+/// Use [QueryFileFullEaInformation], or [super::SetFileFullEaInformation] instead.
+type FileFullEaInformation = FileFullEaInformationCommon;
+
+/// A [FileFullEaInformation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/0eb94f48-6aac-41df-a878-79f4dcfd8989)
+/// structure to be used when querying for extended attributes. You may use [super::SetFileFullEaInformation] for setting.
+pub type QueryFileFullEaInformation = FileFullEaInformation;
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]

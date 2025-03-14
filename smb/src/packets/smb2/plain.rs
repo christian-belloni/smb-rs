@@ -3,114 +3,35 @@ use binrw::prelude::*;
 use super::header::*;
 use super::*;
 
+/// Internal, one-use-macro to generate the request-response pairs for the `Content` enum.
+/// In addition, it appends the special cases.
+/// For example, the pair `(Negotiate, negotiate::Negotiate)` will generate:
+/// ```ignore
+/// #[br(pre_assert(matches!(command, Command::Negotiate) && !from_srv))]
+/// NegotiateRequest(negotiate::NegotiateRequest),
+/// #[br(pre_assert(matches!(command, Command::Negotiate) && from_srv))]
+/// NegotiateResponse(negotiate::NegotiateResponse),
+/// ...
+/// ```
+macro_rules! req_response_pair {
+    (
+        $({$cmd:ident, $struct_pfx:ident},)+
+    ) => {
+        paste::paste!{
+
 #[derive(BinRead, BinWrite, Debug)]
 #[brw(import(command: &Command, from_srv: bool))]
 pub enum Content {
-    // negotiate
-    #[br(pre_assert(matches!(command, Command::Negotiate) && !from_srv))]
-    NegotiateRequest(negotiate::NegotiateRequest),
-    #[br(pre_assert(matches!(command, Command::Negotiate) && from_srv))]
-    NegotiateResponse(negotiate::NegotiateResponse),
+    $(
+        #[br(pre_assert(matches!(command, Command::$cmd) && !from_srv))]
+        [<$cmd Request>]($struct_pfx::[<$cmd Request>]),
+        #[br(pre_assert(matches!(command, Command::$cmd) && from_srv))]
+        [<$cmd Response>]($struct_pfx::[<$cmd Response>]),
+    )*
 
-    // session setup
-    #[br(pre_assert(matches!(command, Command::SessionSetup) && !from_srv))]
-    SessionSetupRequest(session_setup::SessionSetupRequest),
-    #[br(pre_assert(matches!(command, Command::SessionSetup) && from_srv))]
-    SessionSetupResponse(session_setup::SessionSetupResponse),
-
-    // logoff
-    #[br(pre_assert(matches!(command, Command::Logoff) && !from_srv))]
-    LogoffRequest(session_setup::LogoffRequest),
-    #[br(pre_assert(matches!(command, Command::Logoff) && from_srv))]
-    LogoffResponse(session_setup::LogoffResponse),
-
-    // tree connect
-    #[br(pre_assert(matches!(command, Command::TreeConnect) && !from_srv))]
-    TreeConnectRequest(tree_connect::TreeConnectRequest),
-    #[br(pre_assert(matches!(command, Command::TreeConnect) && from_srv))]
-    TreeConnectResponse(tree_connect::TreeConnectResponse),
-
-    // tree disconnect
-    #[br(pre_assert(matches!(command, Command::TreeDisconnect) && !from_srv))]
-    TreeDisconnectRequest(tree_connect::TreeDisconnectRequest),
-    #[br(pre_assert(matches!(command, Command::TreeDisconnect) && from_srv))]
-    TreeDisconnectResponse(tree_connect::TreeDisconnectResponse),
-
-    // create
-    #[br(pre_assert(matches!(command, Command::Create) && !from_srv))]
-    CreateRequest(create::CreateRequest),
-    #[br(pre_assert(matches!(command, Command::Create) && from_srv))]
-    CreateResponse(create::CreateResponse),
-
-    // close
-    #[br(pre_assert(matches!(command, Command::Close) && !from_srv))]
-    CloseRequest(create::CloseRequest),
-    #[br(pre_assert(matches!(command, Command::Close) && from_srv))]
-    CloseResponse(create::CloseResponse),
-
-    // flush
-    #[br(pre_assert(matches!(command, Command::Flush) && !from_srv))]
-    FlushRequest(file::FlushRequest),
-    #[br(pre_assert(matches!(command, Command::Flush) && from_srv))]
-    FlushResponse(file::FlushResponse),
-
-    // read
-    #[br(pre_assert(matches!(command, Command::Read) && !from_srv))]
-    ReadRequest(file::ReadRequest),
-    #[br(pre_assert(matches!(command, Command::Read) && from_srv))]
-    ReadResponse(file::ReadResponse),
-
-    // write
-    #[br(pre_assert(matches!(command, Command::Write) && !from_srv))]
-    WriteRequest(file::WriteRequest),
-    #[br(pre_assert(matches!(command, Command::Write) && from_srv))]
-    WriteResponse(file::WriteResponse),
-
-    // lock
-    #[br(pre_assert(matches!(command, Command::Lock) && !from_srv))]
-    LockRequest(lock::LockRequest),
-    #[br(pre_assert(matches!(command, Command::Lock) && from_srv))]
-    LockResponse(lock::LockResponse),
-
-    // ioctl
-    #[br(pre_assert(matches!(command, Command::Ioctl) && !from_srv))]
-    IoctlRequest(ioctl::IoctlRequest),
-    #[br(pre_assert(matches!(command, Command::Ioctl) && from_srv))]
-    IoctlResponse(ioctl::IoctlResponse),
-
-    // cancel
-    #[br(pre_assert(matches!(command, Command::Cancel) && !from_srv))]
+    // cancel request
+    #[br(pre_assert(matches!(command, Command::Cancel)))]
     CancelRequest(cancel::CancelRequest),
-
-    // echo
-    #[br(pre_assert(matches!(command, Command::Echo) && !from_srv))]
-    EchoRequest(echo::EchoRequest),
-    #[br(pre_assert(matches!(command, Command::Echo) && from_srv))]
-    EchoResponse(echo::EchoResponse),
-
-    // query directory
-    #[br(pre_assert(matches!(command, Command::QueryDirectory) && !from_srv))]
-    QueryDirectoryRequest(query_dir::QueryDirectoryRequest),
-    #[br(pre_assert(matches!(command, Command::QueryDirectory) && from_srv))]
-    QueryDirectoryResponse(query_dir::QueryDirectoryResponse),
-
-    // change notify
-    #[br(pre_assert(matches!(command, Command::ChangeNotify) && !from_srv))]
-    ChangeNotifyRequest(notify::ChangeNotifyRequest),
-    #[br(pre_assert(matches!(command, Command::ChangeNotify) && from_srv))]
-    ChangeNotifyResponse(notify::ChangeNotifyResponse),
-
-    // query info
-    #[br(pre_assert(matches!(command, Command::QueryInfo) && !from_srv))]
-    QueryInfoRequest(info::QueryInfoRequest),
-    #[br(pre_assert(matches!(command, Command::QueryInfo) && from_srv))]
-    QueryInfoResponse(info::QueryInfoResponse),
-
-    // set info
-    #[br(pre_assert(matches!(command, Command::SetInfo) && !from_srv))]
-    SetInfoRequest(info::SetInfoRequest),
-    #[br(pre_assert(matches!(command, Command::SetInfo) && from_srv))]
-    SetInfoResponse(info::SetInfoResponse),
 
     // oplock
     #[br(pre_assert(matches!(command, Command::OplockBreak) && !from_srv))]
@@ -139,24 +60,12 @@ impl Content {
     pub fn associated_cmd(&self) -> Command {
         use Content::*;
         match self {
-            NegotiateRequest(_) | NegotiateResponse(_) => Command::Negotiate,
-            SessionSetupRequest(_) | SessionSetupResponse(_) => Command::SessionSetup,
-            LogoffRequest(_) | LogoffResponse(_) => Command::Logoff,
-            TreeConnectRequest(_) | TreeConnectResponse(_) => Command::TreeConnect,
-            TreeDisconnectRequest(_) | TreeDisconnectResponse(_) => Command::TreeDisconnect,
-            CreateRequest(_) | CreateResponse(_) => Command::Create,
-            CloseRequest(_) | CloseResponse(_) => Command::Close,
-            FlushRequest(_) | FlushResponse(_) => Command::Flush,
-            ReadRequest(_) | ReadResponse(_) => Command::Read,
-            WriteRequest(_) | WriteResponse(_) => Command::Write,
-            LockRequest(_) | LockResponse(_) => Command::Lock,
-            IoctlRequest(_) | IoctlResponse(_) => Command::Ioctl,
+            $(
+                [<$cmd Request>](_) => Command::$cmd,
+                [<$cmd Response>](_) => Command::$cmd,
+            )*
+
             CancelRequest(_) => Command::Cancel,
-            EchoRequest(_) | EchoResponse(_) => Command::Echo,
-            QueryDirectoryRequest(_) | QueryDirectoryResponse(_) => Command::QueryDirectory,
-            ChangeNotifyRequest(_) | ChangeNotifyResponse(_) => Command::ChangeNotify,
-            QueryInfoRequest(_) | QueryInfoResponse(_) => Command::QueryInfo,
-            SetInfoRequest(_) | SetInfoResponse(_) => Command::SetInfo,
             OplockBreakAck(_)
             | LeaseBreakAck(_)
             | OplockBreakNotify(_)
@@ -166,7 +75,32 @@ impl Content {
             ErrorResponse(_) => panic!("Error has no matching command!"),
         }
     }
+}
+        }
+    };
+}
 
+req_response_pair!(
+    {Negotiate, negotiate},
+    {SessionSetup, session_setup},
+    {Logoff, session_setup},
+    {TreeConnect, tree_connect},
+    {TreeDisconnect, tree_connect},
+    {Create, create},
+    {Close, create},
+    {Flush, file},
+    {Read, file},
+    {Write, file},
+    {Lock, lock},
+    {Ioctl, ioctl},
+    {Echo, echo},
+    {QueryDirectory, query_dir},
+    {ChangeNotify, notify},
+    {QueryInfo, info},
+    {SetInfo, info},
+);
+
+impl Content {
     /// If this is a request has a payload, it returns the size of it.
     /// Otherwise, it returns 0.
     ///

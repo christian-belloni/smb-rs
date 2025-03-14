@@ -43,7 +43,7 @@ impl Worker for SingleWorker {
         self.netbios_client.borrow_mut().send_raw(t)?;
 
         let hash = match finalize_preauth_hash {
-            true => Some(self.transformer.finalize_preauth_hash()?),
+            true => self.transformer.finalize_preauth_hash()?,
             false => None,
         };
 

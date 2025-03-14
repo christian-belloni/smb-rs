@@ -1,13 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::sync_helpers::*;
+use crate::{connection::negotiation_state::NegotiateInfo, sync_helpers::*};
 
 use maybe_async::*;
 
 use crate::{
-    connection::{
-        negotiation_state::NegotiateState, netbios_client::NetBiosClient, transformer::Transformer,
-    },
+    connection::{netbios_client::NetBiosClient, transformer::Transformer},
     msg_handler::{IncomingMessage, OutgoingMessage, SendMessageResult},
     session::SessionState,
 };
@@ -40,8 +38,8 @@ pub trait Worker: Sized + std::fmt::Debug {
     fn transformer(&self) -> &Transformer;
 
     #[maybe_async]
-    async fn negotaite_complete(&self, neg_state: &NegotiateState) {
-        self.transformer().negotiated(neg_state).await.unwrap();
+    async fn negotaite_complete(&self, neg: &NegotiateInfo) {
+        self.transformer().negotiated(neg).await.unwrap();
     }
 
     #[maybe_async]
