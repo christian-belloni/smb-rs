@@ -32,6 +32,7 @@ pub struct ConnectionConfig {
     pub min_dialect: Option<Dialect>,
     pub max_dialect: Option<Dialect>,
     pub encryption_mode: EncryptionMode,
+    pub compression_enabled: bool,
 }
 
 impl ConnectionConfig {

@@ -221,7 +221,7 @@ impl SessionMessageHandler {
         SessionState::encryption_enabled(&self.session_state).await
     }
 
-    fn upstream(&self) -> &UpstreamHandlerRef {
+    pub fn upstream(&self) -> &UpstreamHandlerRef {
         &self.upstream
     }
 

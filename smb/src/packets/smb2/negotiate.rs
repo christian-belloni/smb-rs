@@ -78,10 +78,10 @@ impl NegotiateRequest {
         encrypting_algorithms: Vec<EncryptionCipher>,
         compression_algorithms: Vec<CompressionAlgorithm>,
     ) -> NegotiateRequest {
-        let mut caps = GlobalCapabilities::new();
+        let mut capabilities = GlobalCapabilities::new();
         let mut security_mode = NegotiateSecurityMode::new();
         if signing_algorithms.len() > 0 {
-            caps.set_encryption(true);
+            capabilities.set_encryption(true);
         }
 
         let ctx_list = if supported_dialects.contains(&Dialect::Smb0311) {
@@ -134,15 +134,23 @@ impl NegotiateRequest {
         } else {
             None
         };
-        NegotiateRequest {
-            security_mode: security_mode,
-            capabilities: caps
+
+        // Set capabilities to 0 if no SMB3 dialects are supported.
+        capabilities = if supported_dialects.iter().all(|d| !d.is_smb3()) {
+            GlobalCapabilities::new()
+        } else {
+            capabilities
                 .with_dfs(true)
                 .with_leasing(true)
                 .with_large_mtu(true)
                 .with_multi_channel(true)
                 .with_persistent_handles(true)
-                .with_directory_leasing(true),
+                .with_directory_leasing(true)
+        };
+
+        NegotiateRequest {
+            security_mode: security_mode,
+            capabilities,
             client_guid,
             dialects: supported_dialects,
             negotiate_context_list: ctx_list,

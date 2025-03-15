@@ -128,11 +128,27 @@ impl File {
             pos,
             self.handle.name()
         );
+
+        let mut flags = ReadFlags::new();
+        let info = self
+            .handle
+            .handler
+            .upstream
+            .handler
+            .upstream()
+            .handler
+            .upstream()
+            .negotiate_info()
+            .unwrap();
+        if info.config.compression_enabled && info.dialect.supports_compression() {
+            flags.set_read_compressed(true);
+        }
+
         let response = self
             .handle
             .send_receive(Content::ReadRequest(ReadRequest {
                 padding: 0,
-                flags: ReadFlags::new().with_read_compressed(true),
+                flags,
                 length: buf.len() as u32,
                 offset: pos,
                 file_id: self.handle.file_id(),

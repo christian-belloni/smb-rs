@@ -7,6 +7,7 @@ use crate::{
     crypto,
     packets::smb2::{
         CompressionCaps, Dialect, GlobalCapabilities, NegotiateResponse, SigningAlgorithmId,
+        TreeCapabilities, TreeConnectShareFlagsCacheMode, TreeShareFlags,
     },
     ConnectionConfig, Error,
 };
@@ -37,6 +38,56 @@ impl DialectImpl {
         mask
     }
 
+    pub fn get_share_flags_mask(&self) -> TreeShareFlags {
+        let mut mask = TreeShareFlags::new()
+            .with_caching_mode(TreeConnectShareFlagsCacheMode::All)
+            .with_dfs(true)
+            .with_dfs_root(true)
+            .with_restrict_exclusive_opens(true)
+            .with_force_shared_delete(true)
+            .with_allow_namespace_caching(true)
+            .with_access_based_directory_enum(true)
+            .with_force_levelii_oplock(true)
+            .with_identity_remoting(true)
+            .with_isolated_transport(true);
+
+        if self.dialect > Dialect::Smb0202 {
+            mask.set_enable_hash_v1(true);
+        }
+        if self.dialect >= Dialect::Smb021 {
+            mask.set_enable_hash_v2(true);
+        }
+        if self.dialect.is_smb3() {
+            mask.set_encrypt_data(true);
+        }
+        if self.dialect >= Dialect::Smb0311 {
+            mask.set_compress_data(true);
+        }
+
+        mask
+    }
+
+    pub fn get_tree_connect_caps_mask(&self) -> TreeCapabilities {
+        let mut mask = TreeCapabilities::new().with_dfs(true);
+
+        if self.dialect.is_smb3() {
+            mask = mask
+                .with_continuous_availability(true)
+                .with_scaleout(true)
+                .with_cluster(true);
+        }
+
+        if self.dialect >= Dialect::Smb0302 {
+            mask.set_asymmetric(true);
+        }
+
+        if self.dialect == Dialect::Smb0311 {
+            mask = mask.with_redirect_to_owner(true);
+        }
+
+        mask
+    }
+
     pub fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
@@ -45,7 +96,9 @@ impl DialectImpl {
     ) -> crate::Result<()> {
         match self.dialect {
             Dialect::Smb0311 => Smb311.process_negotiate_request(response, state, config),
-            Dialect::Smb0302 | Dialect::Smb030 => Smb300_302.process_negotiate_request(response, state, config),
+            Dialect::Smb0302 | Dialect::Smb030 => {
+                Smb300_302.process_negotiate_request(response, state, config)
+            }
             _ => unimplemented!(),
         }
     }

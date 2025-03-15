@@ -47,7 +47,7 @@ impl Transformer {
         }
 
         let mut config = self.config.write().await?;
-        if neg_info.dialect.supports_compression() {
+        if neg_info.dialect.supports_compression() && neg_info.config.compression_enabled {
             let compress = match &neg_info.state.compression {
                 Some(compression) => {
                     Some((Compressor::new(compression), Decompressor::new(compression)))
