@@ -5,7 +5,7 @@ use std::{fmt::Debug, io::SeekFrom};
 /**
  * Source: https://github.com/jam1garner/binrw/discussions/229
  */
-#[derive(Default)]
+#[derive(Default, PartialEq, Eq)]
 pub struct PosMarker<T> {
     pub pos: OnceCell<u64>,
     pub value: T,
@@ -96,7 +96,7 @@ where
     /// * endian: The endian to write with ([binrw::Endian])
     pub fn write_back<V, W>(&self, value: V, writer: &mut W, endian: Endian) -> BinResult<()>
     where
-        V: TryInto<T>,
+        V: TryInto<T> + std::fmt::Debug,
         W: binrw::io::Write + binrw::io::Seek,
     {
         let return_to = writer.stream_position()?;
@@ -212,6 +212,34 @@ where
         )
     }
 
+    /// Writer for value
+    /// * fill relative offset to offset location.
+    /// * fill written size to size location.
+    #[binrw::writer(writer, endian)]
+    pub fn write_roff_size_b<U, S, B>(
+        value: &U,
+        write_offset_to: &PosMarker<S>,
+        write_size_to: &Self,
+        offset_relative_to: &PosMarker<B>,
+    ) -> BinResult<()>
+    where
+        U: BinWrite<Args<'static> = ()>,
+        S: BinWrite<Args<'static> = ()> + TryFrom<u64>,
+        S::Error: binrw::error::CustomError + 'static,
+    {
+        Self::write_hero(
+            value,
+            writer,
+            endian,
+            (
+                Some(write_size_to),
+                Some(write_offset_to),
+                Some(offset_relative_to),
+                (),
+            ),
+        )
+    }
+
     /// Writer for value,
     /// * fill relative offset to offset location relative to base.
     /// * fill written size to size location.
@@ -256,6 +284,52 @@ where
             writer,
             endian,
             (no_size, Some(write_offset_to), no_base, ()),
+        )
+    }
+
+    #[binrw::writer(writer, endian)]
+    pub fn write_roff_size<U, S>(
+        value: &U,
+        write_offset_to: &PosMarker<S>,
+        write_size_to: &Self,
+    ) -> BinResult<()>
+    where
+        U: BinWrite<Args<'static> = ()>,
+        S: BinWrite<Args<'static> = ()> + TryFrom<u64>,
+        S::Error: binrw::error::CustomError + 'static,
+    {
+        let no_base: Option<&PosMarker<T>> = None;
+        Self::write_hero(
+            value,
+            writer,
+            endian,
+            (Some(write_size_to), Some(write_offset_to), no_base, ()),
+        )
+    }
+
+    #[binrw::writer(writer, endian)]
+    pub fn write_roff_size_a<U, S>(
+        value: &U,
+        write_offset_to: &PosMarker<S>,
+        write_size_to: &Self,
+        value_args: U::Args<'_>,
+    ) -> BinResult<()>
+    where
+        U: BinWrite,
+        S: BinWrite<Args<'static> = ()> + TryFrom<u64>,
+        S::Error: binrw::error::CustomError + 'static,
+    {
+        let no_base: Option<&PosMarker<T>> = None;
+        Self::write_hero(
+            value,
+            writer,
+            endian,
+            (
+                Some(write_size_to),
+                Some(write_offset_to),
+                no_base,
+                value_args,
+            ),
         )
     }
 

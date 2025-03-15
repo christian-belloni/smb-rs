@@ -44,16 +44,17 @@ impl Resource {
                 create_options: CreateOptions::new(),
                 name: name.into(),
                 contexts: vec![
-                    CreateContext::new(CreateContextData::DH2QReq(DH2QReq {
+                    DH2QReq {
                         timeout: 0,
                         flags: DH2QFlags::new(),
                         create_guid: Guid::try_from(&[
                             180, 122, 182, 194, 188, 248, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         ])
                         .unwrap(),
-                    })),
-                    CreateContext::new(CreateContextData::MxAcReq(())),
-                    CreateContext::new(CreateContextData::QFidReq(())),
+                    }
+                    .into(),
+                    MxAcReq.into(),
+                    QFidReq.into(),
                 ],
             }))
             .await?;
@@ -67,7 +68,7 @@ impl Resource {
         let is_dir = content.file_attributes.directory();
 
         // Get maximal access
-        let access = match content.maximal_access_context() {
+        let access = match CreateContextRespData::first_mxac(&content.create_contexts) {
             Some(response) => response.maximal_access,
             _ => return Err(Error::InvalidMessage("No maximal access context".into())),
         };
