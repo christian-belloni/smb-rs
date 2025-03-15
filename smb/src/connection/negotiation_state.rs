@@ -43,6 +43,6 @@ impl NegotiatedProperties {
 #[derive(Debug)]
 pub struct ConnectionInfo {
     pub state: NegotiatedProperties,
-    pub dialect: Arc<dyn DialectImpl>,
+    pub dialect: Arc<DialectImpl>,
     pub config: ConnectionConfig,
 }

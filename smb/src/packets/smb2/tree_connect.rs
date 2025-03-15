@@ -63,6 +63,7 @@ pub enum TreeConnectShareFlagsCacheMode {
     Auto,
     Vdo,
     NoCache,
+    All = 0xf,
 }
 
 #[bitfield]
@@ -76,7 +77,7 @@ pub struct TreeShareFlags {
     pub caching_mode: TreeConnectShareFlagsCacheMode,
 
     pub restrict_exclusive_opens: bool,
-    pub smb2_shareflag_force_shared_delete: bool,
+    pub force_shared_delete: bool,
     pub allow_namespace_caching: bool,
     pub access_based_directory_enum: bool,
     pub force_levelii_oplock: bool,

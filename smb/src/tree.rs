@@ -55,6 +55,38 @@ impl Tree {
             _ => None,
         }
         .unwrap();
+
+        let info = self
+            .handler
+            .upstream
+            .handler
+            .upstream()
+            .handler
+            .negotiate_info()
+            .unwrap();
+
+        // Make sure the share flags from the server are valid to the dialect.
+        if ((!u32::from_le_bytes(info.dialect.get_tree_connect_caps_mask().into_bytes()))
+            & u32::from_le_bytes(_response_content.capabilities.into_bytes()))
+            != 0
+        {
+            return Err(Error::InvalidMessage(format!(
+                "Invalid share flags received from server for tree '{}': {:?}",
+                self.name, _response_content.share_flags
+            )));
+        }
+
+        // Same for share flags
+        if ((!u32::from_le_bytes(info.dialect.get_share_flags_mask().into_bytes()))
+            & u32::from_le_bytes(_response_content.share_flags.into_bytes()))
+            != 0
+        {
+            return Err(Error::InvalidMessage(format!(
+                "Invalid capabilities received from server for tree '{}': {:?}",
+                self.name, _response_content.capabilities
+            )));
+        }
+
         log::info!(
             "Connected to tree {} (#{})",
             self.name,
@@ -91,6 +123,10 @@ impl TreeMessageHandler {
             connect_info: RwLock::new(None),
             tree_name,
         })
+    }
+
+    pub fn upstream(&self) -> &Upstream {
+        &self.upstream
     }
 
     #[maybe_async]

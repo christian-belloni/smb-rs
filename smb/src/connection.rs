@@ -5,7 +5,7 @@ pub mod preauth_hash;
 pub mod transformer;
 pub mod worker;
 
-use crate::dialects::get_dialect_impl;
+use crate::dialects::DialectImpl;
 use crate::packets::guid::Guid;
 use crate::packets::smb2::{Command, Message};
 use crate::Error;
@@ -185,7 +185,7 @@ impl Connection {
         }
 
         let dialect_rev = smb2_negotiate_response.dialect_revision.try_into()?;
-        let dialect_impl = get_dialect_impl(&dialect_rev);
+        let dialect_impl = DialectImpl::new(dialect_rev);
         let mut state = NegotiatedProperties {
             server_guid: smb2_negotiate_response.server_guid,
             caps: smb2_negotiate_response.capabilities.clone(),
