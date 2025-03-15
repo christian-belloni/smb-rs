@@ -39,6 +39,14 @@ impl TryFrom<&[u8; 16]> for Guid {
     }
 }
 
+impl Into<[u8; 16]> for Guid {
+    fn into(self) -> [u8; 16] {
+        let mut cursor = Cursor::new(Vec::new());
+        self.write(&mut cursor).unwrap();
+        cursor.into_inner().try_into().unwrap()
+    }
+}
+
 impl FromStr for Guid {
     type Err = ();
 

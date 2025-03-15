@@ -4,8 +4,7 @@ use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use super::super::guid::Guid;
-use super::fscc::*;
+use super::{fscc::*, FileId};
 use crate::packets::binrw_util::prelude::*;
 
 #[binrw::binrw]
@@ -16,7 +15,7 @@ pub struct ChangeNotifyRequest {
     _structure_size: u16,
     flags: NotifyFlags,
     output_buffer_length: u32,
-    file_id: Guid,
+    file_id: FileId,
     completion_filter: NotifyFilter,
     #[br(assert(_reserved == 0))]
     #[bw(calc = 0)]
@@ -74,7 +73,7 @@ pub struct ChangeNotifyResponse {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packets::smb2::*;
+    use crate::packets::{guid::Guid, smb2::*};
 
     use super::*;
 
@@ -83,7 +82,10 @@ mod tests {
         let request = ChangeNotifyRequest {
             flags: NotifyFlags::new(),
             output_buffer_length: 2048,
-            file_id: "000005d1-000c-0000-1900-00000c000000".parse().unwrap(),
+            file_id: "000005d1-000c-0000-1900-00000c000000"
+                .parse::<Guid>()
+                .unwrap()
+                .into(),
             completion_filter: NotifyFilter::new()
                 .with_file_name(true)
                 .with_dir_name(true)

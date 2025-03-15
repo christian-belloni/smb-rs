@@ -1,11 +1,12 @@
 //! SMB2 Set Info Request/Response messages.
 
+use crate::packets::smb2::FileId;
 use crate::{packets::smb2::SecurityDescriptor, query_info_data};
 
 use super::common::*;
 use super::{
     super::{
-        super::{binrw_util::prelude::*, guid::Guid},
+        super::binrw_util::prelude::*,
         fscc::*,
     },
     QueryQuotaInfo,
@@ -30,7 +31,7 @@ pub struct SetInfoRequest {
     #[br(assert(_reserved == 0))]
     _reserved: u16,
     pub additional_information: AdditionalInfo,
-    pub file_id: Guid,
+    pub file_id: FileId,
     #[br(map_stream = |s| s.take_seek(buffer_length.value as u64))]
     #[br(args(info_type))]
     #[bw(write_with = PosMarker::write_aoff_size, args(&_buffer_offset, &buffer_length))]
@@ -46,7 +47,7 @@ query_info_data! {
 }
 
 impl SetInfoData {
-    pub fn to_req(self, info_class: SetFileInfoClass, file_id: Guid) -> SetInfoRequest {
+    pub fn to_req(self, info_class: SetFileInfoClass, file_id: FileId) -> SetInfoRequest {
         SetInfoRequest {
             info_class: info_class,
             additional_information: AdditionalInfo::new(),
@@ -66,7 +67,9 @@ pub struct SetInfoResponse {
 
 #[cfg(test)]
 mod tests {
-    use crate::packets::smb2::*;
+    use std::str::FromStr;
+
+    use crate::packets::{guid::Guid, smb2::*};
 
     use super::*;
 
@@ -79,8 +82,12 @@ mod tests {
         });
 
         let cls = set_info.class();
-        let req = SetInfoData::from(RawSetInfoData::<SetFileInfo>::from(set_info))
-            .to_req(cls, "00000042-000e-0000-0500-10000e000000".parse().unwrap());
+        let req = SetInfoData::from(RawSetInfoData::<SetFileInfo>::from(set_info)).to_req(
+            cls,
+            Guid::from_str("00000042-000e-0000-0500-10000e000000")
+                .unwrap()
+                .into(),
+        );
         let req_data = encode_content(Content::SetInfoRequest(req));
         assert_eq!(
             req_data,

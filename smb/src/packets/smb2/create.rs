@@ -1,6 +1,6 @@
 //! Create & Close (files) requests and responses.
 
-use std::io::SeekFrom;
+use std::io::{Cursor, SeekFrom};
 
 use super::super::binrw_util::prelude::*;
 use super::super::guid::Guid;
@@ -9,6 +9,36 @@ use super::*;
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
+
+/// 2.2.14.1: SMB2_FILEID
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub struct FileId {
+    pub persistent: u64,
+    pub volatile: u64,
+}
+
+impl FileId {
+    pub const EMPTY: FileId = FileId {
+        persistent: 0,
+        volatile: 0,
+    };
+}
+
+impl From<[u8; 16]> for FileId {
+    fn from(data: [u8; 16]) -> Self {
+        let mut cursor = Cursor::new(data);
+        Self::read_le(&mut cursor).unwrap()
+    }
+}
+
+impl From<Guid> for FileId {
+    fn from(guid: Guid) -> Self {
+        let mut cursor = Cursor::new(Vec::new());
+        guid.write_le(&mut cursor).unwrap();
+        <Self as From<[u8; 16]>>::from(cursor.into_inner().try_into().unwrap())
+    }
+}
 
 #[binrw::binrw]
 #[derive(Debug)]
@@ -145,7 +175,7 @@ pub struct CreateResponse {
     #[bw(calc = 0)]
     #[br(assert(_reserved2 == 0))]
     _reserved2: u32,
-    pub file_id: Guid,
+    pub file_id: FileId,
     // assert it's 8-aligned
     #[br(assert(create_contexts_offset.value & 0x7 == 0))]
     #[bw(calc = PosMarker::default())]
@@ -512,7 +542,7 @@ pub struct DurableHandleV2Flags {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct DurableHandleReconnectV2 {
-    file_id: Guid,
+    file_id: FileId,
     create_guid: Guid,
     flags: DurableHandleV2Flags,
 }
@@ -632,7 +662,7 @@ pub struct CloseRequest {
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u32,
-    pub file_id: Guid,
+    pub file_id: FileId,
 }
 
 #[binrw::binrw]

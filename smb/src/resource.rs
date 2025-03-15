@@ -63,7 +63,7 @@ impl Resource {
             Content::CreateResponse(response) => response,
             _ => panic!("Unexpected response"),
         };
-        log::info!("Created file '{}', ({})", name, content.file_id);
+        log::info!("Created file '{}', ({:?})", name, content.file_id);
 
         let is_dir = content.file_attributes.directory();
 
@@ -136,7 +136,7 @@ pub struct ResourceHandle {
     name: String,
     handler: HandlerReference<MessageHandleHandler>,
 
-    file_id: Guid,
+    file_id: FileId,
     created: PrimitiveDateTime,
     modified: PrimitiveDateTime,
 }
@@ -146,7 +146,7 @@ impl ResourceHandle {
         &self.name
     }
 
-    pub fn file_id(&self) -> Guid {
+    pub fn file_id(&self) -> FileId {
         self.file_id
     }
 
@@ -165,7 +165,7 @@ impl ResourceHandle {
             return Err(Error::InvalidState("Handle is not valid".into()));
         }
 
-        log::debug!("Closing handle for {} ({})", self.name, self.file_id);
+        log::debug!("Closing handle for {} ({:?})", self.name, self.file_id);
         let _response = self
             .handler
             .send_recv(Content::CloseRequest(CloseRequest {
@@ -173,7 +173,7 @@ impl ResourceHandle {
             }))
             .await?;
 
-        self.file_id = Guid::MAX;
+        self.file_id = FileId::EMPTY;
         log::info!("Closed file {}.", self.name);
 
         Ok(())
@@ -181,7 +181,7 @@ impl ResourceHandle {
 
     #[inline]
     pub fn is_valid(&self) -> bool {
-        self.file_id != Guid::MAX
+        self.file_id != FileId::EMPTY
     }
 
     /// Send and receive a message, returning the result.

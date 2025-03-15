@@ -1,12 +1,12 @@
 //! Get/Set Info Request/Response
 
-use crate::packets::smb2::{SecurityDescriptor, SID};
+use crate::packets::smb2::{FileId, SecurityDescriptor, SID};
 use crate::query_info_data;
 use binrw::{io::TakeSeekExt, prelude::*};
 use modular_bitfield::prelude::*;
 use std::io::{Cursor, SeekFrom};
 
-use super::super::{super::binrw_util::prelude::*, super::guid::Guid, fscc::*};
+use super::super::{super::binrw_util::prelude::*, fscc::*};
 use super::common::*;
 
 #[binrw::binrw]
@@ -29,7 +29,7 @@ pub struct QueryInfoRequest {
     input_buffer_length: PosMarker<u32>,
     pub additional_information: AdditionalInfo,
     pub flags: QueryInfoFlags,
-    pub file_id: Guid,
+    pub file_id: FileId,
     #[br(map_stream = |s| s.take_seek(input_buffer_length.value as u64))]
     #[br(args(&info_class, info_type))]
     #[bw(write_with = PosMarker::write_aoff_size_a, args(&_input_buffer_offset, &input_buffer_length, (info_class, *info_type)))]
@@ -202,7 +202,7 @@ mod tests {
 
     use time::macros::datetime;
 
-    use crate::packets::smb2::*;
+    use crate::packets::{guid::Guid, smb2::*};
 
     use super::*;
 
@@ -276,7 +276,7 @@ mod tests {
                 .with_dacl_security_information(true)
                 .with_sacl_security_information(true),
             flags: QueryInfoFlags::new(),
-            file_id: Guid::from_str("0000002b-000d-0000-3100-00000d000000").unwrap(),
+            file_id: Guid::from_str("0000002b-000d-0000-3100-00000d000000").unwrap().into(),
             data: GetInfoRequestData::None(()),
         }));
         assert_eq!(

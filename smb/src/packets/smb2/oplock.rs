@@ -1,4 +1,4 @@
-use super::super::guid::Guid;
+use super::{super::guid::Guid, FileId};
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
@@ -15,7 +15,7 @@ pub struct OplockBreakMsg {
     #[bw(calc = 0)]
     #[br(assert(reserved2 == 0))]
     reserved2: u32,
-    file_id: Guid,
+    file_id: FileId,
 }
 
 #[binrw::binrw]

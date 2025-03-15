@@ -7,9 +7,8 @@ use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
 use super::super::binrw_util::prelude::*;
-use super::super::guid::Guid;
 
-use super::fscc::*;
+use super::{fscc::*, FileId};
 
 #[binrw::binrw]
 #[derive(Debug)]
@@ -23,7 +22,7 @@ pub struct QueryDirectoryRequest {
     // Otherwise, it MUST be set to zero and the server MUST ignore it.
     #[bw(assert(flags.index_specified() || *file_index == 0))]
     pub file_index: u32,
-    pub file_id: Guid,
+    pub file_id: FileId,
     #[bw(calc = PosMarker::default())]
     pub file_name_offset: PosMarker<u16>,
     #[bw(try_calc = file_name.size().try_into())]

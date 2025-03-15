@@ -2,7 +2,7 @@ use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 use std::io::SeekFrom;
 
-use super::super::guid::Guid;
+use super::FileId;
 use crate::packets::binrw_util::prelude::*;
 
 #[binrw::binrw]
@@ -15,7 +15,7 @@ pub struct IoctlRequest {
     #[br(assert(_reserved == 0))]
     _reserved: u16,
     pub ctl_code: u32,
-    pub file_id: Guid,
+    pub file_id: FileId,
     #[bw(calc = PosMarker::default())]
     _input_offset: PosMarker<u32>,
     #[bw(try_calc = buffer.len().try_into())]
@@ -57,7 +57,7 @@ pub struct IoctlResponse {
     #[br(assert(_reserved == 0))]
     _reserved: u16,
     pub ctl_code: u32,
-    pub file_id: Guid,
+    pub file_id: FileId,
     #[bw(calc = PosMarker::default())]
     input_offset: PosMarker<u32>,
     #[bw(assert(out_buffer.len() == 0))] // there is an exception for pass-through operations.

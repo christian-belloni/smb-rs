@@ -6,8 +6,8 @@ use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
 use super::super::binrw_util::prelude::*;
-use super::super::guid::Guid;
 use super::header::Header;
+use super::FileId;
 
 #[binrw::binrw]
 #[derive(Debug)]
@@ -21,7 +21,7 @@ pub struct FlushRequest {
     #[bw(calc = 0)]
     #[br(assert(_reserved2 == 0))]
     _reserved2: u32,
-    pub file_id: Guid,
+    pub file_id: FileId,
 }
 
 #[binrw::binrw]
@@ -45,7 +45,7 @@ pub struct ReadRequest {
     pub flags: ReadFlags,
     pub length: u32,
     pub offset: u64,
-    pub file_id: Guid,
+    pub file_id: FileId,
     pub minimum_count: u32,
     // Currently, we do not have support for RDMA.
     // Therefore, all the related fields are set to zero.
@@ -137,7 +137,7 @@ pub struct WriteRequest {
     #[bw(try_calc = buffer.len().try_into())]
     _length: u32,
     pub offset: u64,
-    pub file_id: Guid,
+    pub file_id: FileId,
     // Again, RDMA off, all 0.
     #[bw(calc = CommunicationChannel::None)]
     #[br(assert(channel == CommunicationChannel::None))]

@@ -1,4 +1,4 @@
-use super::super::guid::Guid;
+use super::FileId;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
@@ -11,7 +11,7 @@ pub struct LockRequest {
     #[bw(try_calc = locks.len().try_into())]
     lock_count: u16,
     pub lock_sequence: LockSequence,
-    pub file_id: Guid,
+    pub file_id: FileId,
     #[br(count = lock_count)]
     pub locks: Vec<LockElement>,
 }
