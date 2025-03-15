@@ -202,13 +202,15 @@ where
     _data_offset: PosMarker<u16>,
     #[bw(calc = PosMarker::default())]
     _data_length: PosMarker<u32>,
+
     #[brw(align_before = 8)]
     #[br(count = name_length)]
     #[bw(write_with = PosMarker::write_roff_b, args(&_name_offset, &next_entry_offset))]
     pub name: Vec<u8>,
+
     #[brw(align_before = 8)]
     #[bw(write_with = PosMarker::write_roff_size_b, args(&_data_offset, &_data_length, &next_entry_offset))]
-    #[br(args(&name))]
+    #[br(map_stream = |s| s.take_seek(_data_length.value.into()), args(&name))]
     pub data: T,
 
     #[br(seek_before = next_entry_offset.seek_relative(true))]
@@ -299,7 +301,7 @@ $(
     impl Into<CreateContext<[<CreateContext $struct_name Data>]>> for $req_type {
         fn into(self) -> CreateContext<[<CreateContext $struct_name Data>]> {
             CreateContext::<[<CreateContext $struct_name Data>]> {
-                name: Self::CONTEXT_NAME.to_vec(),
+                name: <Self as [<CreateContextData $struct_name Value>]>::CONTEXT_NAME.to_vec(),
                 data: [<CreateContext $struct_name Data>]::[<$context_type:camel $struct_name>](self),
                 __: (),
             }
@@ -373,24 +375,123 @@ impl CreateContextType {
 }
 
 make_create_context!(
-    dh2q: b"DH2Q", DH2QReq, DH2QResp,
-    mxac: b"MxAc", MxAcReq,  MxAcResp,
-    qfid: b"QFid", QFidReq,  QFidResp,
+    exta: b"ExtA", EaBuffer, EaBuffer,
+    secd: b"SecD", SdBuffer, SdBuffer,
+    dhnq: b"DHnQ", DurableHandleRequest, DurableHandleResponse,
+    dhnc: b"DHNc", DurableHandleReconnect, DurableHandleReconnect,
+    alsi: b"AlSi", AllocationSize, AllocationSize,
+    mxac: b"MxAc", QueryMaximalAccessRequest,  QueryMaximalAccessResponse,
+    twrp: b"TWrp", TimewarpToken, TimewarpToken,
+    qfid: b"QFid", QueryOnDiskIdReq,  QueryOnDiskIdResp,
+    rqls: b"RqLs", RequestLease, RequestLease, // v1+2
+    dh2q: b"DH2Q", DurableHandleRequestV2, DH2QResp,
+    dh2c: b"DH2C", DurableHandleReconnectV2, DurableHandleReconnectV2,
+    appinstid: b"\x45\xBC\xA6\x6A\xEF\xA7\xF7\x4A\x90\x08\xFA\x46\x2E\x14\x4D\x74", AppInstanceId, AppInstanceId,
+    appinstver: b"\xB9\x82\xD0\xB7\x3B\x56\x07\x4F\xA0\x7B\x52\x4A\x81\x16\xA0\x10", AppInstanceVersion, AppInstanceVersion,
+    svhdxopendev: b"\x9C\xCB\xCF\x9E\x04\xC1\xE6\x43\x98\x0E\x15\x8D\xA1\xF6\xEC\x83", SvhdxOpenDeviceContext, SvhdxOpenDeviceContext,
 );
 
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-pub struct MxAcReq;
+macro_rules! empty_req {
+    ($name:ident) => {
+        #[binrw::binrw]
+        #[derive(Debug, PartialEq, Eq)]
+        pub struct $name;
+    };
+}
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct QFidReq;
+pub struct EaBuffer {
+    #[br(parse_with = binrw::helpers::until_eof)]
+    #[bw(write_with = FileFullEaInformationCommon::write_chained)]
+    info: Vec<FileFullEaInformationCommon>,
+}
+
+pub type SdBuffer = SecurityDescriptor;
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Default)]
+pub struct DurableHandleRequest {
+    #[bw(calc = 0)]
+    #[br(assert(durable_request == 0))]
+    durable_request: u128,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Default)]
+pub struct DurableHandleResponse {
+    #[bw(calc = 0)]
+    #[br(assert(response == 0))]
+    response: u128,
+}
+
+/// TODO: SMB2_FILEID
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct DurableHandleReconnect {
+    pub durable_request: u128,
+}
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Default)]
+pub struct QueryMaximalAccessRequest {
+    pub timestamp: Option<FileTime>,
+}
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct DH2QReq {
+pub struct AllocationSize {
+    pub allocation_size: u64,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct TimewarpToken {
+    pub tiemstamp: FileTime,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub enum RequestLease {
+    RqLsReqv1(RequestLeaseV1),
+    RqLsReqv2(RequestLeaseV2),
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct RequestLeaseV1 {
+    pub lease_key: u128,
+    pub lease_state: LeaseState,
+    #[bw(calc = 0)]
+    #[br(assert(lease_flags == 0))]
+    lease_flags: u32,
+    #[bw(calc = 0)]
+    #[br(assert(lease_duration == 0))]
+    lease_duration: u64,
+}
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct RequestLeaseV2 {
+    pub lease_key: u128,
+    pub lease_state: LeaseState,
+    #[br(assert(lease_flags == 0 || lease_flags == 4))]
+    pub lease_flags: u32,
+    #[bw(calc = 0)]
+    #[br(assert(lease_duration == 0))]
+    lease_duration: u64,
+    pub parent_lease_key: u128,
+    pub epoch: u16,
+    #[bw(calc = 0)]
+    #[br(assert(reserved == 0))]
+    reserved: u16,
+}
+
+empty_req!(QueryOnDiskIdReq);
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct DurableHandleRequestV2 {
     pub timeout: u32,
-    pub flags: DH2QFlags,
+    pub flags: DurableHandleV2Flags,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u64,
@@ -400,7 +501,7 @@ pub struct DH2QReq {
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct DH2QFlags {
+pub struct DurableHandleV2Flags {
     #[skip]
     __: bool,
     pub persistent: bool, // 0x2
@@ -410,14 +511,101 @@ pub struct DH2QFlags {
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct MxAcResp {
+pub struct DurableHandleReconnectV2 {
+    file_id: Guid,
+    create_guid: Guid,
+    flags: DurableHandleV2Flags,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct AppInstanceId {
+    #[bw(calc = 20)]
+    #[br(assert(structure_size == 20))]
+    structure_size: u16,
+    #[bw(calc = 0)]
+    #[br(assert(_reserved == 0))]
+    _reserved: u16,
+    pub app_instance_id: Guid,
+}
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct AppInstanceVersion {
+    #[bw(calc = 24)]
+    #[br(assert(structure_size == 24))]
+    structure_size: u16,
+    #[bw(calc = 0)]
+    #[br(assert(_reserved == 0))]
+    _reserved: u16,
+    #[bw(calc = 0)]
+    #[br(assert(_reserved2 == 0))]
+    _reserved2: u32,
+    pub app_instance_version_high: u64,
+    pub app_instance_version_low: u64,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub enum SvhdxOpenDeviceContext {
+    V1(SvhdxOpenDeviceContextV1),
+    V2(SvhdxOpenDeviceContextV2),
+}
+
+/// [MS-RSVD] sections 2.2.4.12 and 2.2.4.32.
+/// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rsvd/6ec20c83-a6a7-49d5-ae60-72070f91d5e0
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SvhdxOpenDeviceContextV1 {
+    pub version: u32,
+    pub has_initiator_id: Boolean,
+    #[bw(calc = 0)]
+    #[br(assert(reserved1 == 0))]
+    reserved1: u8,
+    #[bw(calc = 0)]
+    #[br(assert(reserved2 == 0))]
+    reserved2: u16,
+    pub initiator_id: Guid,
+    pub flags: u32,
+    pub originator_flags: u32,
+    pub open_request_id: u64,
+    pub initiator_host_name_length: u16,
+    pub initiator_host_name: [u16; 126 / 2],
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SvhdxOpenDeviceContextV2 {
+    pub version: u32,
+    pub has_initiator_id: Boolean,
+    #[bw(calc = 0)]
+    #[br(assert(reserved1 == 0))]
+    reserved1: u8,
+    #[bw(calc = 0)]
+    #[br(assert(reserved2 == 0))]
+    reserved2: u16,
+    pub initiator_id: Guid,
+    pub flags: u32,
+    pub originator_flags: u32,
+    pub open_request_id: u64,
+    pub initiator_host_name_length: u16,
+    pub initiator_host_name: [u16; 126 / 2],
+    pub virtual_disk_properties_initialized: u32,
+    pub server_service_version: u32,
+    pub virtual_sector_size: u32,
+    pub physical_sector_size: u32,
+    pub virtual_size: u64,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct QueryMaximalAccessResponse {
     pub query_status: Status,
     pub maximal_access: FileAccessMask,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct QFidResp {
+pub struct QueryOnDiskIdResp {
     pub file_id: u64,
     pub volume_id: u64,
     #[bw(calc = 0)]
@@ -429,7 +617,7 @@ pub struct QFidResp {
 #[derive(Debug, PartialEq, Eq)]
 pub struct DH2QResp {
     pub timeout: u32,
-    pub flags: DH2QFlags,
+    pub flags: DurableHandleV2Flags,
 }
 
 #[binrw::binrw]
@@ -499,14 +687,14 @@ mod tests {
                 .with_disallow_exclusive(true),
             name: file_name.into(),
             contexts: vec![
-                DH2QReq {
+                DurableHandleRequestV2 {
                     timeout: 0,
-                    flags: DH2QFlags::new(),
+                    flags: DurableHandleV2Flags::new(),
                     create_guid: 0x821680290c007b8b11efc0a0c679a320u128.to_le_bytes().into(),
                 }
                 .into(),
-                MxAcReq.into(),
-                QFidReq.into(),
+                QueryMaximalAccessRequest::default().into(),
+                QueryOnDiskIdReq.into(),
             ],
         };
         let data_without_header = encode_content(Content::CreateRequest(request));
@@ -570,12 +758,12 @@ mod tests {
                 file_attributes: FileAttributes::new().with_directory(true),
                 file_id: 950737950337192747837452976457u128.to_le_bytes().into(),
                 create_contexts: vec![
-                    MxAcResp {
+                    QueryMaximalAccessResponse {
                         query_status: Status::Success,
                         maximal_access: FileAccessMask::from_bytes(0x001f01ffu32.to_le_bytes()),
                     }
                     .into(),
-                    QFidResp {
+                    QueryOnDiskIdResp {
                         file_id: 0x400000001e72a,
                         volume_id: 0xb017cfd9,
                     }

@@ -44,17 +44,17 @@ impl Resource {
                 create_options: CreateOptions::new(),
                 name: name.into(),
                 contexts: vec![
-                    DH2QReq {
+                    DurableHandleRequestV2 {
                         timeout: 0,
-                        flags: DH2QFlags::new(),
+                        flags: DurableHandleV2Flags::new(),
                         create_guid: Guid::try_from(&[
                             180, 122, 182, 194, 188, 248, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         ])
                         .unwrap(),
                     }
                     .into(),
-                    MxAcReq.into(),
-                    QFidReq.into(),
+                    QueryMaximalAccessRequest::default().into(),
+                    QueryOnDiskIdReq.into(),
                 ],
             }))
             .await?;
