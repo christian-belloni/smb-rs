@@ -83,11 +83,11 @@ impl SessionState {
     fn make_signer(
         deriver: &KeyDeriver,
         signing_algo: Option<SigningAlgorithmId>,
-        dialect: &Arc<dyn DialectImpl>,
+        dialect: &Arc<DialectImpl>,
         preauth_hash: &Option<PreauthHashValue>,
     ) -> Result<MessageSigner, CryptoError> {
         let signing_key = deriver.derive(
-            dialect.get_signing_nonce(),
+            dialect.get_signing_derive_label(),
             Self::preauth_hash_or(preauth_hash, Self::NO_PREAUTH_HASH_DERIVE_SIGN_CTX),
         )?;
         let signing_algo = match signing_algo {
@@ -126,11 +126,11 @@ impl SessionState {
 
         // Make the keys.
         let enc_key = deriver.derive(
-            info.dialect.c2s_encryption_key_label(),
+            info.dialect.c2s_encrypt_key_derive_label(),
             Self::preauth_hash_or(preauth_hash, Self::NO_PREAUTH_HASH_DERIVE_ENCRYPT_C2S_CTX),
         )?;
         let dec_key = deriver.derive(
-            info.dialect.s2c_encryption_key_label(),
+            info.dialect.s2c_encrypt_key_derive_label(),
             Self::preauth_hash_or(preauth_hash, Self::NO_PREAUTH_HASH_DERIVE_ECRNYPT_S2C_CTX),
         )?;
 

@@ -24,7 +24,7 @@ macro_rules! parametrize_dialect {
     };
 }
 
-parametrize_dialect!(Smb0302, Smb0311);
+parametrize_dialect!(Smb030, Smb0302, Smb0311);
 
 #[maybe_async::maybe_async]
 pub async fn test_smb_integration_basic(

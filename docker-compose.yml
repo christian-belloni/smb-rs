@@ -3,6 +3,10 @@ services:
     build:
       context: smb/tests
       dockerfile: Dockerfile
+      tags:
+        - ghcr.io/avivnaaman/smb-tests:latest
+      platforms:
+        - linux/amd64
     ports:
       - 445:445
     networks:

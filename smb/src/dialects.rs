@@ -11,50 +11,104 @@ use crate::{
     ConnectionConfig, Error,
 };
 
-pub trait DialectImpl: std::fmt::Debug + Send + Sync {
-    fn get_dialect(&self) -> Dialect;
-    fn get_negotiate_caps_mask(&self) -> GlobalCapabilities;
-    fn process_negotiate_request(
+/// This is a utility struct that returns constants and functions for the given dialect.
+#[derive(Debug)]
+pub struct DialectImpl {
+    pub dialect: Dialect,
+}
+
+impl DialectImpl {
+    pub fn new(dialect: Dialect) -> Arc<Self> {
+        Arc::new(Self { dialect })
+    }
+
+    pub fn get_negotiate_caps_mask(&self) -> GlobalCapabilities {
+        let mut mask = GlobalCapabilities::new()
+            .with_dfs(true)
+            .with_leasing(true)
+            .with_large_mtu(true)
+            .with_multi_channel(true)
+            .with_persistent_handles(true)
+            .with_directory_leasing(true);
+
+        mask.set_encryption(Dialect::Smb030 <= self.dialect && self.dialect <= Dialect::Smb0302);
+        mask.set_notifications(self.dialect == Dialect::Smb0311);
+
+        mask
+    }
+
+    pub fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
         state: &mut NegotiatedProperties,
         config: &ConnectionConfig,
+    ) -> crate::Result<()> {
+        match self.dialect {
+            Dialect::Smb0311 => Smb311.process_negotiate_request(response, state, config),
+            Dialect::Smb0302 | Dialect::Smb030 => Smb300_302.process_negotiate_request(response, state, config),
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn get_signing_derive_label(&self) -> &[u8] {
+        match self.dialect {
+            Dialect::Smb0311 => Smb311::SIGNING_KEY_LABEL,
+            Dialect::Smb0302 | Dialect::Smb030 => Smb300_302::SIGNING_KEY_LABEL,
+            _ => unimplemented!(),
+        }
+    }
+    pub fn preauth_hash_supported(&self) -> bool {
+        self.dialect == Dialect::Smb0311
+    }
+    pub fn default_signing_algo(&self) -> SigningAlgorithmId {
+        match self.dialect {
+            Dialect::Smb0311 | Dialect::Smb0302 | Dialect::Smb030 => SigningAlgorithmId::AesCmac,
+            Dialect::Smb0202 | Dialect::Smb021 => SigningAlgorithmId::HmacSha256,
+        }
+    }
+
+    pub fn supports_compression(&self) -> bool {
+        self.dialect == Dialect::Smb0311
+    }
+
+    pub fn supports_encryption(&self) -> bool {
+        self.dialect.is_smb3()
+    }
+
+    pub fn s2c_encrypt_key_derive_label(&self) -> &[u8] {
+        match self.dialect {
+            Dialect::Smb0311 => Smb311::ENCRYPTION_S2C_KEY_LABEL,
+            Dialect::Smb0302 | Dialect::Smb030 => Smb300_302::ENCRYPTION_KEY_LABEL,
+            _ => panic!("Encryption is not supported for this dialect!"),
+        }
+    }
+    pub fn c2s_encrypt_key_derive_label(&self) -> &[u8] {
+        match self.dialect {
+            Dialect::Smb0311 => Smb311::ENCRYPTION_C2S_KEY_LABEL,
+            Dialect::Smb0302 | Dialect::Smb030 => Smb300_302::ENCRYPTION_KEY_LABEL,
+            _ => panic!("Encryption is not supported for this dialect!"),
+        }
+    }
+}
+
+trait DialectMethods {
+    const SIGNING_KEY_LABEL: &[u8];
+    fn process_negotiate_request(
+        &self,
+        response: &NegotiateResponse,
+        _state: &mut NegotiatedProperties,
+        config: &ConnectionConfig,
     ) -> crate::Result<()>;
-
-    fn get_signing_nonce(&self) -> &[u8];
-    fn preauth_hash_supported(&self) -> bool;
-    fn default_signing_algo(&self) -> SigningAlgorithmId {
-        SigningAlgorithmId::HmacSha256
-    }
-
-    fn supports_compression(&self) -> bool {
-        false
-    }
-
-    fn supports_encryption(&self) -> bool {
-        false
-    }
-    fn s2c_encryption_key_label(&self) -> &[u8];
-    fn c2s_encryption_key_label(&self) -> &[u8];
 }
 
-/// Get the dialect implementation for the given dialect.
-pub fn get_dialect_impl(dialect: &Dialect) -> Arc<dyn DialectImpl> {
-    match dialect {
-        Dialect::Smb0311 => Arc::new(Smb0311Dialect),
-        Dialect::Smb0302 => Arc::new(Smb302Dialect),
-        _ => unimplemented!(),
-    }
+struct Smb311;
+impl Smb311 {
+    pub const ENCRYPTION_S2C_KEY_LABEL: &[u8] = b"SMBS2CCipherKey\x00";
+    pub const ENCRYPTION_C2S_KEY_LABEL: &[u8] = b"SMBC2SCipherKey\x00";
 }
 
-#[derive(Debug)]
-struct Smb0311Dialect;
-
-impl DialectImpl for Smb0311Dialect {
-    fn get_dialect(&self) -> Dialect {
-        Dialect::Smb0311
-    }
-
+impl DialectMethods for Smb311 {
+    const SIGNING_KEY_LABEL: &[u8] = b"SMBSigningKey\x00";
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
@@ -112,55 +166,15 @@ impl DialectImpl for Smb0311Dialect {
 
         Ok(())
     }
-
-    fn get_negotiate_caps_mask(&self) -> GlobalCapabilities {
-        GlobalCapabilities::new()
-            .with_dfs(true)
-            .with_leasing(true)
-            .with_large_mtu(true)
-            .with_multi_channel(true)
-            .with_persistent_handles(true)
-            .with_directory_leasing(true)
-            .with_encryption(false)
-            .with_notifications(true)
-    }
-
-    fn get_signing_nonce(&self) -> &[u8] {
-        b"SMBSigningKey\x00"
-    }
-
-    fn preauth_hash_supported(&self) -> bool {
-        true
-    }
-
-    fn default_signing_algo(&self) -> SigningAlgorithmId {
-        SigningAlgorithmId::AesCmac
-    }
-
-    fn supports_compression(&self) -> bool {
-        true
-    }
-    fn supports_encryption(&self) -> bool {
-        true
-    }
-    fn s2c_encryption_key_label(&self) -> &[u8] {
-        b"SMBS2CCipherKey\x00"
-    }
-    fn c2s_encryption_key_label(&self) -> &[u8] {
-        b"SMBC2SCipherKey\x00"
-    }
 }
 
-const SMB2_ENCRYPTION_KEY_LABEL: &[u8] = b"SMB2AESCCM\x00";
+struct Smb300_302;
+impl Smb300_302 {
+    pub const ENCRYPTION_KEY_LABEL: &[u8] = b"SMB2AESCCM\x00";
+}
 
-#[derive(Debug)]
-struct Smb302Dialect;
-
-impl DialectImpl for Smb302Dialect {
-    fn get_dialect(&self) -> Dialect {
-        Dialect::Smb0302
-    }
-
+impl DialectMethods for Smb300_302 {
+    const SIGNING_KEY_LABEL: &[u8] = b"SMB2AESCMAC\x00";
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
@@ -180,41 +194,5 @@ impl DialectImpl for Smb302Dialect {
         }
 
         Ok(())
-    }
-
-    fn get_negotiate_caps_mask(&self) -> GlobalCapabilities {
-        GlobalCapabilities::new()
-            .with_dfs(true)
-            .with_leasing(true)
-            .with_large_mtu(true)
-            .with_multi_channel(true)
-            .with_persistent_handles(true)
-            .with_directory_leasing(true)
-            .with_encryption(true)
-            .with_notifications(false)
-    }
-
-    fn get_signing_nonce(&self) -> &[u8] {
-        b"SMB2AESCMAC\x00"
-    }
-
-    fn preauth_hash_supported(&self) -> bool {
-        false
-    }
-
-    fn default_signing_algo(&self) -> SigningAlgorithmId {
-        SigningAlgorithmId::AesCmac
-    }
-
-    fn supports_encryption(&self) -> bool {
-        true
-    }
-
-    fn s2c_encryption_key_label(&self) -> &[u8] {
-        SMB2_ENCRYPTION_KEY_LABEL
-    }
-
-    fn c2s_encryption_key_label(&self) -> &[u8] {
-        SMB2_ENCRYPTION_KEY_LABEL
     }
 }

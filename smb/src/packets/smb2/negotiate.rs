@@ -268,6 +268,11 @@ impl Dialect {
         Dialect::Smb0302,
         Dialect::Smb0311,
     ];
+
+    #[inline]
+    pub fn is_smb3(&self) -> bool {
+        matches!(self, Dialect::Smb030 | Dialect::Smb0302 | Dialect::Smb0311)
+    }
 }
 
 /// Dialects that may be used in the SMB Negotiate Request.
