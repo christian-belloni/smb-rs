@@ -68,66 +68,52 @@ pub struct ACE {
     pub value: AceValue,
 }
 
+macro_rules! make_ace_value {
+    (
+        $($type:ident($val:ident),)+
+    ) => {
+        paste::paste! {
+
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[br(import(ace_type: AceType))]
 pub enum AceValue {
-    #[br(pre_assert(matches!(ace_type, AceType::AccessAllowed)))]
-    AccessAllowed(AccessAce),
-    #[br(pre_assert(matches!(ace_type, AceType::AccessDenied)))]
-    AccessDenied(AccessAce),
-    #[br(pre_assert(matches!(ace_type, AceType::SystemAudit)))]
-    SystemAudit(AccessAce),
-
-    #[br(pre_assert(matches!(ace_type, AceType::AccessAllowedObject)))]
-    AccessAllowedObject(AccessObjectAce),
-    #[br(pre_assert(matches!(ace_type, AceType::AccessDeniedObject)))]
-    AccessDeniedObject(AccessObjectAce),
-    #[br(pre_assert(matches!(ace_type, AceType::SystemAuditObject)))]
-    SystemAuditObject(AccessObjectAce),
-
-    #[br(pre_assert(matches!(ace_type, AceType::AccessAllowedCallback)))]
-    AccessAllowedCallback(AccessCallbackAce),
-    #[br(pre_assert(matches!(ace_type, AceType::AccessDeniedCallback)))]
-    AccessDeniedCallback(AccessCallbackAce),
-
-    #[br(pre_assert(matches!(ace_type, AceType::AccessAllowedCallbackObject)))]
-    AccessAllowedCallbackObject(AccessObjectCallbackAce),
-    #[br(pre_assert(matches!(ace_type, AceType::AccessDeniedCallbackObject)))]
-    AccessDeniedCallbackObject(AccessObjectCallbackAce),
-    #[br(pre_assert(matches!(ace_type, AceType::SystemAuditCallback)))]
-    SystemAuditCallback(AccessCallbackAce),
-    #[br(pre_assert(matches!(ace_type, AceType::SystemAuditCallbackObject)))]
-    SystemAuditCallbackObject(AccessObjectCallbackAce),
-
-    #[br(pre_assert(matches!(ace_type, AceType::SystemMandatoryLabel)))]
-    SystemMandatoryLabel(SystemMandatoryLabelAce),
-    #[br(pre_assert(matches!(ace_type, AceType::SystemResourceAttribute)))]
-    SystemResourceAttribute(SystemResourceAttributeAce),
-    #[br(pre_assert(matches!(ace_type, AceType::SystemScopedPolicyId)))]
-    SystemScopedPolicyId(AccessAce),
+    $(
+        #[br(pre_assert(matches!(ace_type, AceType::$type)))]
+        $type($val),
+    )+
 }
 
 impl AceValue {
     pub fn get_type(&self) -> AceType {
         match self {
-            AceValue::AccessAllowed(_) => AceType::AccessAllowed,
-            AceValue::AccessDenied(_) => AceType::AccessDenied,
-            AceValue::SystemAudit(_) => AceType::SystemAudit,
-            AceValue::AccessAllowedObject(_) => AceType::AccessAllowedObject,
-            AceValue::AccessDeniedObject(_) => AceType::AccessDeniedObject,
-            AceValue::SystemAuditObject(_) => AceType::SystemAuditObject,
-            AceValue::AccessAllowedCallback(_) => AceType::AccessAllowedCallback,
-            AceValue::AccessDeniedCallback(_) => AceType::AccessDeniedCallback,
-            AceValue::AccessAllowedCallbackObject(_) => AceType::AccessAllowedCallbackObject,
-            AceValue::AccessDeniedCallbackObject(_) => AceType::AccessDeniedCallbackObject,
-            AceValue::SystemAuditCallback(_) => AceType::SystemAuditCallback,
-            AceValue::SystemAuditCallbackObject(_) => AceType::SystemAuditCallbackObject,
-            AceValue::SystemMandatoryLabel(_) => AceType::SystemMandatoryLabel,
-            AceValue::SystemResourceAttribute(_) => AceType::SystemResourceAttribute,
-            AceValue::SystemScopedPolicyId(_) => AceType::SystemScopedPolicyId,
+            $(
+                AceValue::$type(_) => AceType::$type,
+            )+
         }
     }
+}
+
+        }
+    };
+}
+
+make_ace_value! {
+    AccessAllowed(AccessAce),
+    AccessDenied(AccessAce),
+    SystemAudit(AccessAce),
+    AccessAllowedObject(AccessObjectAce),
+    AccessDeniedObject(AccessObjectAce),
+    SystemAuditObject(AccessObjectAce),
+    AccessAllowedCallback(AccessCallbackAce),
+    AccessDeniedCallback(AccessCallbackAce),
+    AccessAllowedCallbackObject(AccessObjectCallbackAce),
+    AccessDeniedCallbackObject(AccessObjectCallbackAce),
+    SystemAuditCallback(AccessCallbackAce),
+    SystemAuditCallbackObject(AccessObjectCallbackAce),
+    SystemMandatoryLabel(SystemMandatoryLabelAce),
+    SystemResourceAttribute(SystemResourceAttributeAce),
+    SystemScopedPolicyId(AccessAce),
 }
 
 #[binrw::binrw]
