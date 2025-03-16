@@ -6,7 +6,7 @@ use time::PrimitiveDateTime;
 use crate::{
     connection::connection_info::ConnectionInfo,
     msg_handler::{HandlerReference, MessageHandler},
-    packets::{fscc::*, guid::Guid, smb2::*},
+    packets::{fscc::*, smb2::*},
     tree::TreeMessageHandler,
     Error,
 };
@@ -48,15 +48,6 @@ impl Resource {
                 create_options: CreateOptions::new(),
                 name: name.into(),
                 contexts: vec![
-                    DurableHandleRequestV2 {
-                        timeout: 0,
-                        flags: DurableHandleV2Flags::new(),
-                        create_guid: Guid::try_from(&[
-                            180, 122, 182, 194, 188, 248, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        ])
-                        .unwrap(),
-                    }
-                    .into(),
                     QueryMaximalAccessRequest::default().into(),
                     QueryOnDiskIdReq.into(),
                 ],

@@ -342,7 +342,7 @@ impl ConnectionMessageHandler {
     #[maybe_async]
     async fn process_sequence_outgoing(&self, msg: &mut OutgoingMessage) -> crate::Result<()> {
         if let Some(neg) = self.conn_info.get() {
-            if neg.negotiation.dialect_rev > Dialect::Smb0202 && neg.negotiation.caps.large_mtu() {
+            if neg.negotiation.caps.large_mtu() {
                 // Calculate the cost of the message (charge).
                 let cost = if Self::SET_CREDIT_CHARGE_CMDS
                     .iter()
@@ -393,7 +393,7 @@ impl ConnectionMessageHandler {
     #[maybe_async]
     async fn process_sequence_incoming(&self, msg: &IncomingMessage) -> crate::Result<()> {
         if let Some(neg) = self.conn_info.get() {
-            if neg.negotiation.dialect_rev > Dialect::Smb0202 && neg.negotiation.caps.large_mtu() {
+            if neg.negotiation.caps.large_mtu() {
                 let granted_credits = msg.message.header.credit_request;
                 let charged_credits = msg.message.header.credit_charge;
                 // Update the pool size - return how many EXTRA credits were granted.

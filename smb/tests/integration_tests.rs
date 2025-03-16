@@ -10,7 +10,7 @@ use smb::{
 };
 use std::env::var;
 
-macro_rules! parametrize_dialect {
+macro_rules! basic_test {
     ([$dialect:ident], [$($encrypt_mode:ident),*]) => {
         $(
             paste::paste! {
@@ -28,13 +28,14 @@ macro_rules! parametrize_dialect {
 
     ([$($dialect:ident),*], $encrypt_modes:tt) => {
         $(
-            parametrize_dialect!([$dialect],  $encrypt_modes);
+            basic_test!([$dialect],  $encrypt_modes);
         )*
     };
 
 }
 
-parametrize_dialect!([Smb030, Smb0302, Smb0311], [Disabled, Required]);
+basic_test!([Smb030, Smb0302, Smb0311], [Disabled, Required]);
+basic_test!([Smb0202, Smb021], [Disabled]);
 
 #[maybe_async::maybe_async]
 async fn test_smb_integration_basic(
