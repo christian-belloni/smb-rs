@@ -287,6 +287,28 @@ where
         )
     }
 
+    /// Writer for value
+    /// * fill absolute offset to offset location.
+    /// * with value args.
+    #[binrw::writer(writer, endian)]
+    pub fn write_aoff_a<U>(
+        value: &U,
+        write_offset_to: &Self,
+        value_args: U::Args<'_>,
+    ) -> BinResult<()>
+    where
+        U: BinWrite,
+    {
+        let no_size: Option<&PosMarker<T>> = None;
+        let no_base: Option<&PosMarker<T>> = None;
+        Self::write_hero(
+            value,
+            writer,
+            endian,
+            (no_size, Some(write_offset_to), no_base, value_args),
+        )
+    }
+
     #[binrw::writer(writer, endian)]
     pub fn write_roff_size<U, S>(
         value: &U,

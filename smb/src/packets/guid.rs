@@ -9,6 +9,10 @@ use rand::{rngs::OsRng, Rng};
 pub struct Guid(u32, u16, u16, [u8; 8]);
 
 impl Guid {
+    /// Bytes
+    pub const GUID_SIZE: usize = 16;
+
+    /// Generates a new random GUID.
     pub fn gen() -> Self {
         let mut rng = OsRng;
         let mut bytes = [0u8; 16];
@@ -16,6 +20,7 @@ impl Guid {
         Self::try_from(&bytes).unwrap()
     }
 
+    /// The maximum possible GUID value (all bits set to 1).
     pub const MAX: Guid = Guid {
         0: u32::MAX,
         1: u16::MAX,

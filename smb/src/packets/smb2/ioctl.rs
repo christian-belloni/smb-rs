@@ -1,5 +1,6 @@
 //! SMB2 IOCTL packet implementation
 
+mod common;
 mod fsctl;
 mod msg;
 
