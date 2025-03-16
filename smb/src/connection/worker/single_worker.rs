@@ -19,15 +19,15 @@ pub struct SingleWorker {
 
 impl Worker for SingleWorker {
     fn start(netbios_client: NetBiosClient, timeout: Option<Duration>) -> crate::Result<Arc<Self>> {
-        if !netbios_client.is_connected() {
-            Err(crate::Error::NotConnected)
-        } else {
-            netbios_client.set_read_timeout(timeout)?;
-            Ok(Arc::new(Self {
-                netbios_client: RefCell::new(netbios_client),
-                transformer: Transformer::default(),
-            }))
+        if !netbios_client.can_read() || !netbios_client.can_write() {
+            return Err(crate::Error::NotConnected);
         }
+
+        netbios_client.set_read_timeout(timeout)?;
+        Ok(Arc::new(Self {
+            netbios_client: RefCell::new(netbios_client),
+            transformer: Transformer::default(),
+        }))
     }
 
     fn stop(&self) -> crate::Result<()> {

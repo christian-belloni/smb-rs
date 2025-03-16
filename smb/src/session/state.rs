@@ -6,7 +6,7 @@ use crate::dialects::DialectImpl;
 use crate::sync_helpers::*;
 use maybe_async::*;
 
-use crate::connection::negotiation_state::ConnectionInfo;
+use crate::connection::connection_info::ConnectionInfo;
 use crate::connection::preauth_hash::PreauthHashValue;
 use crate::crypto::{
     kbkdf_hmacsha256, make_encrypting_algo, make_signing_algo, CryptoError, DerivedKey, KeyToDerive,
@@ -41,7 +41,7 @@ impl SessionState {
         preauth_hash: &Option<PreauthHashValue>,
         info: &ConnectionInfo,
     ) -> crate::Result<()> {
-        if (info.state.dialect_rev == Dialect::Smb0311) != preauth_hash.is_some() {
+        if (info.negotiation.dialect_rev == Dialect::Smb0311) != preauth_hash.is_some() {
             return Err(crate::Error::InvalidMessage(
                 "Preauth hash must be present for SMB3.1.1, and not present for SMB3.0.2 or older revisions."
                     .to_string(),
@@ -52,7 +52,7 @@ impl SessionState {
 
         let signer = Self::make_signer(
             &deriver,
-            info.state.signing_algo(),
+            info.negotiation.signing_algo,
             &info.dialect,
             preauth_hash,
         )?;
@@ -115,11 +115,11 @@ impl SessionState {
         }
         // Cipher is selected only for SMB3.1.1
         debug_assert_eq!(
-            (info.state.dialect_rev == Dialect::Smb0311),
-            info.state.cipher().is_some()
+            (info.negotiation.dialect_rev == Dialect::Smb0311),
+            info.negotiation.encryption_cipher.is_some()
         );
         // Use AES-128-CCM by default.
-        let cipher = match info.state.cipher() {
+        let cipher = match info.negotiation.encryption_cipher {
             Some(c) => c,
             None => EncryptionCipher::Aes128Ccm,
         };

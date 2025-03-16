@@ -1,7 +1,11 @@
+//! Connection configuration settings.
+
 use std::time::Duration;
 
-use crate::packets::smb2::Dialect;
+use crate::packets::{guid::Guid, smb2::Dialect};
 
+/// Specifies the encryption mode for the connection.
+/// Use this as part of the [ConnectionConfig] to specify the encryption mode for the connection.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EncryptionMode {
     /// Encryption is allowed but not required, it's up to the server to decide.
@@ -28,15 +32,39 @@ impl EncryptionMode {
 /// Specifies the configuration for a connection.
 #[derive(Debug, Default, Clone)]
 pub struct ConnectionConfig {
+    /// Specifies the timeout for the connection.
     pub timeout: Option<Duration>,
+
+    /// Specifies the minimum and maximum dialects to be used in the connection.
+    ///
+    /// Note, that if set, the minimum dialect must be less than or equal to the maximum dialect.
     pub min_dialect: Option<Dialect>,
+
+    /// Specifies the minimum and maximum dialects to be used in the connection.
+    ///
+    /// Note, that if set, the minimum dialect must be less than or equal to the maximum dialect.
     pub max_dialect: Option<Dialect>,
+
+    /// Sets the encryption mode for the connection.
+    /// See [EncryptionMode] for more information.
     pub encryption_mode: EncryptionMode,
+
+    /// Whether to enable compression, if supported by the server and specified connection dialects.
+    ///
+    /// Note: you must also have compression features enabled when building the crate, otherwise compression
+    /// would not be available. *The compression feature is enabled by default.*
     pub compression_enabled: bool,
+
+    /// Specifies the client name to be used in the SMB2 negotiate request.
+    pub client_name: Option<String>,
+
+    /// Specifies the GUID of the client to be used in the SMB2 negotiate request.
+    /// If not set, a random GUID will be generated.
+    pub client_guid: Option<Guid>,
 }
 
 impl ConnectionConfig {
-    /// Validates the configuration.
+    /// Validates common configuration settings.
     pub fn validate(&self) -> crate::Result<()> {
         // Make sure dialects min <= max.
         if let (Some(min), Some(max)) = (self.min_dialect, self.max_dialect) {

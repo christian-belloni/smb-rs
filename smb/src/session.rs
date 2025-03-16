@@ -3,6 +3,7 @@
 //! This module contains the session setup logic, as well as the session message handling,
 //! including encryption and signing of messages.
 
+use crate::connection::connection_info::ConnectionInfo;
 use crate::connection::worker::Worker;
 use crate::sync_helpers::*;
 use crate::{
@@ -37,21 +38,32 @@ pub struct Session {
     session_state: Arc<Mutex<SessionState>>,
     /// Requested security mode from the server.
     req_security_mode: SessionSecurityMode,
+
+    conn_info: Arc<ConnectionInfo>,
 }
 
 impl Session {
-    pub fn new(upstream: UpstreamHandlerRef) -> Session {
+    #[maybe_async]
+    pub async fn setup(
+        user_name: &str,
+        password: String,
+        upstream: UpstreamHandlerRef,
+        conn_info: &Arc<ConnectionInfo>,
+    ) -> crate::Result<Session> {
         let session_state = Arc::new(Mutex::new(SessionState::default()));
-        Session {
+        let mut session = Session {
             handler: SessionMessageHandler::new(upstream, session_state.clone()),
             session_state: session_state,
             req_security_mode: SessionSecurityMode::new().with_signing_enabled(true),
-        }
+            conn_info: conn_info.clone(),
+        };
+        session.server_setup(user_name, password).await?;
+        Ok(session)
     }
 
     /// Sets up the session with the specified username and password.
     #[maybe_async]
-    pub async fn setup(&mut self, user_name: &str, password: String) -> crate::Result<()> {
+    async fn server_setup(&mut self, user_name: &str, password: String) -> crate::Result<()> {
         if *self.handler.session_id.read().await? != 0 {
             return Err(Error::InvalidState("Session already set up!".to_string()));
         }
@@ -64,12 +76,11 @@ impl Session {
 
         // Build the authenticator.
         let (mut authenticator, next_buf) = {
-            let negotate_state = self.handler.upstream().negotiate_info().unwrap();
             let identity = AuthIdentity {
                 username,
                 password: Secret::new(password),
             };
-            GssAuthenticator::build(negotate_state.state.gss_token(), identity)?
+            GssAuthenticator::build(&self.conn_info.negotiation.auth_buffer, identity)?
         };
 
         let request = OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
@@ -149,8 +160,7 @@ impl Session {
             };
         }
         log::info!("Session setup complete.");
-        let conn_info = self.handler.upstream().negotiate_info().unwrap();
-        SessionState::set_flags(&mut self.session_state, flags.unwrap(), conn_info).await?;
+        SessionState::set_flags(&mut self.session_state, flags.unwrap(), &self.conn_info).await?;
         Ok(())
     }
 
@@ -161,18 +171,17 @@ impl Session {
         exchanged_session_key: &KeyToDerive,
         preauth_hash: &Option<PreauthHashValue>,
     ) -> crate::Result<()> {
-        let conn_info = self.handler.upstream().negotiate_info().unwrap();
         SessionState::set(
             &mut self.session_state,
             exchanged_session_key,
             preauth_hash,
-            conn_info,
+            &self.conn_info,
         )
         .await?;
         log::trace!("Session signing key set.");
 
         self.handler
-            .upstream()
+            .upstream
             .handler
             .worker()
             .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
@@ -186,9 +195,7 @@ impl Session {
     /// Connects to the specified tree using the current session.
     #[maybe_async]
     pub async fn tree_connect(&mut self, name: &str) -> crate::Result<Tree> {
-        let mut tree = Tree::new(name, self.handler.clone());
-        tree.connect().await?;
-        Ok(tree)
+        Tree::connect(name, self.handler.clone(), &self.conn_info).await
     }
 }
 
@@ -221,10 +228,6 @@ impl SessionMessageHandler {
         SessionState::encryption_enabled(&self.session_state).await
     }
 
-    pub fn upstream(&self) -> &UpstreamHandlerRef {
-        &self.upstream
-    }
-
     #[maybe_async]
     async fn logoff(&self) -> crate::Result<()> {
         if *self.session_id.read().await? == 0 {
@@ -251,7 +254,7 @@ impl SessionMessageHandler {
             *session_id_ref = 0;
             session_id
         };
-        self.upstream()
+        self.upstream
             .handler
             .worker()
             .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?

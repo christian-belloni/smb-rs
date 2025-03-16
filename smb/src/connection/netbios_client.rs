@@ -42,6 +42,7 @@ pub struct NetBiosClient {
 }
 
 impl NetBiosClient {
+    /// Creates a new NetBios client with an optional timeout.
     pub fn new(timeout: Option<Duration>) -> NetBiosClient {
         NetBiosClient {
             reader: None,
@@ -60,6 +61,9 @@ impl NetBiosClient {
         Ok(())
     }
 
+    /// Connects to a NetBios server in the specified address with a timeout.
+    /// This is the threaded version of [connect](NetBiosClient::connect) -
+    /// using the [std::net::TcpStream] as the underlying socket provider.
     #[cfg(feature = "sync")]
     fn connect_timeout(&mut self, address: &str) -> crate::Result<TcpStream> {
         if let Some(t) = self.timeout {
@@ -76,6 +80,9 @@ impl NetBiosClient {
         }
     }
 
+    /// Connects to a NetBios server in the specified address with a timeout.
+    /// This is the async version of [connect](NetBiosClient::connect) -
+    /// using the [tokio::net::TcpStream] as the underlying socket provider.
     #[cfg(feature = "async")]
     async fn connect_timeout(&mut self, address: &str) -> crate::Result<TcpStream> {
         if let None = self.timeout {
@@ -88,11 +95,7 @@ impl NetBiosClient {
             _ = tokio::time::sleep(self.timeout.unwrap()) => Err(crate::Error::OperationTimeout("Tcp connect".to_string(), self.timeout.unwrap())),
         }
     }
-
-    pub fn is_connected(&self) -> bool {
-        self.reader.is_some()
-    }
-
+    /// Disconnects the client, if not already disconnected.
     pub fn disconnect(&mut self) {
         self.reader.take();
         self.writer.take();
@@ -202,12 +205,14 @@ impl NetBiosClient {
         e.into()
     }
 
+    /// Async implementation of split socket to read and write halves.
     #[cfg(feature = "async")]
     fn split_socket(socket: TcpStream) -> (TcpRead, TcpWrite) {
         let (r, w) = socket.into_split();
         (r, w)
     }
 
+    /// Sync implementation of split socket to read and write halves.
     #[cfg(feature = "sync")]
     fn split_socket(socket: TcpStream) -> (TcpRead, TcpWrite) {
         let rsocket = socket.try_clone().unwrap();
@@ -239,6 +244,7 @@ impl NetBiosClient {
         ))
     }
 
+    /// Checks if the client can read.
     pub fn can_read(&self) -> bool {
         self.reader.is_some()
     }

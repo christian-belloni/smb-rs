@@ -130,17 +130,9 @@ impl File {
         );
 
         let mut flags = ReadFlags::new();
-        let info = self
-            .handle
-            .handler
-            .upstream
-            .handler
-            .upstream()
-            .handler
-            .upstream()
-            .negotiate_info()
-            .unwrap();
-        if info.config.compression_enabled && info.dialect.supports_compression() {
+        if self.handle.conn_info.config.compression_enabled
+            && self.handle.conn_info.dialect.supports_compression()
+        {
             flags.set_read_compressed(true);
         }
 

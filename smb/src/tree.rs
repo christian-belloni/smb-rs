@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use maybe_async::*;
 
+use crate::connection::connection_info::ConnectionInfo;
 use crate::sync_helpers::*;
 
 use crate::{
@@ -25,18 +28,27 @@ struct TreeConnectInfo {
 pub struct Tree {
     handler: HandlerReference<TreeMessageHandler>,
     name: String,
+    conn_info: Arc<ConnectionInfo>,
 }
 
 impl Tree {
-    pub fn new(name: &str, upstream: Upstream) -> Tree {
-        Tree {
+    #[maybe_async]
+    pub async fn connect(
+        name: &str,
+        upstream: Upstream,
+        conn_info: &Arc<ConnectionInfo>,
+    ) -> crate::Result<Tree> {
+        let mut t = Tree {
             handler: TreeMessageHandler::new(upstream, name.to_string()),
             name: name.to_string(),
-        }
+            conn_info: conn_info.clone(),
+        };
+        t.server_connect().await?;
+        Ok(t)
     }
 
     #[maybe_async]
-    pub async fn connect(&mut self) -> crate::Result<()> {
+    async fn server_connect(&mut self) -> crate::Result<()> {
         if self.handler.connect_info.read().await?.is_some() {
             return Err(Error::InvalidState(
                 "Tree connection already established!".into(),
@@ -56,18 +68,13 @@ impl Tree {
         }
         .unwrap();
 
-        let info = self
-            .handler
-            .upstream
-            .handler
-            .upstream()
-            .handler
-            .negotiate_info()
-            .unwrap();
-
         // Make sure the share flags from the server are valid to the dialect.
-        if ((!u32::from_le_bytes(info.dialect.get_tree_connect_caps_mask().into_bytes()))
-            & u32::from_le_bytes(_response_content.capabilities.into_bytes()))
+        if ((!u32::from_le_bytes(
+            self.conn_info
+                .dialect
+                .get_tree_connect_caps_mask()
+                .into_bytes(),
+        )) & u32::from_le_bytes(_response_content.capabilities.into_bytes()))
             != 0
         {
             return Err(Error::InvalidMessage(format!(
@@ -77,7 +84,7 @@ impl Tree {
         }
 
         // Same for share flags
-        if ((!u32::from_le_bytes(info.dialect.get_share_flags_mask().into_bytes()))
+        if ((!u32::from_le_bytes(self.conn_info.dialect.get_share_flags_mask().into_bytes()))
             & u32::from_le_bytes(_response_content.share_flags.into_bytes()))
             != 0
         {
@@ -106,7 +113,14 @@ impl Tree {
         disposition: CreateDisposition,
         desired_access: FileAccessMask,
     ) -> crate::Result<Resource> {
-        Ok(Resource::create(file_name, self.handler.clone(), disposition, desired_access).await?)
+        Ok(Resource::create(
+            file_name,
+            self.handler.clone(),
+            disposition,
+            desired_access,
+            &self.conn_info,
+        )
+        .await?)
     }
 }
 
@@ -123,10 +137,6 @@ impl TreeMessageHandler {
             connect_info: RwLock::new(None),
             tree_name,
         })
-    }
-
-    pub fn upstream(&self) -> &Upstream {
-        &self.upstream
     }
 
     #[maybe_async]
