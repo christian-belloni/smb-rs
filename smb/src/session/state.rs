@@ -48,6 +48,32 @@ impl SessionState {
             ));
         }
 
+        let (signer, enc, dec) = if info.negotiation.dialect_rev.is_smb3() {
+            Self::smb3xx_make_ciphers(session_key, preauth_hash, info)?
+        } else {
+            (Self::make_smb2_signer(session_key, info)?, None, None)
+        };
+
+        {
+            let mut state = state.lock().await?;
+            state.signer = Some(signer);
+            state.decryptor = dec;
+            state.encryptor = enc;
+            log::trace!("Session state set up: {:?}", state);
+        }
+
+        Ok(())
+    }
+
+    fn smb3xx_make_ciphers(
+        session_key: &KeyToDerive,
+        preauth_hash: &Option<PreauthHashValue>,
+        info: &ConnectionInfo,
+    ) -> crate::Result<(
+        MessageSigner,
+        Option<MessageEncryptor>,
+        Option<MessageDecryptor>,
+    )> {
         let deriver = KeyDeriver::new(session_key);
 
         let signer = Self::make_signer(
@@ -69,15 +95,18 @@ impl SessionState {
             (None, None)
         };
 
-        {
-            let mut state = state.lock().await?;
-            state.signer = Some(signer);
-            state.decryptor = dec;
-            state.encryptor = enc;
-            log::trace!("Session state set up: {:?}", state);
-        }
+        Ok((signer, enc, dec))
+    }
 
-        Ok(())
+    fn make_smb2_signer(
+        session_key: &KeyToDerive,
+        info: &ConnectionInfo,
+    ) -> Result<MessageSigner, CryptoError> {
+        debug_assert!(info.negotiation.dialect_rev < Dialect::Smb030);
+        Ok(MessageSigner::new(make_signing_algo(
+            SigningAlgorithmId::HmacSha256,
+            session_key,
+        )?))
     }
 
     fn make_signer(

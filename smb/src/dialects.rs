@@ -24,15 +24,17 @@ impl DialectImpl {
     }
 
     pub fn get_negotiate_caps_mask(&self) -> GlobalCapabilities {
-        let mut mask = GlobalCapabilities::new()
-            .with_dfs(true)
-            .with_leasing(true)
-            .with_large_mtu(true)
-            .with_multi_channel(true)
-            .with_persistent_handles(true)
-            .with_directory_leasing(true);
+        let mut mask = GlobalCapabilities::new().with_dfs(true);
+
+        mask.set_leasing(self.dialect > Dialect::Smb0202);
+        mask.set_large_mtu(self.dialect > Dialect::Smb0202);
+
+        mask.set_multi_channel(self.dialect > Dialect::Smb021);
+        mask.set_persistent_handles(self.dialect > Dialect::Smb021);
+        mask.set_directory_leasing(self.dialect > Dialect::Smb021);
 
         mask.set_encryption(Dialect::Smb030 <= self.dialect && self.dialect <= Dialect::Smb0302);
+
         mask.set_notifications(self.dialect == Dialect::Smb0311);
 
         mask
@@ -97,22 +99,26 @@ impl DialectImpl {
         match self.dialect {
             Dialect::Smb0311 => Smb311.process_negotiate_request(response, state, config),
             Dialect::Smb0302 | Dialect::Smb030 => {
-                Smb300_302.process_negotiate_request(response, state, config)
+                Smb30X.process_negotiate_request(response, state, config)
             }
-            _ => unimplemented!(),
+            Dialect::Smb021 | Dialect::Smb0202 => {
+                Smb201.process_negotiate_request(response, state, config)
+            }
         }
     }
 
     pub fn get_signing_derive_label(&self) -> &[u8] {
         match self.dialect {
             Dialect::Smb0311 => Smb311::SIGNING_KEY_LABEL,
-            Dialect::Smb0302 | Dialect::Smb030 => Smb300_302::SIGNING_KEY_LABEL,
+            Dialect::Smb0302 | Dialect::Smb030 => Smb30X::SIGNING_KEY_LABEL,
             _ => unimplemented!(),
         }
     }
+
     pub fn preauth_hash_supported(&self) -> bool {
         self.dialect == Dialect::Smb0311
     }
+
     pub fn default_signing_algo(&self) -> SigningAlgorithmId {
         match self.dialect {
             Dialect::Smb0311 | Dialect::Smb0302 | Dialect::Smb030 => SigningAlgorithmId::AesCmac,
@@ -131,14 +137,14 @@ impl DialectImpl {
     pub fn s2c_encrypt_key_derive_label(&self) -> &[u8] {
         match self.dialect {
             Dialect::Smb0311 => Smb311::ENCRYPTION_S2C_KEY_LABEL,
-            Dialect::Smb0302 | Dialect::Smb030 => Smb300_302::ENCRYPTION_KEY_LABEL,
+            Dialect::Smb0302 | Dialect::Smb030 => Smb30X::ENCRYPTION_KEY_LABEL,
             _ => panic!("Encryption is not supported for this dialect!"),
         }
     }
     pub fn c2s_encrypt_key_derive_label(&self) -> &[u8] {
         match self.dialect {
             Dialect::Smb0311 => Smb311::ENCRYPTION_C2S_KEY_LABEL,
-            Dialect::Smb0302 | Dialect::Smb030 => Smb300_302::ENCRYPTION_KEY_LABEL,
+            Dialect::Smb0302 | Dialect::Smb030 => Smb30X::ENCRYPTION_KEY_LABEL,
             _ => panic!("Encryption is not supported for this dialect!"),
         }
     }
@@ -221,12 +227,13 @@ impl DialectMethods for Smb311 {
     }
 }
 
-struct Smb300_302;
-impl Smb300_302 {
+/// SMB 3.0 and 3.0.2
+struct Smb30X;
+impl Smb30X {
     pub const ENCRYPTION_KEY_LABEL: &[u8] = b"SMB2AESCCM\x00";
 }
 
-impl DialectMethods for Smb300_302 {
+impl DialectMethods for Smb30X {
     const SIGNING_KEY_LABEL: &[u8] = b"SMB2AESCMAC\x00";
     fn process_negotiate_request(
         &self,
@@ -243,6 +250,27 @@ impl DialectMethods for Smb300_302 {
         if config.encryption_mode.is_required() && !response.capabilities.encryption() {
             return Err(Error::NegotiationError(
                 "Encryption is required, but cap not supported by the server.".into(),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+struct Smb201;
+
+impl DialectMethods for Smb201 {
+    const SIGNING_KEY_LABEL: &[u8] = b"";
+
+    fn process_negotiate_request(
+        &self,
+        response: &NegotiateResponse,
+        _state: &mut NegotiatedProperties,
+        _config: &ConnectionConfig,
+    ) -> crate::Result<()> {
+        if response.negotiate_context_list.is_some() {
+            return Err(Error::InvalidMessage(
+                "Negotiate context list not expected".to_string(),
             ));
         }
 
