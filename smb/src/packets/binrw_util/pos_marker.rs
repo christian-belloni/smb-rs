@@ -12,6 +12,19 @@ pub struct PosMarker<T> {
 }
 
 impl<T> PosMarker<T> {
+    /// Create a new PosMarker with the given value.
+    pub fn new(value: T) -> Self {
+        Self {
+            pos: OnceCell::new(),
+            value,
+        }
+    }
+
+    /// Returns a [SeekFrom] that seeks relative from the position of the PosMarker.
+    pub fn seek_from(&self, start: u64) -> SeekFrom {
+        SeekFrom::Start(self.pos.get().unwrap() + start)
+    }
+
     fn get_pos(&self) -> binrw::BinResult<u64> {
         let value = self.pos.get().ok_or(binrw::error::Error::Custom {
             pos: 0,
@@ -284,6 +297,22 @@ where
             writer,
             endian,
             (no_size, Some(write_offset_to), no_base, ()),
+        )
+    }
+    /// Writer for value
+    /// * fill absolute offset to offset location.
+    #[binrw::writer(writer, endian)]
+    pub fn write_aoff_m<U>(value: &U, write_offset_to: Option<&Self>) -> BinResult<()>
+    where
+        U: BinWrite<Args<'static> = ()>,
+    {
+        let no_size: Option<&PosMarker<T>> = None;
+        let no_base: Option<&PosMarker<T>> = None;
+        Self::write_hero(
+            value,
+            writer,
+            endian,
+            (no_size, write_offset_to, no_base, ()),
         )
     }
 
