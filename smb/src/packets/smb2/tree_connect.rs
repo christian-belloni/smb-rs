@@ -1,7 +1,10 @@
+use crate::packets::{
+    binrw_util::prelude::*,
+    security::{ClaimSecurityAttributeRelativeV1, ACL, SID},
+};
 use binrw::prelude::*;
+use binrw::{io::TakeSeekExt, NullWideString};
 use modular_bitfield::prelude::*;
-
-use crate::packets::binrw_util::prelude::*;
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]
@@ -14,6 +17,11 @@ pub struct TreeConnectRequestFlags {
     __: B13,
 }
 
+/// Tree Connect Request
+///
+/// Supports both the base and extension variants.
+/// - On read, uses extension iff `flags.extension_present()` - parses just like the server intends.
+/// - On write, uses extension iff `tree_connect_contexts` is non-empty.
 #[binrw::binrw]
 #[derive(Debug)]
 pub struct TreeConnectRequest {
@@ -25,18 +33,174 @@ pub struct TreeConnectRequest {
     _path_offset: PosMarker<u16>,
     #[bw(try_calc = buffer.size().try_into())]
     path_length: u16,
-    // TODO: Support extension
+
+    // -- Extension --
+    #[br(if(flags.extension_present()))]
+    #[bw(calc = if tree_connect_contexts.len() > 0 { Some(PosMarker::default())} else {None})]
+    tree_connect_context_offset: Option<PosMarker<u32>>,
+    #[br(if(flags.extension_present()))]
+    #[bw(if(tree_connect_contexts.len() > 0))]
+    #[bw(calc = if tree_connect_contexts.len() > 0 { Some(tree_connect_contexts.len().try_into().unwrap()) } else {None})]
+    tree_connect_context_count: Option<u16>,
+    #[br(if(flags.extension_present()))]
+    #[bw(if(tree_connect_contexts.len() > 0))]
+    #[bw(calc = Some([0u8; 10]))]
+    _reserved: Option<[u8; 10]>,
+    // -- Extension End --
+    // ------------------------------------------------
+    // -- Base --
     #[brw(little)]
     #[br(args(path_length as u64))]
-    #[bw(write_with=PosMarker::write_aoff, args(&_path_offset))]
+    #[bw(write_with = PosMarker::write_aoff, args(&_path_offset))]
     pub buffer: SizedWideString,
+
+    // -- Extension --
+    #[br(if(flags.extension_present()))]
+    #[br(seek_before = tree_connect_context_offset.unwrap().seek_relative(true))]
+    #[br(count = tree_connect_context_count.unwrap())]
+    #[bw(if(tree_connect_contexts.len() > 0))]
+    #[bw(write_with = PosMarker::write_aoff_m, args(tree_connect_context_offset.as_ref()))]
+    tree_connect_contexts: Vec<TreeConnectContext>,
 }
+
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct TreeConnectContext {
+    /// MS-SMB2 2.2.9.2: Must be set to SMB2_REMOTED_IDENTITY_TREE_CONNECT_CONTEXT_ID = 1.
+    #[bw(calc = 1)]
+    #[br(assert(context_type == 1))]
+    context_type: u16,
+    data_length: u16,
+    reserved: u32,
+    data: RemotedIdentityTreeConnect,
+}
+
+macro_rules! make_remoted_identity_connect{
+    (
+        $($field:ident: $value:ty),*
+    ) => {
+        paste::paste! {
+
+#[binrw::binrw]
+#[derive(Debug)]
+pub struct RemotedIdentityTreeConnect {
+    // MS-SMB2 2.2.9.2.1: Must be set to 0x1.
+    #[bw(calc = PosMarker::new(1))]
+    #[br(assert(_ticket_type.value == 1))]
+    _ticket_type: PosMarker<u16>,
+    ticket_size: u16,
+
+    // Offsets
+    $(
+        #[bw(calc = PosMarker::default())]
+        [<_$field _offset>]: PosMarker<u16>,
+    )*
+
+    // Values
+    $(
+        #[br(seek_before = _ticket_type.seek_from([<_$field _offset>].value as u64))]
+        #[bw(write_with = PosMarker::write_roff_b, args(&[<_$field _offset>], &_ticket_type))]
+        $field: $value,
+    )*
+}
+        }
+    }
+}
+
+make_remoted_identity_connect! {
+    user: SidAttrData,
+    user_name: NullWideString,
+    domain: NullWideString,
+    groups: SidArrayData,
+    restricted_groups: SidArrayData,
+    privileges: PrivilegeArrayData,
+    primary_group: SidArrayData,
+    owner: BlobData<SID>,
+    default_dacl: BlobData<ACL>,
+    device_groups: SidArrayData,
+    user_claims: BlobData<ClaimSecurityAttributeRelativeV1>,
+    device_claims: BlobData<ClaimSecurityAttributeRelativeV1>
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct BlobData<T>
+where
+    T: BinRead + BinWrite,
+    for<'a> <T as BinRead>::Args<'a>: Default,
+    for<'b> <T as BinWrite>::Args<'b>: Default,
+{
+    blob_size: PosMarker<u16>,
+    #[br(map_stream = |s| s.take_seek(blob_size.value as u64))]
+    pub blob_data: T,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct ArrayData<T>
+where
+    T: BinRead + BinWrite + 'static,
+    for<'a> <T as BinRead>::Args<'a>: Default + Clone,
+    for<'b> <T as BinWrite>::Args<'b>: Default + Clone,
+{
+    #[bw(try_calc = list.len().try_into())]
+    lcount: u16,
+    #[br(count = lcount)]
+    pub list: Vec<T>,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SidAttrData {
+    pub sid_data: SID,
+    pub attr: SidAttrSeGroup,
+}
+
+type SidArrayData = ArrayData<SidAttrData>;
+
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[bw(map = |&x| Self::into_bytes(x))]
+pub struct SidAttrSeGroup {
+    pub mandatory: bool,
+    pub enabled_by_default: bool,
+    pub group_enabled: bool,
+    pub group_owner: bool,
+    pub group_use_for_deny_only: bool,
+    pub group_integrity: bool,
+    pub group_integrity_enabled: bool,
+    #[skip]
+    __: B21,
+    pub group_logon_id: B4,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct LuidAttrData {
+    pub luid: u64,
+    pub attr: LsaprLuidAttributes,
+}
+
+/// [MS-LSAD 2.2.5.4](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-lsad/03c834c0-f310-4e0c-832e-b6e7688364d1)
+#[bitfield]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LsaprLuidAttributes {
+    pub default: bool,
+    pub enabled: bool,
+    #[skip]
+    __: B30,
+}
+
+type PrivilegeData = BlobData<LuidAttrData>;
+
+type PrivilegeArrayData = ArrayData<PrivilegeData>;
 
 impl TreeConnectRequest {
     pub fn new(name: &String) -> TreeConnectRequest {
         TreeConnectRequest {
             flags: TreeConnectRequestFlags::new(),
             buffer: name.clone().into(),
+            tree_connect_contexts: vec![],
         }
     }
 }
