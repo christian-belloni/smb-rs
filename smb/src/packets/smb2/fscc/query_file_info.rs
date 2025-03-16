@@ -51,21 +51,21 @@ pub type QueryFileFullEaInformation = FileFullEaInformation;
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileAccessInformation {
-    access_flags: FileAccessMask,
+    pub access_flags: FileAccessMask,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileAllInformation {
-    basic: FileBasicInformation,
-    standard: FileStandardInformation,
-    internal: FileInternalInformation,
-    ea: FileEaInformation,
-    access: FileAccessInformation,
-    position: FilePositionInformation,
-    mode: FileModeInformation,
-    alignment: FileAlignmentInformation,
-    name: FileNameInformation,
+    pub basic: FileBasicInformation,
+    pub standard: FileStandardInformation,
+    pub internal: FileInternalInformation,
+    pub ea: FileEaInformation,
+    pub access: FileAccessInformation,
+    pub position: FilePositionInformation,
+    pub mode: FileModeInformation,
+    pub alignment: FileAlignmentInformation,
+    pub name: FileNameInformation,
 }
 
 #[binrw::binrw]
@@ -101,18 +101,18 @@ impl Deref for FileAlternateNameInformation {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileAttributeTagInformation {
-    file_attributes: u32,
-    reparse_tag: u32,
+    pub file_attributes: u32,
+    pub reparse_tag: u32,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileCompressionInformation {
-    compressed_file_size: u64,
-    compression_format: FileCompressionFormat,
-    compression_unit: u8,
-    chunk_shift: u8,
-    cluster_shift: u8,
+    pub compressed_file_size: u64,
+    pub compression_format: FileCompressionFormat,
+    pub compression_unit: u8,
+    pub chunk_shift: u8,
+    pub cluster_shift: u8,
     #[br(parse_with = binrw::helpers::read_u24)]
     #[br(assert(reserved == 0))]
     #[bw(align_before = 4)]
@@ -131,32 +131,32 @@ pub enum FileCompressionFormat {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileEaInformation {
-    ea_size: u32,
+    pub ea_size: u32,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileIdInformation {
-    volume_serial_number: u64,
-    file_id: u128,
+    pub volume_serial_number: u64,
+    pub file_id: u128,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileInternalInformation {
-    index_number: u64,
+    pub index_number: u64,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileNetworkOpenInformation {
-    creation_time: FileTime,
-    last_access_time: FileTime,
-    last_write_time: FileTime,
-    change_time: FileTime,
-    allocation_size: u64,
-    end_of_file: u64,
-    file_attributes: FileAttributes,
+    pub creation_time: FileTime,
+    pub last_access_time: FileTime,
+    pub last_write_time: FileTime,
+    pub change_time: FileTime,
+    pub allocation_size: u64,
+    pub end_of_file: u64,
+    pub file_attributes: FileAttributes,
     #[bw(calc = 0)]
     _reserved: u32,
 }
@@ -178,15 +178,15 @@ impl Deref for FileNormalizedNameInformation {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FilePipeLocalInformation {
-    named_pipe_type: NamedPipeType,
-    named_pipe_configuration: NamedPipeConfiguration,
-    maximum_instances: u32,
-    current_instances: u32,
-    inbound_quota: u32,
-    outbound_quota: u32,
-    write_quota: u32,
-    named_pipe_state: NamedPipeState,
-    named_pipe_end: NamedPipeEnd,
+    pub named_pipe_type: NamedPipeType,
+    pub named_pipe_configuration: NamedPipeConfiguration,
+    pub maximum_instances: u32,
+    pub current_instances: u32,
+    pub inbound_quota: u32,
+    pub outbound_quota: u32,
+    pub write_quota: u32,
+    pub named_pipe_state: NamedPipeState,
+    pub named_pipe_end: NamedPipeEnd,
 }
 
 #[binrw::binrw]
@@ -227,18 +227,18 @@ pub enum NamedPipeEnd {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FilePipeRemoteInformation {
-    collect_data_time: FileTime,
-    maximum_collection_count: u32,
+    pub collect_data_time: FileTime,
+    pub maximum_collection_count: u32,
 }
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileStandardInformation {
-    allocation_size: u64,
-    end_of_file: u64,
-    number_of_links: u32,
-    delete_pending: Boolean,
-    directory: Boolean,
+    pub allocation_size: u64,
+    pub end_of_file: u64,
+    pub number_of_links: u32,
+    pub delete_pending: Boolean,
+    pub directory: Boolean,
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
     reserved: u16,
@@ -249,8 +249,8 @@ pub struct FileStandardInformation {
 pub struct FileStreamInformation {
     #[bw(try_calc = stream_name.size().try_into())]
     stream_name_length: u32,
-    stream_size: u64,
-    stream_allocation_size: u64,
+    pub stream_size: u64,
+    pub stream_allocation_size: u64,
     #[br(args(stream_name_length as u64))]
     stream_name: SizedWideString,
 }

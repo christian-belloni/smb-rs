@@ -276,7 +276,9 @@ mod tests {
                 .with_dacl_security_information(true)
                 .with_sacl_security_information(true),
             flags: QueryInfoFlags::new(),
-            file_id: Guid::from_str("0000002b-000d-0000-3100-00000d000000").unwrap().into(),
+            file_id: Guid::from_str("0000002b-000d-0000-3100-00000d000000")
+                .unwrap()
+                .into(),
             data: GetInfoRequestData::None(()),
         }));
         assert_eq!(

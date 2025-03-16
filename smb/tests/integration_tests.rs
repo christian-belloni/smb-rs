@@ -2,13 +2,15 @@ use log::info;
 use serial_test::serial;
 use smb::{
     connection::EncryptionMode,
-    packets::smb2::{CreateDisposition, Dialect, FileAccessMask},
+    packets::smb2::{
+        CreateDisposition, Dialect, FileAccessMask, FileAllInformation, FileDirectoryInformation,
+    },
     Connection, ConnectionConfig,
 };
 use std::env::var;
 
 macro_rules! parametrize_dialect {
-    ($($dialect:ident),*) => {
+    ([$dialect:ident], [$($encrypt_mode:ident),*]) => {
         $(
             paste::paste! {
                 #[maybe_async::test(
@@ -16,29 +18,25 @@ macro_rules! parametrize_dialect {
                     async(feature = "async", tokio::test(flavor = "multi_thread"))
                 )]
                 #[serial]
-                pub async fn [<test_smb_integration_ $dialect:lower>]() -> Result<(), Box<dyn std::error::Error>> {
-                    test_smb_integration_basic(Dialect::$dialect).await
+                pub async fn [<test_smbint_ $dialect:lower _e $encrypt_mode:lower>]() -> Result<(), Box<dyn std::error::Error>> {
+                    test_smb_integration_basic(Dialect::$dialect, EncryptionMode::$encrypt_mode).await
                 }
             }
         )*
     };
+
+    ([$($dialect:ident),*], $encrypt_modes:tt) => {
+        $(
+            parametrize_dialect!([$dialect],  $encrypt_modes);
+        )*
+    };
+
 }
 
-parametrize_dialect!(Smb030, Smb0302, Smb0311);
+parametrize_dialect!([Smb030, Smb0302, Smb0311], [Disabled, Required]);
 
 #[maybe_async::maybe_async]
-pub async fn test_smb_integration_basic(
-    force_dialect: Dialect,
-) -> Result<(), Box<dyn std::error::Error>> {
-    for encryption_mode in &[EncryptionMode::Required, EncryptionMode::Disabled] {
-        info!("Testing with encryption mode: {:?}", encryption_mode);
-        test_smb_integration_basic_with_encryption(force_dialect, *encryption_mode).await?;
-    }
-    Ok(())
-}
-
-#[maybe_async::maybe_async]
-async fn test_smb_integration_basic_with_encryption(
+async fn test_smb_integration_basic(
     force_dialect: Dialect,
     encryption_mode: EncryptionMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -77,11 +75,14 @@ async fn test_smb_integration_basic_with_encryption(
         .await?;
     info!("Connected to share, start test basic");
 
+    const TEST_FILE: &str = "test.txt";
+    const TEST_DATA: &[u8] = b"Hello, World!";
+
     // Hello, World! > test.txt
     {
         let mut file = tree
             .create(
-                "test.txt",
+                TEST_FILE,
                 CreateDisposition::Create,
                 FileAccessMask::new()
                     .with_generic_read(true)
@@ -90,13 +91,31 @@ async fn test_smb_integration_basic_with_encryption(
             .await?
             .unwrap_file();
 
-        file.write(b"Hello, World!").await?;
+        file.write(TEST_DATA).await?;
+    }
+
+    // Query directory and make sure our file exists there:
+    {
+        let dir_info = tree
+            .create(
+                "",
+                CreateDisposition::Open,
+                FileAccessMask::new().with_generic_read(true),
+            )
+            .await?
+            .unwrap_dir();
+        dir_info
+            .query::<FileDirectoryInformation>("*")
+            .await?
+            .iter()
+            .find(|info| info.file_name.to_string() == TEST_FILE)
+            .expect("File not found in directory");
     }
 
     {
         let file = tree
             .create(
-                "test.txt",
+                TEST_FILE,
                 CreateDisposition::Open,
                 FileAccessMask::new()
                     .with_generic_read(true)
@@ -105,14 +124,23 @@ async fn test_smb_integration_basic_with_encryption(
             .await?
             .unwrap_file();
 
-        let mut buf = [0u8; 15];
-        let read_length = file.read_block(&mut buf, 0).await?;
-        assert_eq!(read_length, 13);
-        assert_eq!(&buf[..13], b"Hello, World!");
+        // So anyway it will be deleted at the end.
         file.set_file_info(FileDispositionInformation {
             delete_pending: true.into(),
         })
         .await?;
+
+        let mut buf = [0u8; TEST_DATA.len() + 2];
+        let read_length = file.read_block(&mut buf, 0).await?;
+        assert_eq!(read_length, TEST_DATA.len());
+        assert_eq!(&buf[..read_length], TEST_DATA);
+
+        let all_info = file.query_info::<FileAllInformation>().await?;
+        assert_eq!(
+            all_info.name.file_name.to_string(),
+            "\\".to_string() + TEST_FILE
+        );
+        assert_eq!(all_info.standard.end_of_file, TEST_DATA.len() as u64);
     }
 
     Ok(())

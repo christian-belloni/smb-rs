@@ -93,5 +93,5 @@ pub struct FileNameInformation {
     #[bw(try_calc = file_name.size().try_into())]
     file_name_length: u32,
     #[br(args(file_name_length as u64))]
-    file_name: SizedWideString,
+    pub file_name: SizedWideString,
 }

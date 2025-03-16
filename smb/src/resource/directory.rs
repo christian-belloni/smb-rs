@@ -15,7 +15,7 @@ impl Directory {
 
     // Query the directory for it's contents.
     #[maybe_async]
-    pub async fn query<T>(&mut self, pattern: &str) -> crate::Result<Vec<T>>
+    pub async fn query<T>(&self, pattern: &str) -> crate::Result<Vec<T>>
     where
         T: QueryDirectoryInfoValue,
     {

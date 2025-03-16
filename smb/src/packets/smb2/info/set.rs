@@ -5,10 +5,7 @@ use crate::{packets::smb2::SecurityDescriptor, query_info_data};
 
 use super::common::*;
 use super::{
-    super::{
-        super::binrw_util::prelude::*,
-        fscc::*,
-    },
+    super::{super::binrw_util::prelude::*, fscc::*},
     QueryQuotaInfo,
 };
 use binrw::io::TakeSeekExt;
