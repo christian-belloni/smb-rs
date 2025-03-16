@@ -5,9 +5,9 @@ use std::io::SeekFrom;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use super::super::binrw_util::prelude::*;
 use super::header::Header;
 use super::FileId;
+use crate::packets::binrw_util::prelude::*;
 
 #[binrw::binrw]
 #[derive(Debug)]

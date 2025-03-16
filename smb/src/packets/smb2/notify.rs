@@ -4,8 +4,8 @@ use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use super::{fscc::*, FileId};
-use crate::packets::binrw_util::prelude::*;
+use super::FileId;
+use crate::packets::{binrw_util::prelude::*, fscc::*};
 
 #[binrw::binrw]
 #[derive(Debug)]

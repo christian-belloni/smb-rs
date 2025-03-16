@@ -111,7 +111,7 @@ impl Content {
             // 3.3.5.13
             WriteRequest(req) => req.buffer.len() as u32,
             // 3.3.5.15: InputCount + OutputCount
-            IoctlRequest(req) => req.buffer.len() as u32 + req.max_output_response,
+            IoctlRequest(req) => req.buffer.get_size() as u32 + req.max_output_response,
             _ => 0,
         }
     }

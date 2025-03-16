@@ -1,4 +1,7 @@
-use crate::{packets::smb2::*, Error};
+use crate::{
+    packets::{fscc::*, smb2::*},
+    Error,
+};
 use maybe_async::*;
 
 use super::ResourceHandle;

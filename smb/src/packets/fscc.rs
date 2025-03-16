@@ -5,7 +5,7 @@ use crate::access_mask;
 use binrw::{io::TakeSeekExt, meta::ReadEndian, prelude::*};
 use modular_bitfield::prelude::*;
 
-use super::{super::binrw_util::prelude::*, SID};
+use super::{binrw_util::prelude::*, security::SID};
 pub mod chained_item;
 pub mod common_info;
 pub mod directory_info;
@@ -198,7 +198,7 @@ macro_rules! file_info_classes {
                 }
             }
 
-            impl crate::packets::smb2::fscc::FileInfoType for $name {
+            impl crate::packets::fscc::FileInfoType for $name {
                 type Class = [<$name Class>];
                 fn class(&self) -> Self::Class {
                     match self {
@@ -220,7 +220,7 @@ macro_rules! file_info_classes {
                     type Error = crate::Error;
 
                     fn try_from(value: $name) -> Result<Self, Self::Error> {
-                        pub use crate::packets::smb2::fscc::FileInfoType;
+                        pub use crate::packets::fscc::FileInfoType;
                         match value {
                             $name::[<$field_name Information>](v) => Ok(v),
                             _ => Err(crate::Error::UnexpectedInformationType(<Self as [<$name Value>]>::CLASS_ID as u8, value.class() as u8)),

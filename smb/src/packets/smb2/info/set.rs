@@ -1,13 +1,10 @@
 //! SMB2 Set Info Request/Response messages.
 
 use crate::packets::smb2::FileId;
-use crate::{packets::smb2::SecurityDescriptor, query_info_data};
+use crate::{packets::security::SecurityDescriptor, query_info_data};
 
-use super::common::*;
-use super::{
-    super::{super::binrw_util::prelude::*, fscc::*},
-    QueryQuotaInfo,
-};
+use super::{common::*, QueryQuotaInfo};
+use crate::packets::{binrw_util::prelude::*, fscc::*};
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 
