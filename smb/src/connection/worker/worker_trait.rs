@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{connection::negotiation_state::ConnectionInfo, sync_helpers::*};
+use crate::{connection::connection_info::ConnectionInfo, sync_helpers::*};
 
 use maybe_async::*;
 

@@ -9,7 +9,7 @@ use binrw::prelude::*;
 use maybe_async::*;
 use std::{collections::HashMap, io::Cursor, sync::Arc};
 
-use super::negotiation_state::ConnectionInfo;
+use super::connection_info::ConnectionInfo;
 use super::preauth_hash::{PreauthHashState, PreauthHashValue};
 
 /// This struct is tranforming messages to plain, parsed SMB2,
@@ -48,7 +48,7 @@ impl Transformer {
 
         let mut config = self.config.write().await?;
         if neg_info.dialect.supports_compression() && neg_info.config.compression_enabled {
-            let compress = match &neg_info.state.compression {
+            let compress = match &neg_info.negotiation.compression {
                 Some(compression) => {
                     Some((Compressor::new(compression), Decompressor::new(compression)))
                 }

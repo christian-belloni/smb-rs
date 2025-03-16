@@ -1,5 +1,5 @@
 pub mod config;
-pub mod negotiation_state;
+pub mod connection_info;
 pub mod netbios_client;
 pub mod preauth_hash;
 pub mod transformer;
@@ -22,8 +22,8 @@ use crate::{
 };
 use binrw::prelude::*;
 pub use config::*;
+use connection_info::{ConnectionInfo, NegotiatedProperties};
 use maybe_async::*;
-use negotiation_state::{ConnectionInfo, NegotiatedProperties};
 use netbios_client::NetBiosClient;
 use std::cmp::max;
 use std::sync::atomic::{AtomicU16, AtomicU64};
@@ -38,14 +38,18 @@ pub struct Connection {
 }
 
 impl Connection {
+    /// Creates a new SMB connection, specifying a server configuration, without connecting to a server.
+    /// Use the [`connect`](Connection::connect) method to establish a connection.
     pub fn build(config: ConnectionConfig) -> crate::Result<Connection> {
         config.validate()?;
+        let client_guid = config.client_guid.unwrap_or_else(Guid::gen);
         Ok(Connection {
-            handler: HandlerReference::new(ConnectionMessageHandler::new()),
+            handler: HandlerReference::new(ConnectionMessageHandler::new(client_guid)),
             config,
         })
     }
 
+    /// Sets operations timeout for the connection.
     #[maybe_async]
     pub async fn set_timeout(&mut self, timeout: Option<Duration>) -> crate::Result<()> {
         self.config.timeout = timeout;
@@ -55,8 +59,13 @@ impl Connection {
         Ok(())
     }
 
+    /// Connects to the specified server, if it is not already connected, and negotiates the connection.
     #[maybe_async]
     pub async fn connect(&mut self, address: &str) -> crate::Result<()> {
+        if self.handler.worker().is_some() {
+            return Err(Error::InvalidState("Already connected".into()));
+        }
+
         let mut netbios_client = NetBiosClient::new(self.config.timeout);
 
         log::debug!("Connecting to {}...", address);
@@ -76,6 +85,7 @@ impl Connection {
         }
     }
 
+    /// This method switches the netbios client to SMB2 and starts the worker.
     #[maybe_async]
     async fn negotiate_switch_to_smb2(
         &mut self,
@@ -125,10 +135,11 @@ impl Connection {
         Ok(WorkerImpl::start(netbios_client, self.config.timeout).await?)
     }
 
+    /// This method perofrms the SMB2 negotiation.
     #[maybe_async]
-    async fn negotiate_smb2(&mut self) -> crate::Result<()> {
+    async fn negotiate_smb2(&mut self) -> crate::Result<ConnectionInfo> {
         // Confirm that we're not already negotiated.
-        if self.handler.negotiate_info().is_some() {
+        if self.handler.conn_info.get().is_some() {
             return Err(Error::InvalidState("Already negotiated".into()));
         }
 
@@ -157,12 +168,17 @@ impl Connection {
 
         // Send SMB2 negotiate request
         let client_guid = self.handler.client_guid;
+        let hostname = self
+            .config
+            .client_name
+            .clone()
+            .unwrap_or_else(|| "smb-client".to_string());
         let response = self
             .handler
             .send_recv(Content::NegotiateRequest(NegotiateRequest::new(
-                "AVIV-MBP".to_string(),
+                hostname,
                 client_guid,
-                dialects.clone(),
+                dialects,
                 encryption_algos,
                 crypto::ENCRYPTING_ALGOS.to_vec(),
                 compression::SUPPORTED_ALGORITHMS.to_vec(),
@@ -178,21 +194,21 @@ impl Connection {
         ))?;
 
         // well, only 3.1 is supported for starters.
-        if !dialects.contains(&smb2_negotiate_response.dialect_revision.try_into()?) {
+        let dialect_rev = smb2_negotiate_response.dialect_revision.try_into()?;
+        if dialect_rev > max_dialect || dialect_rev < min_dialect {
             return Err(Error::NegotiationError(
                 "Server selected an unsupported dialect.".into(),
             ));
         }
 
-        let dialect_rev = smb2_negotiate_response.dialect_revision.try_into()?;
         let dialect_impl = DialectImpl::new(dialect_rev);
-        let mut state = NegotiatedProperties {
+        let mut negotiation = NegotiatedProperties {
             server_guid: smb2_negotiate_response.server_guid,
             caps: smb2_negotiate_response.capabilities.clone(),
             max_transact_size: smb2_negotiate_response.max_transact_size,
             max_read_size: smb2_negotiate_response.max_read_size,
             max_write_size: smb2_negotiate_response.max_write_size,
-            gss_token: smb2_negotiate_response.buffer.clone(),
+            auth_buffer: smb2_negotiate_response.buffer.clone(),
             signing_algo: None,
             encryption_cipher: None,
             compression: None,
@@ -201,11 +217,11 @@ impl Connection {
 
         dialect_impl.process_negotiate_request(
             &smb2_negotiate_response,
-            &mut state,
+            &mut negotiation,
             &self.config,
         )?;
         if ((!u32::from_le_bytes(dialect_impl.get_negotiate_caps_mask().into_bytes()))
-            & u32::from_le_bytes(state.caps.into_bytes()))
+            & u32::from_le_bytes(negotiation.caps.into_bytes()))
             != 0
         {
             return Err(Error::NegotiationError(
@@ -216,19 +232,14 @@ impl Connection {
         log::trace!(
             "Negotiated SMB results: dialect={:?}, state={:?}",
             dialect_rev,
-            &state
+            &negotiation
         );
 
-        self.handler
-            .negotiate_info
-            .set(ConnectionInfo {
-                state,
-                dialect: dialect_impl,
-                config: self.config.clone(),
-            })
-            .unwrap();
-
-        Ok(())
+        Ok(ConnectionInfo {
+            negotiation,
+            dialect: dialect_impl,
+            config: self.config.clone(),
+        })
     }
 
     /// Send negotiate messages, potentially
@@ -238,7 +249,7 @@ impl Connection {
         netbios_client: NetBiosClient,
         multi_protocol: bool,
     ) -> crate::Result<()> {
-        if self.handler.negotiate_info().is_some() {
+        if self.handler.conn_info.get().is_some() {
             return Err(Error::InvalidState("Already negotiated".into()));
         }
 
@@ -250,14 +261,18 @@ impl Connection {
         self.handler.worker.set(worker).unwrap();
 
         // Negotiate SMB2
-        self.negotiate_smb2().await?;
+        let info = self.negotiate_smb2().await?;
+
         self.handler
             .worker
             .get()
             .ok_or("Worker is uninitialized")
             .unwrap()
-            .negotaite_complete(&self.handler.negotiate_info().unwrap())
+            .negotaite_complete(&info)
             .await;
+
+        self.handler.conn_info.set(Arc::new(info)).unwrap();
+
         log::info!("Negotiation successful");
         Ok(())
     }
@@ -268,11 +283,13 @@ impl Connection {
         user_name: &str,
         password: String,
     ) -> crate::Result<Session> {
-        let mut session = Session::new(self.handler.clone());
-
-        session.setup(user_name, password).await?;
-
-        Ok(session)
+        Session::setup(
+            user_name,
+            password,
+            self.handler.clone(),
+            self.handler.conn_info.get().unwrap(),
+        )
+        .await
     }
 }
 
@@ -286,7 +303,7 @@ pub struct ConnectionMessageHandler {
     worker: OnceCell<Arc<WorkerImpl>>,
 
     // Negotiation-related state.
-    negotiate_info: OnceCell<ConnectionInfo>,
+    conn_info: OnceCell<Arc<ConnectionInfo>>,
 
     /// Number of credits available to the client at the moment, for the next requests.
     curr_credits: Semaphore,
@@ -297,20 +314,16 @@ pub struct ConnectionMessageHandler {
 }
 
 impl ConnectionMessageHandler {
-    fn new() -> ConnectionMessageHandler {
+    fn new(client_guid: Guid) -> ConnectionMessageHandler {
         ConnectionMessageHandler {
-            client_guid: Guid::gen(),
+            client_guid,
             worker: OnceCell::new(),
-            negotiate_info: OnceCell::new(),
+            conn_info: OnceCell::new(),
             extra_credits_to_request: 4,
             curr_credits: Semaphore::new(1),
             curr_msg_id: AtomicU64::new(1),
             credit_pool: AtomicU16::new(1),
         }
-    }
-
-    pub fn negotiate_info(&self) -> Option<&ConnectionInfo> {
-        self.negotiate_info.get()
     }
 
     pub fn worker(&self) -> Option<&Arc<WorkerImpl>> {
@@ -328,8 +341,8 @@ impl ConnectionMessageHandler {
 
     #[maybe_async]
     async fn process_sequence_outgoing(&self, msg: &mut OutgoingMessage) -> crate::Result<()> {
-        if let Some(neg) = self.negotiate_info() {
-            if neg.state.dialect_rev > Dialect::Smb0202 && neg.state.caps.large_mtu() {
+        if let Some(neg) = self.conn_info.get() {
+            if neg.negotiation.dialect_rev > Dialect::Smb0202 && neg.negotiation.caps.large_mtu() {
                 // Calculate the cost of the message (charge).
                 let cost = if Self::SET_CREDIT_CHARGE_CMDS
                     .iter()
@@ -379,8 +392,8 @@ impl ConnectionMessageHandler {
 
     #[maybe_async]
     async fn process_sequence_incoming(&self, msg: &IncomingMessage) -> crate::Result<()> {
-        if let Some(neg) = self.negotiate_info() {
-            if neg.state.dialect_rev > Dialect::Smb0202 && neg.state.caps.large_mtu() {
+        if let Some(neg) = self.conn_info.get() {
+            if neg.negotiation.dialect_rev > Dialect::Smb0202 && neg.negotiation.caps.large_mtu() {
                 let granted_credits = msg.message.header.credit_request;
                 let charged_credits = msg.message.header.credit_charge;
                 // Update the pool size - return how many EXTRA credits were granted.
@@ -409,8 +422,8 @@ impl MessageHandler for ConnectionMessageHandler {
     #[maybe_async]
     async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         // TODO: Add assertion in the struct regarding the selected dialect!
-        let priority_value = match self.negotiate_info.get() {
-            Some(neg_info) => match neg_info.state.dialect_rev {
+        let priority_value = match self.conn_info.get() {
+            Some(neg_info) => match neg_info.negotiation.dialect_rev {
                 Dialect::Smb0311 => 1,
                 _ => 0,
             },

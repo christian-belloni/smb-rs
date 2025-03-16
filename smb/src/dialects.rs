@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::{
-    connection::{negotiation_state::NegotiatedProperties, preauth_hash},
+    connection::{connection_info::NegotiatedProperties, preauth_hash},
     crypto,
     packets::smb2::{
         CompressionCaps, Dialect, GlobalCapabilities, NegotiateResponse, SigningAlgorithmId,

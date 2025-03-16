@@ -1,11 +1,10 @@
+use std::sync::Arc;
+
 use maybe_async::*;
 use time::PrimitiveDateTime;
 
 use crate::{
-    msg_handler::{HandlerReference, MessageHandler},
-    packets::{guid::Guid, smb2::*},
-    tree::TreeMessageHandler,
-    Error,
+    connection::connection_info::ConnectionInfo, msg_handler::{HandlerReference, MessageHandler}, packets::{guid::Guid, smb2::*}, tree::TreeMessageHandler, Error
 };
 
 pub mod directory;
@@ -29,6 +28,7 @@ impl Resource {
         upstream: Upstream,
         create_disposition: CreateDisposition,
         desired_access: FileAccessMask,
+        conn_info: &Arc<ConnectionInfo>,
     ) -> crate::Result<Resource> {
         let response = upstream
             .send_recv(Content::CreateRequest(CreateRequest {
@@ -80,6 +80,7 @@ impl Resource {
             file_id: content.file_id,
             created: content.creation_time.date_time(),
             modified: content.last_write_time.date_time(),
+            conn_info: conn_info.clone(),
         };
 
         // Construct specific resource and return it.
@@ -139,6 +140,8 @@ pub struct ResourceHandle {
     file_id: FileId,
     created: PrimitiveDateTime,
     modified: PrimitiveDateTime,
+
+    conn_info: Arc<ConnectionInfo>,
 }
 
 impl ResourceHandle {
