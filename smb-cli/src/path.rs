@@ -2,7 +2,7 @@ use crate::cli::Cli;
 use maybe_async::*;
 use smb::{
     connection::{Connection, EncryptionMode},
-    packets::smb2::*,
+    packets::{fscc::*, smb2::*},
     resource::Resource,
     session::Session,
     tree::Tree,

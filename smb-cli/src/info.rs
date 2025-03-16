@@ -1,10 +1,7 @@
 use crate::{path::*, Cli};
 use clap::Parser;
 use maybe_async::*;
-use smb::{
-    packets::smb2::{FileBasicInformation, FileIdBothDirectoryInformation},
-    resource::Resource,
-};
+use smb::{packets::fscc::*, resource::Resource};
 use std::error::Error;
 #[derive(Parser, Debug)]
 pub struct InfoCmd {

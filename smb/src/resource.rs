@@ -4,7 +4,11 @@ use maybe_async::*;
 use time::PrimitiveDateTime;
 
 use crate::{
-    connection::connection_info::ConnectionInfo, msg_handler::{HandlerReference, MessageHandler}, packets::{guid::Guid, smb2::*}, tree::TreeMessageHandler, Error
+    connection::connection_info::ConnectionInfo,
+    msg_handler::{HandlerReference, MessageHandler},
+    packets::{fscc::*, guid::Guid, smb2::*},
+    tree::TreeMessageHandler,
+    Error,
 };
 
 pub mod directory;

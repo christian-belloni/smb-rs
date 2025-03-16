@@ -7,11 +7,13 @@ use crate::sync_helpers::*;
 
 use crate::{
     msg_handler::{HandlerReference, MessageHandler},
-    packets::smb2::{
-        create::CreateDisposition,
+    packets::{
         fscc::FileAccessMask,
-        plain::Content,
-        tree_connect::{TreeConnectRequest, TreeDisconnectRequest},
+        smb2::{
+            create::CreateDisposition,
+            plain::Content,
+            tree_connect::{TreeConnectRequest, TreeDisconnectRequest},
+        },
     },
     resource::Resource,
     session::SessionMessageHandler,

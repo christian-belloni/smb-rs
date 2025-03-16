@@ -2,8 +2,9 @@ use log::info;
 use serial_test::serial;
 use smb::{
     connection::EncryptionMode,
-    packets::smb2::{
-        CreateDisposition, Dialect, FileAccessMask, FileAllInformation, FileDirectoryInformation,
+    packets::{
+        fscc::*,
+        smb2::{CreateDisposition, Dialect},
     },
     Connection, ConnectionConfig,
 };
@@ -46,7 +47,6 @@ async fn test_smb_integration_basic(
         encryption_mode
     );
 
-    use smb::packets::smb2::FileDispositionInformation;
     let mut smb = Connection::build(ConnectionConfig {
         min_dialect: Some(force_dialect),
         max_dialect: Some(force_dialect),

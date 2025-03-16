@@ -6,7 +6,7 @@
 //!
 use std::ops::Deref;
 
-use super::super::super::binrw_util::prelude::*;
+use crate::packets::binrw_util::prelude::*;
 use binrw::prelude::*;
 
 #[binrw::binrw]

@@ -1,13 +1,14 @@
 //! Get/Set Info Request/Response
 
-use crate::packets::smb2::{FileId, SecurityDescriptor, SID};
+use crate::packets::security::{SecurityDescriptor, SID};
+use crate::packets::smb2::FileId;
 use crate::query_info_data;
 use binrw::{io::TakeSeekExt, prelude::*};
 use modular_bitfield::prelude::*;
 use std::io::{Cursor, SeekFrom};
 
-use super::super::{super::binrw_util::prelude::*, fscc::*};
 use super::common::*;
+use crate::packets::{binrw_util::prelude::*, fscc::*};
 
 #[binrw::binrw]
 #[derive(Debug)]

@@ -1,7 +1,7 @@
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
-use super::super::binrw_util::prelude::*;
+use crate::packets::binrw_util::prelude::*;
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy)]

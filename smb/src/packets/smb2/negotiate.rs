@@ -6,8 +6,7 @@ use rand::Rng;
 
 use crate::Error;
 
-use super::super::binrw_util::prelude::*;
-use super::super::guid::Guid;
+use crate::packets::{binrw_util::prelude::*, guid::Guid};
 
 #[binrw::binrw]
 #[derive(Debug)]
