@@ -33,7 +33,7 @@ pub struct AdditionalInfo {
     __: B15,
 }
 
-/// Internal helper macro to easily generate fields & methods for [QueryInfoData].
+/// Internal helper macro to easily generate fields & methods for [QueryInfoData](super::query::QueryInfoData).
 ///
 /// Builds:
 /// 1. The enum with the specified name, with variants for each info type specified.

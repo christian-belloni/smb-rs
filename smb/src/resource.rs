@@ -71,7 +71,7 @@ impl Resource {
         // Common information is held in the handle object.
         let handle = ResourceHandle {
             name: name.to_string(),
-            handler: MessageHandleHandler::new(upstream),
+            handler: ResourceMessageHandle::new(upstream),
             file_id: content.file_id,
             created: content.creation_time.date_time(),
             modified: content.last_write_time.date_time(),
@@ -130,7 +130,7 @@ impl Resource {
 /// Holds the common information for an opened SMB resource.
 pub struct ResourceHandle {
     name: String,
-    handler: HandlerReference<MessageHandleHandler>,
+    handler: HandlerReference<ResourceMessageHandle>,
 
     file_id: FileId,
     created: PrimitiveDateTime,
@@ -182,8 +182,6 @@ impl ResourceHandle {
         self.file_id != FileId::EMPTY
     }
 
-    /// Send and receive a message, returning the result.
-    /// See [SMBHandlerReference::send] and [SMBHandlerReference::receive] for details.
     #[maybe_async]
     #[inline]
     pub async fn send_receive(
@@ -205,17 +203,17 @@ impl ResourceHandle {
     }
 }
 
-struct MessageHandleHandler {
+struct ResourceMessageHandle {
     upstream: Upstream,
 }
 
-impl MessageHandleHandler {
-    pub fn new(upstream: Upstream) -> HandlerReference<MessageHandleHandler> {
-        HandlerReference::new(MessageHandleHandler { upstream })
+impl ResourceMessageHandle {
+    pub fn new(upstream: Upstream) -> HandlerReference<ResourceMessageHandle> {
+        HandlerReference::new(ResourceMessageHandle { upstream })
     }
 }
 
-impl MessageHandler for MessageHandleHandler {
+impl MessageHandler for ResourceMessageHandle {
     #[maybe_async]
     #[inline]
     async fn sendo(

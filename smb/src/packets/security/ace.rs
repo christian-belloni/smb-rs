@@ -10,7 +10,7 @@ use super::SID;
 
 /// Macro for defining a bitfield for an access mask.
 /// It's input is the name of the struct to generate, and in {}, the list of fields to add
-/// before the common fields. include support for #[skip] fields, without visibility (all fields are public).
+/// before the common fields. include support for `#[skip]` fields, without visibility (all fields are public).
 #[macro_export]
 macro_rules! access_mask {
     (

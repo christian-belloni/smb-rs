@@ -2,7 +2,7 @@
 //! Many fscc-query structs have a common "next entry offset" field,
 //! which is used to chain multiple entries together.
 //! This struct wraps the value, and the offset, and provides a way to iterate over them.
-//! See [ChainedItem<T>::write_chained] to see how to write this type when in a list.
+//! See [`ChainedItem<T>::write_chained`] to see how to write this type when in a list.
 //!
 use std::ops::Deref;
 

@@ -3,7 +3,7 @@ use binrw::{BinRead, BinResult, BinWrite, Endian};
 use std::{fmt::Debug, io::SeekFrom};
 
 /**
- * Source: https://github.com/jam1garner/binrw/discussions/229
+ * Source: <https://github.com/jam1garner/binrw/discussions/229>
  */
 #[derive(Default, PartialEq, Eq)]
 pub struct PosMarker<T> {

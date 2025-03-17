@@ -581,8 +581,7 @@ pub enum SvhdxOpenDeviceContext {
     V2(SvhdxOpenDeviceContextV2),
 }
 
-/// [MS-RSVD] sections 2.2.4.12 and 2.2.4.32.
-/// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rsvd/6ec20c83-a6a7-49d5-ae60-72070f91d5e0
+/// [MS-RSVD sections 2.2.4.12 and 2.2.4.32.](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rsvd/6ec20c83-a6a7-49d5-ae60-72070f91d5e0)
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct SvhdxOpenDeviceContextV1 {

@@ -1,5 +1,13 @@
-# Pure Rust SMB Client
-This project is the first full-rust implementation of a SMB client, currently supporting SMB 3.1.1.
+# smb-rs: The SMB2 Client in Rust
+
+[![Build](https://github.com/AvivNaaman/smb-rs/actions/workflows/build.yml/badge.svg)](https://github.com/AvivNaaman/smb-rs/actions/workflows/build.yml)
+[![Crates.io](https://img.shields.io/crates/v/smb)](https://crates.io/crates/smb)
+[![Docs.rs](https://docs.rs/smb/badge.svg)](https://docs.rs/smb)
+
+This project is the first rust implementation of [SMB2 & 3](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/5606ad47-5ee0-437a-817e-70c366052962) client -- the protocol that powers Windows file sharing and remote services. The project is designed to be a library, but also includes a CLI tool for basic operations.
+
+While most current implementations are mostly bindings to C libraries (such as libsmb2, samba, or windows' own libraries), this project is a full implementation in Rust, with no dependencies on C libraries!
+
 ## Getting started
 Running the project is as simple as:
 ```sh
@@ -10,7 +18,8 @@ Check out the `info` and the `copy` sub-commands for more information.
 For advanced usage, and crate usage, see the [Advanced Usage](#advanced-usage) section.
 ## Features
 ### General
-- ✅ SMB 3.X support.
+- ✅ SMB 2.X & 3.X support.
+- ✅ Full file operations support.
 - ✅ Async + Multi-threaded + Single-threaded backends.
 - ✅ Support for all file operations.
 - ✅ Compression + Encryption support.
@@ -24,27 +33,27 @@ You are welcome to see the project's roadmap in the [GitHub Project](https://git
 | 3.1.1   | ✅         |       |
 | 3.0.2   | ✅         |       |
 | 3.0     | ✅         |       |
-| 2.1     | ❌         |       |
-| 2.0.2   | ❌         |       |
+| 2.1     | ✅         |       |
+| 2.0.2   | ✅         |       |
 
 ### Algorithm Support
-| Type            | Algorithm    |     | Feature Name          |
-| --------------- | ------------ | --- | --------------------- |
-| **Signing**     | *            |     | `sign`                |
-| Signing         | HMAC_SHA256  | ✅   | `sign_hmac`           |
-| Signing         | AES-128-GCM  | ✅   | `sign_gmac`           |
-| Signing         | AES-128-CCM  | ✅   | `sign_cmac`           |
-| **Encryption**  | *            |     | `encrypt`             |
-| Encryption      | AES-128-CCM  | ✅   | `encrypt_aes128ccm`   |
-| Encryption      | AES-128-GCM  | ✅   | `encrypt_aes128gcm`   |
-| Encryption      | AES-256-CCM  | ✅   | `encrypt_aes256ccm`   |
-| Encryption      | AES-256-GCM  | ✅   | `encrypt_aes256gcm`   |
-| **Compression** | *            |     | `compress`            |
-| Compression     | LZ4          | ✅   | `compress_lz4`        |
+| Type            | Algorithm    |     | Feature Name           |
+| --------------- | ------------ | --- | ---------------------- |
+| **Signing**     | *            |     | `sign`                 |
+| Signing         | HMAC_SHA256  | ✅   | `sign_hmac`            |
+| Signing         | AES-128-GCM  | ✅   | `sign_gmac`            |
+| Signing         | AES-128-CCM  | ✅   | `sign_cmac`            |
+| **Encryption**  | *            |     | `encrypt`              |
+| Encryption      | AES-128-CCM  | ✅   | `encrypt_aes128ccm`    |
+| Encryption      | AES-128-GCM  | ✅   | `encrypt_aes128gcm`    |
+| Encryption      | AES-256-CCM  | ✅   | `encrypt_aes256ccm`    |
+| Encryption      | AES-256-GCM  | ✅   | `encrypt_aes256gcm`    |
+| **Compression** | *            |     | `compress`             |
+| Compression     | LZ4          | ✅   | `compress_lz4`         |
 | Compression     | Pattern_V1   | 🟡   | `compress_pattern_v1`* |
-| Compression     | LZNT1        | ❌   |                       |
-| Compression     | LZ77         | ❌   |                       |
-| Compression     | LZ77+Huffman | ❌   |                       |
+| Compression     | LZNT1        | ❌   |                        |
+| Compression     | LZ77         | ❌   |                        |
+| Compression     | LZ77+Huffman | ❌   |                        |
 
 > [!NOTE] 
 > Some of SMB's suported compression algorithms are missing, since no proper crates are available for them.
