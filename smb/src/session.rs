@@ -7,7 +7,7 @@ use crate::connection::connection_info::ConnectionInfo;
 use crate::connection::worker::Worker;
 use crate::sync_helpers::*;
 use crate::{
-    connection::{preauth_hash::PreauthHashValue, ConnectionMessageHandler},
+    connection::ConnectionMessageHandler,
     crypto::KeyToDerive,
     msg_handler::{
         HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, ReceiveOptions,
@@ -21,7 +21,7 @@ use binrw::prelude::*;
 use maybe_async::*;
 use sspi::{AuthIdentity, Secret, Username};
 use std::sync::Arc;
-type UpstreamHandlerRef = HandlerReference<ConnectionMessageHandler>;
+type Upstream = HandlerReference<ConnectionMessageHandler>;
 
 mod authenticator;
 mod encryptor_decryptor;
@@ -35,38 +35,21 @@ pub use state::SessionState;
 
 pub struct Session {
     handler: HandlerReference<SessionMessageHandler>,
-    session_state: Arc<Mutex<SessionState>>,
-    /// Requested security mode from the server.
-    req_security_mode: SessionSecurityMode,
-
     conn_info: Arc<ConnectionInfo>,
 }
 
 impl Session {
+    /// Sets up the session with the specified username and password.
     #[maybe_async]
     pub async fn setup(
         user_name: &str,
         password: String,
-        upstream: UpstreamHandlerRef,
+        upstream: &Upstream,
         conn_info: &Arc<ConnectionInfo>,
     ) -> crate::Result<Session> {
-        let session_state = Arc::new(Mutex::new(SessionState::default()));
-        let mut session = Session {
-            handler: SessionMessageHandler::new(upstream, session_state.clone()),
-            session_state: session_state,
-            req_security_mode: SessionSecurityMode::new().with_signing_enabled(true),
-            conn_info: conn_info.clone(),
-        };
-        session.server_setup(user_name, password).await?;
-        Ok(session)
-    }
+        let req_security_mode = SessionSecurityMode::new().with_signing_enabled(true);
 
-    /// Sets up the session with the specified username and password.
-    #[maybe_async]
-    async fn server_setup(&mut self, user_name: &str, password: String) -> crate::Result<()> {
-        if *self.handler.session_id.read().await? != 0 {
-            return Err(Error::InvalidState("Session already set up!".to_string()));
-        }
+        let mut session_state = Arc::new(Mutex::new(SessionState::default()));
 
         log::debug!("Setting up session for user {}.", user_name);
 
@@ -80,26 +63,25 @@ impl Session {
                 username,
                 password: Secret::new(password),
             };
-            GssAuthenticator::build(&self.conn_info.negotiation.auth_buffer, identity)?
+            GssAuthenticator::build(&conn_info.negotiation.auth_buffer, identity)?
         };
 
         let request = OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
-            SessionSetupRequest::new(next_buf, self.req_security_mode),
+            SessionSetupRequest::new(next_buf, req_security_mode),
         )));
 
         // response hash is processed later, in the loop.
-        let response = self
-            .handler
-            .upstream
+        let response = upstream
             .sendo_recvo(
                 request,
                 ReceiveOptions::new().status(Status::MoreProcessingRequired),
             )
             .await?;
 
+        let handler = SessionMessageHandler::new(upstream, session_state.clone());
         // Set session id.
-        *self.handler.session_id.write().await? = response.message.header.session_id;
-        self.session_state.lock().await?.session_id = response.message.header.session_id;
+        *handler.session_id.write().await? = response.message.header.session_id;
+        session_state.lock().await?.session_id = response.message.header.session_id;
 
         let mut response = Some(response);
         let mut flags = None;
@@ -132,17 +114,35 @@ impl Session {
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
                     let mut request =
                         OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
-                            SessionSetupRequest::new(next_buf, self.req_security_mode),
+                            SessionSetupRequest::new(next_buf, req_security_mode),
                         )));
                     let is_about_to_finish = authenticator.keys_exchanged()
-                        && !SessionState::is_set_up(&self.session_state).await?;
+                        && !SessionState::is_set_up(&session_state).await?;
                     request.finalize_preauth_hash = is_about_to_finish;
-                    let result = self.handler.sendo(request).await?;
+                    let result = handler.sendo(request).await?;
 
                     // If keys are exchanged, set them up, to enable validation of next response!
                     if is_about_to_finish {
                         let ntlm_key: KeyToDerive = authenticator.session_key()?;
-                        self.key_setup(&ntlm_key, &result.preauth_hash).await?;
+
+                        SessionState::set(
+                            &mut session_state,
+                            &ntlm_key,
+                            &result.preauth_hash,
+                            conn_info,
+                        )
+                        .await?;
+                        log::trace!("Session signing key set.");
+
+                        upstream
+                            .handler
+                            .worker()
+                            .ok_or_else(|| {
+                                Error::InvalidState("Worker not available!".to_string())
+                            })?
+                            .session_started(session_state.clone())
+                            .await?;
+                        log::trace!("Session inserted into worker.");
                     }
 
                     let expected_status = if is_about_to_finish {
@@ -150,8 +150,7 @@ impl Session {
                     } else {
                         Status::MoreProcessingRequired
                     };
-                    let response = self
-                        .handler
+                    let response = handler
                         .recvo(ReceiveOptions::new().status(expected_status).to(result))
                         .await?;
                     Some(response)
@@ -160,60 +159,38 @@ impl Session {
             };
         }
         log::info!("Session setup complete.");
-        SessionState::set_flags(&mut self.session_state, flags.unwrap(), &self.conn_info).await?;
-        Ok(())
-    }
+        SessionState::set_flags(&mut session_state, flags.unwrap(), &conn_info).await?;
 
-    /// Sets up the session signing/encription keys.
-    #[maybe_async]
-    async fn key_setup(
-        &mut self,
-        exchanged_session_key: &KeyToDerive,
-        preauth_hash: &Option<PreauthHashValue>,
-    ) -> crate::Result<()> {
-        SessionState::set(
-            &mut self.session_state,
-            exchanged_session_key,
-            preauth_hash,
-            &self.conn_info,
-        )
-        .await?;
-        log::trace!("Session signing key set.");
+        let session = Session {
+            handler,
+            conn_info: conn_info.clone(),
+        };
 
-        self.handler
-            .upstream
-            .handler
-            .worker()
-            .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
-            .session_started(self.session_state.clone())
-            .await?;
-        log::trace!("Session inserted into worker.");
-
-        Ok(())
+        Ok(session)
     }
 
     /// Connects to the specified tree using the current session.
     #[maybe_async]
     pub async fn tree_connect(&mut self, name: &str) -> crate::Result<Tree> {
-        Tree::connect(name, self.handler.clone(), &self.conn_info).await
+        Tree::connect(name, &self.handler, &self.conn_info).await
     }
 }
 
 pub struct SessionMessageHandler {
     session_id: RwLock<u64>,
-    upstream: UpstreamHandlerRef,
+    upstream: Upstream,
 
     session_state: Arc<Mutex<SessionState>>,
 }
 
 impl SessionMessageHandler {
     pub fn new(
-        upstream: UpstreamHandlerRef,
+        upstream: &Upstream,
         session_state: Arc<Mutex<SessionState>>,
     ) -> HandlerReference<SessionMessageHandler> {
         HandlerReference::new(SessionMessageHandler {
             session_id: RwLock::new(0),
-            upstream,
+            upstream: upstream.clone(),
             session_state,
         })
     }

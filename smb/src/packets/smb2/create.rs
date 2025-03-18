@@ -94,7 +94,7 @@ pub enum ImpersonationLevel {
 }
 
 #[binrw::binrw]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[brw(repr(u32))]
 pub enum CreateDisposition {
     Superseded = 0x0,
@@ -768,10 +768,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00,
         ];
-        let m = match decode_content(&data).content {
-            Content::CreateResponse(m) => m,
-            _ => panic!("Expected SMBCreateResponse"),
-        };
+        let m = decode_content(&data).content.to_createresponse().unwrap();
         assert_eq!(
             m,
             CreateResponse {

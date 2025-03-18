@@ -40,10 +40,10 @@ impl Directory {
             }))
             .await?;
 
-        let content = match response.message.content {
-            Content::QueryDirectoryResponse(response) => response,
-            _ => panic!("Unexpected response"),
-        };
-        Ok(content.read_output()?)
+        Ok(response
+            .message
+            .content
+            .to_querydirectoryresponse()?
+            .read_output()?)
     }
 }

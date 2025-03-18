@@ -304,10 +304,7 @@ mod tests {
             0x6b, 0xdb, 0x1, 0x4, 0x8f, 0xa1, 0xd, 0x51, 0x6b, 0xdb, 0x1, 0x20, 0x0, 0x0, 0x0, 0x0,
             0x0, 0x0, 0x0,
         ]);
-        let parsed = match parsed.content {
-            Content::QueryInfoResponse(x) => x,
-            _ => panic!("Expected QueryInfoResponse, got {:?}", parsed),
-        };
+        let parsed = parsed.content.to_queryinforesponse().unwrap();
         assert_eq!(
             parsed,
             QueryInfoResponse {

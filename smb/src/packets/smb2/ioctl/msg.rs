@@ -300,10 +300,7 @@ mod tests {
             0x0, 0x0, 0x0, 0x0, 0x0,
         ];
         let message = decode_content(&data);
-        let message = match message.content {
-            Content::IoctlResponse(message) => message,
-            _ => panic!("Expected IoctlResponse"),
-        };
+        let message = message.content.to_ioctlresponse().unwrap();
         assert_eq!(
             message,
             IoctlResponse {

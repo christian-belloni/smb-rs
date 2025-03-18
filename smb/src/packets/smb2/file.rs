@@ -267,10 +267,7 @@ mod tests {
         ];
         let parsed = PlainMessage::read(&mut Cursor::new(data)).unwrap();
         // extract read response:
-        let resp = match parsed.content {
-            Content::ReadResponse(resp) => resp,
-            _ => panic!("Unexpected message type"),
-        };
+        let resp = parsed.content.to_readresponse().unwrap();
         assert_eq!(
             resp,
             ReadResponse {

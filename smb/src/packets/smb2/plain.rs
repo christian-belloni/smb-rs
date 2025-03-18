@@ -3,6 +3,40 @@ use binrw::prelude::*;
 use super::header::*;
 use super::*;
 
+/// Makes the [Content] methods
+macro_rules! make_content_impl {
+    (
+        $({$variant:ident, $struct_pfx:ident},)+
+    ) => {
+        paste::paste! {
+
+impl Content {
+    /// Returns the name of the content value.
+    pub fn content_name(&self) -> &'static str {
+        use Content::*;
+        match self {
+            $(
+                [<$variant>](_) => stringify!([<$variant>]),
+            )+
+        }
+    }
+
+    $(
+        #[doc = concat!("Attempts to cast the current content type to [", stringify!($struct_pfx), "::", stringify!($variant),"].")]
+        pub fn [<to_ $variant:lower>](self) -> crate::Result<$struct_pfx::$variant> {
+            match self {
+                Content::[<$variant>](req) => Ok(req),
+                _ => Err(crate::Error::UnexpectedContent{
+                    expected: stringify!([<$variant>]),
+                    actual: self.content_name(),
+                }),
+            }
+        }
+    )+
+}
+        }
+    };
+}
 /// Internal, one-use-macro to generate the request-response pairs for the `Content` enum.
 /// In addition, it appends the special cases.
 /// For example, the pair `(Negotiate, negotiate::Negotiate)` will generate:
@@ -13,7 +47,7 @@ use super::*;
 /// NegotiateResponse(negotiate::NegotiateResponse),
 /// ...
 /// ```
-macro_rules! req_response_pair {
+macro_rules! make_content {
     (
         $({$cmd:ident, $struct_pfx:ident},)+
     ) => {
@@ -76,11 +110,26 @@ impl Content {
         }
     }
 }
+
+make_content_impl!{
+    $(
+        {[<$cmd Request>], $struct_pfx},
+        {[<$cmd Response>], $struct_pfx},
+    )+
+    {CancelRequest, cancel},
+    {OplockBreakAck, oplock},
+    {LeaseBreakAck, oplock},
+    {OplockBreakNotify, oplock},
+    {LeaseBreakNotify, oplock},
+    {OplockBreakResponse, oplock},
+    {LeaseBreakResponse, oplock},
+    {ErrorResponse, error},
+}
         }
     };
 }
 
-req_response_pair!(
+make_content!(
     {Negotiate, negotiate},
     {SessionSetup, session_setup},
     {Logoff, session_setup},
