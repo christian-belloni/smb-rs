@@ -429,10 +429,7 @@ mod tests {
             }
         );
         // unwrap & validate read response.
-        let read_response = match plain_unwrapped.content {
-            Content::ReadResponse(r) => r,
-            _ => panic!("Expected read response"),
-        };
+        let read_response = plain_unwrapped.content.to_readresponse().unwrap();
         assert_eq!(
             read_response,
             ReadResponse {

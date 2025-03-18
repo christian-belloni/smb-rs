@@ -11,16 +11,26 @@ pub struct File {
 
     access: FileAccessMask,
     end_of_file: u64,
+
+    file_type: ShareType,
 }
 
+/// The `File` struct represents an opened file on the server.
+/// Do not create it directly, but via Tree
 impl File {
-    pub fn new(handle: ResourceHandle, access: FileAccessMask, end_of_file: u64) -> Self {
+    pub fn new(
+        handle: ResourceHandle,
+        access: FileAccessMask,
+        end_of_file: u64,
+        file_type: ShareType,
+    ) -> Self {
         File {
             handle,
             pos: 0,
             dirty: false,
             access,
             end_of_file,
+            file_type,
         }
     }
 
@@ -51,10 +61,7 @@ impl File {
                 data: GetInfoRequestData::None(()),
             }))
             .await?;
-        let query_info_response = match response.message.content {
-            Content::QueryInfoResponse(response) => response,
-            _ => panic!("Unexpected response"),
-        };
+        let query_info_response = response.message.content.to_queryinforesponse()?;
         let result = query_info_response
             .parse(InfoType::File)?
             .unwrap_file()
@@ -76,10 +83,7 @@ impl File {
                 data: GetInfoRequestData::None(()),
             }))
             .await?;
-        let query_info_response = match response.message.content {
-            Content::QueryInfoResponse(response) => response,
-            _ => panic!("Unexpected response"),
-        };
+        let query_info_response = response.message.content.to_queryinforesponse()?;
         let result = query_info_response
             .parse(InfoType::Security)?
             .unwrap_security();
@@ -98,16 +102,24 @@ impl File {
             .handle
             .send_receive(Content::SetInfoRequest(data))
             .await?;
-        let _response = match response.message.content {
-            Content::SetInfoResponse(response) => response,
-            _ => panic!("Unexpected response"),
-        };
+        let _response = response.message.content.to_setinforesponse()?;
         Ok(())
     }
 
-    /// Reads up to `buf.len()` bytes from the file into `buf`, beginning in offset `pos`.
+    /// Read a block of data from an opened file.
+    /// # Arguments
+    /// * `buf` - The buffer to read the data into. A maximum of `buf.len()` bytes will be read.
+    /// * `pos` - The offset in the file to read from.
+    /// * `unbuffered` - Whether to try using unbuffered I/O (if supported by the server).
+    /// # Returns
+    /// The number of bytes read, up to `buf.len()`.
     #[maybe_async]
-    pub async fn read_block(&self, buf: &mut [u8], pos: u64) -> std::io::Result<usize> {
+    pub async fn read_block(
+        &self,
+        buf: &mut [u8],
+        pos: u64,
+        unbuffered: bool,
+    ) -> std::io::Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -138,6 +150,10 @@ impl File {
             flags.set_read_compressed(true);
         }
 
+        if unbuffered && self.handle.conn_info.negotiation.dialect_rev >= Dialect::Smb0302 {
+            flags.set_read_unbuffered(true);
+        }
+
         let response = self
             .handle
             .send_receive(Content::ReadRequest(ReadRequest {
@@ -150,10 +166,11 @@ impl File {
             }))
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        let content = match response.message.content {
-            Content::ReadResponse(response) => response,
-            _ => panic!("Unexpected response"),
-        };
+        let content = response
+            .message
+            .content
+            .to_readresponse()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let actual_read_length = content.buffer.len();
         log::debug!(
             "Read {} bytes from {}.",
@@ -197,10 +214,11 @@ impl File {
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-        let content = match response.message.content {
-            Content::WriteResponse(response) => response,
-            _ => panic!("Unexpected response"),
-        };
+        let content = response
+            .message
+            .content
+            .to_writeresponse()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let actual_written_length = content.count as usize;
         self.pos += actual_written_length as u64;
         self.dirty = true;
@@ -274,7 +292,7 @@ impl Seek for File {
 #[cfg(feature = "sync")]
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let read_length = File::read_block(self, buf, self.pos)
+        let read_length = File::read_block(self, buf, self.pos, false)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         self.pos += read_length as u64;
         Ok(read_length)

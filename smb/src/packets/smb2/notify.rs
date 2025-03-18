@@ -125,10 +125,7 @@ mod tests {
         ];
 
         let parsed = decode_content(&data);
-        let notify_response = match parsed.content {
-            Content::ChangeNotifyResponse(response) => response,
-            _ => panic!("Unexpected response type"),
-        };
+        let notify_response = parsed.content.to_changenotifyresponse().unwrap();
 
         assert_eq!(
             notify_response,

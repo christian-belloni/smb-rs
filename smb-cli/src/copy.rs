@@ -64,7 +64,7 @@ async fn do_copy_task(
             }
         };
         // 2. Read chunk from remote
-        from.read_block(&mut chunk[..size], (idx * CHUNK_SIZE) as u64)
+        from.read_block(&mut chunk[..size], (idx * CHUNK_SIZE) as u64, false)
             .await?;
         // 3. Write chunk to destination
         {

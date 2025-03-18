@@ -38,6 +38,11 @@ pub enum Error {
     ReceivedErrorMessage(Status, ErrorResponse),
     #[error("Unexpected command: {0}")]
     UnexpectedCommand(Command),
+    #[error("Unexpected content: {0} - expected {1}", actual, expected)]
+    UnexpectedContent {
+        actual: &'static str,
+        expected: &'static str,
+    },
     #[error("Missing permissions to perform {0}")]
     MissingPermissions(String),
     #[error("Sspi error: {0}")]
@@ -75,6 +80,8 @@ pub enum Error {
     InvalidAddress(String),
     #[error("Invalid configuration: {0}")]
     InvalidConfiguration(String),
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
 }
 
 impl<T> From<PoisonError<T>> for Error {

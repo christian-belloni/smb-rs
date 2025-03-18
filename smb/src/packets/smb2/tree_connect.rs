@@ -196,10 +196,10 @@ type PrivilegeData = BlobData<LuidAttrData>;
 type PrivilegeArrayData = ArrayData<PrivilegeData>;
 
 impl TreeConnectRequest {
-    pub fn new(name: &String) -> TreeConnectRequest {
+    pub fn new(name: &str) -> TreeConnectRequest {
         TreeConnectRequest {
             flags: TreeConnectRequestFlags::new(),
-            buffer: name.clone().into(),
+            buffer: name.into(),
             tree_connect_contexts: vec![],
         }
     }
@@ -211,7 +211,7 @@ pub struct TreeConnectResponse {
     #[bw(calc = 16)]
     #[br(assert(_structure_size == 16))]
     _structure_size: u16,
-    pub share_type: TreeConnectShareType,
+    pub share_type: ShareType,
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u8,
@@ -278,9 +278,9 @@ pub struct TreeCapabilities {
 }
 
 #[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u8))]
-pub enum TreeConnectShareType {
+pub enum ShareType {
     Disk = 0x1,
     Pipe = 0x2,
     Print = 0x3,
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     pub fn test_tree_connect_req_write() {
         let result = encode_content(Content::TreeConnectRequest(TreeConnectRequest::new(
-            &r"\\127.0.0.1\MyShare".into(),
+            &r"\\127.0.0.1\MyShare",
         )));
         assert_eq!(
             result,
@@ -341,7 +341,7 @@ mod tests {
         assert_eq!(
             content_parsed,
             TreeConnectResponse {
-                share_type: TreeConnectShareType::Disk,
+                share_type: ShareType::Disk,
                 share_flags: TreeShareFlags::new().with_access_based_directory_enum(true),
                 capabilities: TreeCapabilities::new(),
                 maximal_access: 0x001f01ff,

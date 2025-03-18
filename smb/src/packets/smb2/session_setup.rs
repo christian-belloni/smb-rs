@@ -170,10 +170,10 @@ mod tests {
             0xa8, 0x76, 0xd8, 0x78, 0xc5, 0x69, 0xdb, 0x1, 0x0, 0x0, 0x0, 0x0,
         ];
 
-        let response = match decode_content(&data).content {
-            Content::SessionSetupResponse(response) => response,
-            _ => panic!("Unexpected message type"),
-        };
+        let response = decode_content(&data)
+            .content
+            .to_sessionsetupresponse()
+            .unwrap();
 
         assert_eq!(
             response,

@@ -113,13 +113,7 @@ impl Connection {
                 }
             };
 
-            let smb2_negotiate_response = match message.content {
-                Content::NegotiateResponse(response) => Some(response),
-                _ => None,
-            }
-            .ok_or(Error::InvalidMessage(
-                "Expected Negotiate response.".to_string(),
-            ))?;
+            let smb2_negotiate_response = message.content.to_negotiateresponse()?;
 
             // 3. Make sure dialect is smb2*, message ID is 0.
             if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb02Wildcard {
@@ -185,13 +179,7 @@ impl Connection {
             )))
             .await?;
 
-        let smb2_negotiate_response = match response.message.content {
-            Content::NegotiateResponse(response) => Some(response),
-            _ => None,
-        }
-        .ok_or(Error::InvalidMessage(
-            "Expected Negotiate response.".to_string(),
-        ))?;
+        let smb2_negotiate_response = response.message.content.to_negotiateresponse()?;
 
         // well, only 3.1 is supported for starters.
         let dialect_rev = smb2_negotiate_response.dialect_revision.try_into()?;
@@ -286,7 +274,7 @@ impl Connection {
         Session::setup(
             user_name,
             password,
-            self.handler.clone(),
+            &self.handler,
             self.handler.conn_info.get().unwrap(),
         )
         .await

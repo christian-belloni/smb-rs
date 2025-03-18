@@ -132,7 +132,7 @@ async fn test_smb_integration_basic(
         .await?;
 
         let mut buf = [0u8; TEST_DATA.len() + 2];
-        let read_length = file.read_block(&mut buf, 0).await?;
+        let read_length = file.read_block(&mut buf, 0, false).await?;
         assert_eq!(read_length, TEST_DATA.len());
         assert_eq!(&buf[..read_length], TEST_DATA);
 

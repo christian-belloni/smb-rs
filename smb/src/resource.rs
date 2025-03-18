@@ -29,21 +29,34 @@ impl Resource {
     #[maybe_async]
     pub async fn create(
         name: &str,
-        upstream: Upstream,
+        upstream: &Upstream,
         create_disposition: CreateDisposition,
         desired_access: FileAccessMask,
         conn_info: &Arc<ConnectionInfo>,
+        share_type: ShareType,
     ) -> crate::Result<Resource> {
+        let share_access = if share_type == ShareType::Disk {
+            ShareAccessFlags::new()
+                .with_read(true)
+                .with_write(true)
+                .with_delete(true)
+        } else {
+            ShareAccessFlags::new()
+        };
+
+        if share_type == ShareType::Print && create_disposition != CreateDisposition::Create {
+            return Err(Error::InvalidArgument(
+                "Printer can only accept CreateDisposition::Create.".to_string(),
+            ));
+        }
+
         let response = upstream
             .send_recv(Content::CreateRequest(CreateRequest {
                 requested_oplock_level: OplockLevel::None,
                 impersonation_level: ImpersonationLevel::Impersonation,
                 desired_access,
                 file_attributes: FileAttributes::new(),
-                share_access: ShareAccessFlags::new()
-                    .with_read(true)
-                    .with_write(true)
-                    .with_delete(true),
+                share_access,
                 create_disposition,
                 create_options: CreateOptions::new(),
                 name: name.into(),
@@ -54,10 +67,7 @@ impl Resource {
             }))
             .await?;
 
-        let content = match response.message.content {
-            Content::CreateResponse(response) => response,
-            _ => panic!("Unexpected response"),
-        };
+        let content = response.message.content.to_createresponse()?;
         log::info!("Created file '{}', ({:?})", name, content.file_id);
 
         let is_dir = content.file_attributes.directory();
@@ -79,6 +89,7 @@ impl Resource {
         };
 
         // Construct specific resource and return it.
+
         if is_dir {
             Ok(Resource::Directory(Directory::new(handle, access.into())))
         } else {
@@ -86,6 +97,7 @@ impl Resource {
                 handle,
                 access,
                 content.endof_file,
+                share_type,
             )))
         }
     }
@@ -208,8 +220,10 @@ struct ResourceMessageHandle {
 }
 
 impl ResourceMessageHandle {
-    pub fn new(upstream: Upstream) -> HandlerReference<ResourceMessageHandle> {
-        HandlerReference::new(ResourceMessageHandle { upstream })
+    pub fn new(upstream: &Upstream) -> HandlerReference<ResourceMessageHandle> {
+        HandlerReference::new(ResourceMessageHandle {
+            upstream: upstream.clone(),
+        })
     }
 }
 

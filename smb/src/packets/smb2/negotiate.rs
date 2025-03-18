@@ -573,10 +573,10 @@ mod tests {
             0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x2, 0x0, 0x4, 0x0,
         ];
 
-        let response = match decode_content(&data).content {
-            Content::NegotiateResponse(response) => response,
-            _ => panic!("Expected NegotiateResponse"),
-        };
+        let response = decode_content(&data)
+            .content
+            .to_negotiateresponse()
+            .unwrap();
 
         assert_eq!(
             response,
