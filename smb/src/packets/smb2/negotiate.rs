@@ -22,7 +22,7 @@ pub struct NegotiateRequest {
     _reserved: u16,
     pub capabilities: GlobalCapabilities,
     pub client_guid: Guid,
-    // TODO: The 3 fields below are possibly a union in older versions of SMB.
+
     #[bw(calc = PosMarker::default())]
     negotiate_context_offset: PosMarker<u32>,
     #[bw(try_calc(u16::try_from(negotiate_context_list.as_ref().map(|v| v.len()).unwrap_or(0))))]
@@ -32,7 +32,7 @@ pub struct NegotiateRequest {
     reserved2: u16,
     #[br(count = dialect_count)]
     pub dialects: Vec<Dialect>,
-    // Only on SMB 3.1.1 we have negotiate contexts.
+    // Only on SMB 3.1.1 supporting clients we have negotiation contexts.
     // Align to 8 bytes.
     #[brw(if(dialects.contains(&Dialect::Smb0311)), align_before = 8)]
     #[br(count = negotiate_context_count, seek_before = SeekFrom::Start(negotiate_context_offset.value as u64))]

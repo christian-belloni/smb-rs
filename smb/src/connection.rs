@@ -409,7 +409,6 @@ impl ConnectionMessageHandler {
 impl MessageHandler for ConnectionMessageHandler {
     #[maybe_async]
     async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
-        // TODO: Add assertion in the struct regarding the selected dialect!
         let priority_value = match self.conn_info.get() {
             Some(neg_info) => match neg_info.negotiation.dialect_rev {
                 Dialect::Smb0311 => 1,

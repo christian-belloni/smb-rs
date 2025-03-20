@@ -451,15 +451,13 @@ pub struct DurableHandleRequest {
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct DurableHandleResponse {
     #[bw(calc = 0)]
-    #[br(assert(response == 0))]
-    response: u128,
+    _reserved: u64,
 }
 
-/// TODO: SMB2_FILEID
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct DurableHandleReconnect {
-    pub durable_request: u128,
+    pub durable_request: FileId,
 }
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq, Default)]

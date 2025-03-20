@@ -113,11 +113,9 @@ pub struct FileCompressionInformation {
     pub compression_unit: u8,
     pub chunk_shift: u8,
     pub cluster_shift: u8,
-    #[br(parse_with = binrw::helpers::read_u24)]
-    #[br(assert(reserved == 0))]
-    #[bw(align_before = 4)]
-    #[bw(ignore)]
-    reserved: u32, // 3-bytes. TODO: Define a normal u24 type for such cases?
+
+    #[bw(calc = [0; 3])]
+    _reserved: [u8; 3],
 }
 
 #[binrw::binrw]

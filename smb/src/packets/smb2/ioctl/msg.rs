@@ -36,7 +36,7 @@ pub struct IoctlRequest {
     #[bw(calc = 0)]
     #[br(assert(reserved2 == 0))]
     reserved2: u32,
-    // TODO: treat FSCTLs differently when having a concrerte data structure.
+
     #[bw(write_with = PosMarker::write_aoff_size, args(&_input_offset, &_input_count))]
     #[br(map_stream = |s| s.take_seek(_input_count.value as u64), args(ctl_code, flags))]
     pub buffer: IoctlReqData,

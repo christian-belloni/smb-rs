@@ -80,6 +80,8 @@ impl QueryDirectoryResponse {
 
 #[cfg(test)]
 mod tests {
+    use time::macros::datetime;
+
     use super::*;
     #[test]
     pub fn test_both_directory_information_attribute_parse() {
@@ -135,6 +137,100 @@ mod tests {
         .read_output()
         .unwrap();
 
-        // TODO: Test the contents of the result, not just that it parses.
+        assert_eq!(
+            vec![
+                ChainedItem::new(FileIdBothDirectoryInformationInner {
+                    file_index: 0,
+                    creation_time: FileTime::from(datetime!(2024-12-11 12:32:31.7084985)),
+                    last_access_time: FileTime::from(datetime!(2025-01-03 10:18:15.6499175)),
+                    last_write_time: FileTime::from(datetime!(2024-12-27 14:22:59.9648231)),
+                    change_time: FileTime::from(datetime!(2024-12-27 14:22:59.9648231)),
+                    end_of_file: 0,
+                    allocation_size: 0,
+                    file_attributes: FileAttributes::new().with_directory(true),
+                    ea_size: 0,
+                    short_name_length: 0,
+                    short_name: [0; 12],
+                    fild_id: 562949953454203,
+                    file_name: ".".into(),
+                }),
+                ChainedItem::new(FileIdBothDirectoryInformationInner {
+                    file_index: 0,
+                    creation_time: FileTime::from(datetime!(2024-12-11 9:25:15.4208828)),
+                    last_access_time: FileTime::from(datetime!(2025-01-02 19:05:31.8723088)),
+                    last_write_time: FileTime::from(datetime!(2024-12-11 12:32:35.4544738)),
+                    change_time: FileTime::from(datetime!(2024-12-11 12:32:35.4544738)),
+                    end_of_file: 0,
+                    allocation_size: 0,
+                    file_attributes: FileAttributes::new().with_directory(true),
+                    ea_size: 0,
+                    short_name_length: 0,
+                    short_name: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,],
+                    fild_id: 1125899906967338,
+                    file_name: "..".into(),
+                }),
+                ChainedItem::new(FileIdBothDirectoryInformationInner {
+                    file_index: 0,
+                    creation_time: FileTime::from(datetime!(2024-12-27 14:22:48.7929947)),
+                    last_access_time: FileTime::from(datetime!(2024-12-27 14:22:48.7929947)),
+                    last_write_time: FileTime::from(datetime!(2024-12-27 14:22:48.7929947)),
+                    change_time: FileTime::from(datetime!(2024-12-27 14:22:49.7460575)),
+                    end_of_file: 0,
+                    allocation_size: 0,
+                    file_attributes: FileAttributes::new().with_archive(true),
+                    ea_size: 0,
+                    short_name_length: 0,
+                    short_name: [0; 12],
+                    fild_id: 2814749767148784,
+                    file_name: "a.txt".into(),
+                }),
+                ChainedItem::new(FileIdBothDirectoryInformationInner {
+                    file_index: 0,
+                    creation_time: FileTime::from(datetime!(2024-12-27 14:22:51.5742424)),
+                    last_access_time: FileTime::from(datetime!(2024-12-27 14:23:06.9505662)),
+                    last_write_time: FileTime::from(datetime!(2024-12-27 14:23:06.9505662)),
+                    change_time: FileTime::from(datetime!(2024-12-27 14:23:06.9505662)),
+                    end_of_file: 6,
+                    allocation_size: 8,
+                    file_attributes: FileAttributes::new().with_archive(true),
+                    ea_size: 0,
+                    short_name_length: 0,
+                    short_name: [0; 12],
+                    fild_id: 1125899906906297,
+                    file_name: "b.txt".into(),
+                }),
+                ChainedItem::new(FileIdBothDirectoryInformationInner {
+                    file_index: 0,
+                    creation_time: FileTime::from(datetime!(2024-12-27 14:22:52.0116823)),
+                    last_access_time: FileTime::from(datetime!(2024-12-27 14:23:14.7795682)),
+                    last_write_time: FileTime::from(datetime!(2024-12-27 14:23:14.7795682)),
+                    change_time: FileTime::from(datetime!(2024-12-27 14:23:14.7795682)),
+                    end_of_file: 486,
+                    allocation_size: 488,
+                    file_attributes: FileAttributes::new().with_archive(true),
+                    ea_size: 0,
+                    short_name_length: 0,
+                    short_name: [0; 12],
+                    fild_id: 1125899906906299,
+                    file_name: "c.txt".into(),
+                },),
+                ChainedItem::new(FileIdBothDirectoryInformationInner {
+                    file_index: 0,
+                    creation_time: FileTime::from(datetime!(2024-12-27 14:22:52.167941),),
+                    last_access_time: FileTime::from(datetime!(2025-01-02 19:05:44.7804931),),
+                    last_write_time: FileTime::from(datetime!(2025-01-02 19:05:44.7804931),),
+                    change_time: FileTime::from(datetime!(2025-01-02 19:05:44.7804931),),
+                    end_of_file: 15910,
+                    allocation_size: 16384,
+                    file_attributes: FileAttributes::new().with_archive(true),
+                    ea_size: 0,
+                    short_name_length: 0,
+                    short_name: [0; 12],
+                    fild_id: 1125899906906300,
+                    file_name: "d.txt".into(),
+                })
+            ],
+            _res
+        );
     }
 }
