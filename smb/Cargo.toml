@@ -82,3 +82,7 @@ sign_gmac = ["dep:aes-gcm"]
 sign_cmac = ["dep:cmac"]
 sign_hmac = []
 sign = ["sign_gmac", "sign_cmac", "sign_hmac"]
+
+[package.metadata.docs.rs]
+features = ["async", "sign", "encrypt", "compress"]
+no-default-features = true
