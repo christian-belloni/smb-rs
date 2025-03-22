@@ -73,8 +73,8 @@ let mut file = tree.create("file.txt", ...).await?;
 ### Switch Threading model
 The project supports async, multi-threaded, and single-threaded backends. The `async` backend is the default one, but you can enable the other backends by using the following features:
 - `async`: Enables the async backend (default)
-- `single_threaded`: Enables the single-threaded backend.
-- `multi_threaded`: Enables the multi-threaded backend.
+- `single_threaded`: Enables the single-threaded backend. *Must disable default features.*
+- `multi_threaded`: Enables the multi-threaded backend. *Must disable default features.*
 
 For example, to enable the multi-threaded backend, you can run:
 ```sh

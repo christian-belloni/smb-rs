@@ -1,6 +1,6 @@
 [package]
 name = "smb"
-version = "0.4.1"
+version = "0.4.2"
 edition.workspace = true
 description.workspace = true
 license.workspace = true
@@ -55,7 +55,7 @@ test-log = "0.2"
 serial_test = "3.2"
 
 [features]
-default = ["sign", "encrypt", "compress"]
+default = ["sign", "encrypt", "compress", "async"]
 
 # Threading models
 async = ["dep:tokio", "dep:tokio-util"]
