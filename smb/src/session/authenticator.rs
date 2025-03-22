@@ -173,7 +173,7 @@ impl GssAuthenticator {
     }
 }
 
-pub trait GssAuthTokenHandler {
+pub trait GssAuthTokenHandler: Send + Sync {
     fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> crate::Result<Vec<u8>>;
     fn gss_getmic(&mut self, buffer: &mut [u8]) -> crate::Result<Vec<u8>>;
     fn gss_validatemic(&mut self, buffer: &mut [u8], signature: &mut [u8]) -> crate::Result<()>;
