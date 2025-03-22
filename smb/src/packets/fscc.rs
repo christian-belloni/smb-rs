@@ -241,13 +241,13 @@ macro_rules! file_info_classes {
 pub struct FileQuotaInformationInner {
     #[bw(calc = PosMarker::default())]
     sid_length: PosMarker<u32>,
-    change_time: FileTime,
-    quota_used: u64,
-    quota_threshold: u64,
-    quota_limit: u64,
+    pub change_time: FileTime,
+    pub quota_used: u64,
+    pub quota_threshold: u64,
+    pub quota_limit: u64,
     #[br(map_stream = |s| s.take_seek(sid_length.value as u64))]
     #[bw(write_with = PosMarker::write_size, args(&sid_length))]
-    sid: SID,
+    pub sid: SID,
 }
 
 pub type FileQuotaInformation = ChainedItem<FileQuotaInformationInner>;
@@ -259,7 +259,7 @@ pub struct FileGetQuotaInformationInner {
     sid_length: PosMarker<u32>,
     #[br(map_stream = |s| s.take_seek(sid_length.value as u64))]
     #[bw(write_with = PosMarker::write_size, args(&sid_length))]
-    sid: SID,
+    pub sid: SID,
 }
 
 pub type FileGetQuotaInformation = ChainedItem<FileGetQuotaInformationInner>;

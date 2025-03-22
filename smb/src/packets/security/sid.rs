@@ -7,7 +7,7 @@ use binrw::prelude::*;
 use crate::packets::binrw_util::prelude::*;
 
 #[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[brw(little)]
 pub struct SID {
     #[bw(calc = 1)]

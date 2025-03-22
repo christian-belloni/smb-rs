@@ -4,7 +4,7 @@ use smb::{
     connection::EncryptionMode,
     packets::{
         fscc::*,
-        smb2::{CreateDisposition, Dialect},
+        smb2::{AdditionalInfo, CreateDisposition, Dialect},
     },
     Connection, ConnectionConfig,
 };
@@ -80,8 +80,8 @@ async fn test_smb_integration_basic(
     const TEST_DATA: &[u8] = b"Hello, World!";
 
     // Hello, World! > test.txt
-    {
-        let mut file = tree
+    let security = {
+        let file = tree
             .create(
                 TEST_FILE,
                 CreateDisposition::Create,
@@ -92,12 +92,20 @@ async fn test_smb_integration_basic(
             .await?
             .unwrap_file();
 
-        file.write(TEST_DATA).await?;
+        file.write_block(TEST_DATA, 0).await?;
+
+        // Query security info (owner only)
+        file.query_security_info(AdditionalInfo::new().with_owner_security_information(true))
+            .await?
+    };
+
+    if security.owner_sid.is_none() {
+        return Err("No owner SID found".into());
     }
 
     // Query directory and make sure our file exists there:
     {
-        let dir_info = tree
+        let directory = tree
             .create(
                 "",
                 CreateDisposition::Open,
@@ -105,12 +113,25 @@ async fn test_smb_integration_basic(
             )
             .await?
             .unwrap_dir();
-        dir_info
+        directory
             .query::<FileDirectoryInformation>("*")
             .await?
             .iter()
             .find(|info| info.file_name.to_string() == TEST_FILE)
             .expect("File not found in directory");
+
+        // TODO: Complete Query quota info -- model + fix request encoding.
+        // directory
+        //     .query_quota_info(QueryQuotaInfo {
+        //         return_single: false.into(),
+        //         restart_scan: false.into(),
+        //         get_quota_info_content: Some(vec![FileGetQuotaInformationInner {
+        //             sid: security.owner_sid.unwrap(),
+        //         }
+        //         .into()]),
+        //         sid: None,
+        //     })
+        //     .await?;
     }
 
     {
@@ -136,11 +157,16 @@ async fn test_smb_integration_basic(
         assert_eq!(read_length, TEST_DATA.len());
         assert_eq!(&buf[..read_length], TEST_DATA);
 
+        // Query file info.
         let all_info = file.query_info::<FileAllInformation>().await?;
         assert_eq!(
             all_info.name.file_name.to_string(),
             "\\".to_string() + TEST_FILE
         );
+
+        // Query filesystem info.
+        file.query_fs_info::<FileFsSizeInformation>().await?;
+
         assert_eq!(all_info.standard.end_of_file, TEST_DATA.len() as u64);
     }
 

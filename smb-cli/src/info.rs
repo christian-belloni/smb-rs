@@ -1,7 +1,10 @@
 use crate::{path::*, Cli};
 use clap::Parser;
 use maybe_async::*;
-use smb::{packets::fscc::*, resource::Resource};
+use smb::{
+    packets::{fscc::*, smb2::AdditionalInfo},
+    resource::Resource,
+};
 use std::error::Error;
 #[derive(Parser, Debug)]
 pub struct InfoCmd {
@@ -17,7 +20,11 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
             Resource::File(file) => {
                 let info: FileBasicInformation = file.query_info().await?;
                 log::info!("File info: {:?}", info);
-                let security = file.query_security_info().await?;
+                let security = file
+                    .query_security_info(
+                        AdditionalInfo::new().with_owner_security_information(true),
+                    )
+                    .await?;
                 log::info!("Security info: {:?}", security);
             }
             Resource::Directory(dir) => {

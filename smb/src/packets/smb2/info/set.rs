@@ -3,7 +3,7 @@
 use crate::packets::smb2::FileId;
 use crate::{packets::security::SecurityDescriptor, query_info_data};
 
-use super::{common::*, QueryQuotaInfo};
+use super::{common::*, NullByte, QueryQuotaInfo};
 use crate::packets::{binrw_util::prelude::*, fscc::*};
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
@@ -16,13 +16,12 @@ pub struct SetInfoRequest {
     _structure_size: u16,
     #[bw(calc = data.info_type())]
     pub info_type: InfoType,
-    pub info_class: SetFileInfoClass,
+    pub info_class: SetInfoClass,
     #[bw(calc = PosMarker::default())]
     buffer_length: PosMarker<u32>,
     #[bw(calc = PosMarker::default())]
     _buffer_offset: PosMarker<u16>,
     #[bw(calc = 0)]
-    #[br(assert(_reserved == 0))]
     _reserved: u16,
     pub additional_information: AdditionalInfo,
     pub file_id: FileId,
@@ -40,11 +39,51 @@ query_info_data! {
     Quota: QueryQuotaInfo,
 }
 
+/// A helper class for [SetInfoRequest] to contain the information
+/// class to set. In cases of no class, it will be set to a null byte (0u8).
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub enum SetInfoClass {
+    File(SetFileInfoClass),
+    FileSystem(SetFileSystemInfoClass),
+    Security(NullByte),
+    Quota(NullByte),
+}
+
+impl Into<SetInfoClass> for SetFileInfoClass {
+    fn into(self) -> SetInfoClass {
+        SetInfoClass::File(self)
+    }
+}
+
+impl Into<SetInfoClass> for SetFileSystemInfoClass {
+    fn into(self) -> SetInfoClass {
+        SetInfoClass::FileSystem(self)
+    }
+}
+
 impl SetInfoData {
-    pub fn to_req(self, info_class: SetFileInfoClass, file_id: FileId) -> SetInfoRequest {
+    /// This is a helper function to convert the [SetInfoData] to
+    /// a [SetInfoRequest].
+    pub fn to_req(
+        self,
+        info_class: SetInfoClass,
+        file_id: FileId,
+        additional_info: AdditionalInfo,
+    ) -> SetInfoRequest {
+        // Validate the info class and data combination
+        // to ensure they are compatible.
+        match (&info_class, &self) {
+            (SetInfoClass::File(_), SetInfoData::File(_)) => {}
+            (SetInfoClass::FileSystem(_), SetInfoData::FileSystem(_)) => {}
+            (SetInfoClass::Security(_), SetInfoData::Security(_)) => {}
+            (SetInfoClass::Quota(_), SetInfoData::Quota(_)) => {}
+            _ => panic!("Invalid info class and data combination"),
+        }
+
         SetInfoRequest {
             info_class: info_class,
-            additional_information: AdditionalInfo::new(),
+            additional_information: additional_info,
             file_id,
             data: self,
         }
@@ -77,10 +116,11 @@ mod tests {
 
         let cls = set_info.class();
         let req = SetInfoData::from(RawSetInfoData::<SetFileInfo>::from(set_info)).to_req(
-            cls,
+            cls.into(),
             Guid::from_str("00000042-000e-0000-0500-10000e000000")
                 .unwrap()
                 .into(),
+            AdditionalInfo::new(),
         );
         let req_data = encode_content(Content::SetInfoRequest(req));
         assert_eq!(

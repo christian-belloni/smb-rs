@@ -168,6 +168,35 @@ impl ResourceHandle {
         self.modified
     }
 
+    /// Internal: Sends a Query Information Request and parses the response.
+    #[maybe_async]
+    async fn query_common(&self, req: QueryInfoRequest) -> crate::Result<QueryInfoData> {
+        let info_type = req.info_type;
+        Ok(self
+            .send_receive(Content::QueryInfoRequest(req))
+            .await?
+            .message
+            .content
+            .to_queryinforesponse()?
+            .parse(info_type)?)
+    }
+    /// Internal: Sends a Set Information Request and parses the response.
+    #[maybe_async]
+    async fn set_info_common<T>(
+        &self,
+        data: T,
+        cls: SetInfoClass,
+        additional_info: AdditionalInfo,
+    ) -> crate::Result<()>
+    where
+        T: Into<SetInfoData>,
+    {
+        let data = data.into().to_req(cls, self.file_id, additional_info);
+        let response = self.send_receive(Content::SetInfoRequest(data)).await?;
+        response.message.content.to_setinforesponse()?;
+        Ok(())
+    }
+
     /// Close the handle.
     #[maybe_async]
     async fn close(&mut self) -> crate::Result<()> {

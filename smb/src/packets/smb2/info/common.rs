@@ -14,7 +14,7 @@ pub enum InfoType {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, Default)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct AdditionalInfo {
     pub owner_security_information: bool,
@@ -69,6 +69,15 @@ macro_rules! query_info_data {
                             _ => panic!("Expected $info_type, got {:?}", self),
                         }
                     }
+                    pub fn [<as_ $info_type:lower>](self) -> Result<$content, crate::Error> {
+                        match self {
+                            $name::$info_type(data) => Ok(data),
+                            _ => Err(crate::Error::UnexpectedContent {
+                                expected: stringify!($info_type),
+                                actual: self.name(),
+                            }),
+                        }
+                    }
                 )+
 
                 /// Get the [InfoType] of this data.
@@ -76,6 +85,15 @@ macro_rules! query_info_data {
                     match self {
                         $(
                             $name::$info_type(_) => InfoType::$info_type,
+                        )+
+                    }
+                }
+
+                /// Get the name of this data.
+                pub fn name(&self) -> &'static str {
+                    match self {
+                        $(
+                            $name::$info_type(_) => stringify!($info_type),
                         )+
                     }
                 }
