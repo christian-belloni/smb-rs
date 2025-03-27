@@ -106,7 +106,7 @@ pub enum CreateDisposition {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Default, Debug, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct CreateOptions {
     pub directory_file: bool,

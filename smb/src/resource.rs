@@ -6,7 +6,7 @@ use time::PrimitiveDateTime;
 use crate::{
     connection::connection_info::ConnectionInfo,
     msg_handler::{HandlerReference, MessageHandler},
-    packets::{fscc::*, smb2::*},
+    packets::{fscc::*, security::SecurityDescriptor, smb2::*},
     tree::TreeMessageHandler,
     Error,
 };
@@ -31,6 +31,8 @@ impl Resource {
         name: &str,
         upstream: &Upstream,
         create_disposition: CreateDisposition,
+        attributes: FileAttributes,
+        options: CreateOptions,
         desired_access: FileAccessMask,
         conn_info: &Arc<ConnectionInfo>,
         share_type: ShareType,
@@ -55,10 +57,10 @@ impl Resource {
                 requested_oplock_level: OplockLevel::None,
                 impersonation_level: ImpersonationLevel::Impersonation,
                 desired_access,
-                file_attributes: FileAttributes::new(),
+                file_attributes: attributes,
                 share_access,
                 create_disposition,
-                create_options: CreateOptions::new(),
+                create_options: options,
                 name: name.into(),
                 contexts: vec![
                     QueryMaximalAccessRequest::default().into(),
@@ -85,6 +87,7 @@ impl Resource {
             file_id: content.file_id,
             created: content.creation_time.date_time(),
             modified: content.last_write_time.date_time(),
+            share_type: share_type,
             conn_info: conn_info.clone(),
         };
 
@@ -97,7 +100,6 @@ impl Resource {
                 handle,
                 access,
                 content.endof_file,
-                share_type,
             )))
         }
     }
@@ -147,25 +149,30 @@ pub struct ResourceHandle {
     file_id: FileId,
     created: PrimitiveDateTime,
     modified: PrimitiveDateTime,
+    share_type: ShareType,
 
     conn_info: Arc<ConnectionInfo>,
 }
 
 impl ResourceHandle {
+    /// Returns the name of the resource.
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn file_id(&self) -> FileId {
-        self.file_id
-    }
-
+    /// Returns the creation time of the resource.
     pub fn created(&self) -> PrimitiveDateTime {
         self.created
     }
 
+    /// Returns the last modified time of the resource.
     pub fn modified(&self) -> PrimitiveDateTime {
         self.modified
+    }
+
+    /// Returns the current share type of the resource. See [ShareType] for more details.
+    pub fn share_type(&self) -> ShareType {
+        self.share_type
     }
 
     /// Internal: Sends a Query Information Request and parses the response.
@@ -195,6 +202,183 @@ impl ResourceHandle {
         let response = self.send_receive(Content::SetInfoRequest(data)).await?;
         response.message.content.to_setinforesponse()?;
         Ok(())
+    }
+
+    /// Queries the file for information.
+    /// # Type Parameters
+    /// * `T` - The type of information to query. Must implement the [QueryFileInfoValue] trait.
+    /// # Returns
+    /// A `Result` containing the requested information.
+    /// # Notes
+    /// * use [File::query_full_ea_info] to query extended attributes information.
+    #[maybe_async]
+    pub async fn query_info<T>(&self) -> crate::Result<T>
+    where
+        T: QueryFileInfoValue,
+    {
+        Ok(self
+            .query_common(QueryInfoRequest {
+                info_type: InfoType::File,
+                info_class: QueryInfoClass::File(T::CLASS_ID),
+                output_buffer_length: 1024,
+                additional_info: AdditionalInfo::new(),
+                flags: QueryInfoFlags::new()
+                    .with_restart_scan(true)
+                    .with_return_single_entry(true),
+                file_id: self.file_id,
+                data: GetInfoRequestData::None(()),
+            })
+            .await?
+            .unwrap_file()
+            .parse(T::CLASS_ID)?
+            .try_into()?)
+    }
+
+    /// Queries the file for extended attributes information.
+    /// # Arguments
+    /// * `names` - A list of extended attribute names to query.
+    /// # Returns
+    /// A `Result` containing the requested information, of type [QueryFileFullEaInformation].
+    /// See [File::query_info] for more information.
+    #[maybe_async]
+    pub async fn query_full_ea_info(
+        &self,
+        names: Vec<&str>,
+    ) -> crate::Result<QueryFileFullEaInformation> {
+        Ok(self
+            .query_common(QueryInfoRequest {
+                info_type: InfoType::File,
+                info_class: QueryInfoClass::File(QueryFileInfoClass::FullEaInformation),
+                output_buffer_length: 1024,
+                additional_info: AdditionalInfo::new(),
+                flags: QueryInfoFlags::new()
+                    .with_restart_scan(true)
+                    .with_return_single_entry(true),
+                file_id: self.file_id,
+                data: GetInfoRequestData::EaInfo(GetEaInfoList {
+                    values: names
+                        .iter()
+                        .map(|&s| FileGetEaInformationInner { ea_name: s.into() }.into())
+                        .collect(),
+                }),
+            })
+            .await?
+            .unwrap_file()
+            .parse(QueryFileInfoClass::FullEaInformation)?
+            .try_into()?)
+    }
+
+    /// Queries the file for it's security descriptor.
+    /// # Arguments
+    /// * `additional_info` - The information to request on the security descriptor.
+    /// # Returns
+    /// A `Result` containing the requested information, of type [SecurityDescriptor].
+    #[maybe_async]
+    pub async fn query_security_info(
+        &self,
+        additional_info: AdditionalInfo,
+    ) -> crate::Result<SecurityDescriptor> {
+        Ok(self
+            .query_common(QueryInfoRequest {
+                info_type: InfoType::Security,
+                info_class: Default::default(),
+                output_buffer_length: 1024,
+                additional_info,
+                flags: QueryInfoFlags::new(),
+                file_id: self.file_id,
+                data: GetInfoRequestData::None(()),
+            })
+            .await?
+            .unwrap_security())
+    }
+
+    /// Querys the file system information for the current file.
+    /// # Type Parameters
+    /// * `T` - The type of information to query. Must implement the [QueryFileSystemInfoValue] trait.
+    /// # Returns
+    /// A `Result` containing the requested information.
+    #[maybe_async]
+    pub async fn query_fs_info<T>(&self) -> crate::Result<T>
+    where
+        T: QueryFileSystemInfoValue,
+    {
+        if self.share_type != ShareType::Disk {
+            return Err(crate::Error::InvalidState(
+                "File system information is only available for disk files".into(),
+            ));
+        }
+        Ok(self
+            .query_common(QueryInfoRequest {
+                info_type: InfoType::FileSystem,
+                info_class: QueryInfoClass::FileSystem(T::CLASS_ID),
+                output_buffer_length: 1024,
+                additional_info: AdditionalInfo::new(),
+                flags: QueryInfoFlags::new()
+                    .with_restart_scan(true)
+                    .with_return_single_entry(true),
+                file_id: self.file_id,
+                data: GetInfoRequestData::None(()),
+            })
+            .await?
+            .unwrap_filesystem()
+            .parse(T::CLASS_ID)?
+            .try_into()?)
+    }
+
+    /// Sets the file information for the current file.
+    /// # Type Parameters
+    /// * `T` - The type of information to set. Must implement the [SetFileInfoValue] trait.
+    #[maybe_async]
+    pub async fn set_file_info<T>(&self, info: T) -> crate::Result<()>
+    where
+        T: SetFileInfoValue,
+    {
+        self.set_info_common(
+            RawSetInfoData::from(info.into()),
+            T::CLASS_ID.into(),
+            Default::default(),
+        )
+        .await
+    }
+
+    /// Sets the file system information for the current file.
+    /// # Type Parameters
+    /// * `T` - The type of information to set. Must implement the [SetFileSystemInfoValue] trait.
+    #[maybe_async]
+    pub async fn set_filesystem_info<T>(&self, info: T) -> crate::Result<()>
+    where
+        T: SetFileSystemInfoValue,
+    {
+        if self.share_type != ShareType::Disk {
+            return Err(crate::Error::InvalidState(
+                "File system information is only available for disk files".into(),
+            ));
+        }
+
+        self.set_info_common(
+            RawSetInfoData::from(info.into()),
+            T::CLASS_ID.into(),
+            Default::default(),
+        )
+        .await
+    }
+
+    /// Sets the file system information for the current file.
+    /// # Arguments
+    /// * `info` - The information to set - a [SecurityDescriptor].
+    /// * `additional_info` - The information that is set on the security descriptor.
+    #[maybe_async]
+    pub async fn set_security_info(
+        &self,
+        info: SecurityDescriptor,
+        additional_info: AdditionalInfo,
+    ) -> crate::Result<()> {
+        self.set_info_common(
+            info,
+            SetInfoClass::Security(Default::default()),
+            additional_info,
+        )
+        .await
     }
 
     /// Close the handle.

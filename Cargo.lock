@@ -2171,6 +2171,8 @@ dependencies = [
  "cmac",
  "crypto-common",
  "der",
+ "futures-core",
+ "futures-util",
  "gss-api",
  "hmac",
  "log",
@@ -2197,6 +2199,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "env_logger",
+ "futures-util",
  "log",
  "maybe-async",
  "smb",

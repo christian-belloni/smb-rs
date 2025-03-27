@@ -40,9 +40,8 @@ impl UncPath {
             .await?;
         if let Some(path) = &self.path {
             let file = tree
-                .create(
+                .open_existing(
                     path.clone().as_str(),
-                    CreateDisposition::Open,
                     FileAccessMask::new()
                         .with_generic_read(true)
                         .with_generic_write(false),

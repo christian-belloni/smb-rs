@@ -1,11 +1,12 @@
 use crate::{path::*, Cli};
 use clap::Parser;
+use futures_util::StreamExt;
 use maybe_async::*;
 use smb::{
     packets::{fscc::*, smb2::AdditionalInfo},
-    resource::Resource,
+    resource::{Directory, Resource},
 };
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 #[derive(Parser, Debug)]
 pub struct InfoCmd {
     pub path: UncPath,
@@ -28,17 +29,18 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
                 log::info!("Security info: {:?}", security);
             }
             Resource::Directory(dir) => {
-                let infos = dir.query::<FileIdBothDirectoryInformation>("*").await?;
-                for item in infos.iter() {
-                    log::info!(
-                        "{} {}",
-                        if item.file_attributes.directory() {
-                            "d"
-                        } else {
-                            "f"
-                        },
-                        item.file_name,
-                    );
+                let dir = Arc::new(dir);
+                let mut info_stream =
+                    Directory::query_directory::<FileIdBothDirectoryInformation>(&dir, "*");
+                while let Some(info) = info_stream.next().await {
+                    match info {
+                        Ok(info) => {
+                            log::info!("Directory info: {:?}", info);
+                        }
+                        Err(e) => {
+                            log::error!("Error querying directory info: {:?}", e);
+                        }
+                    }
                 }
             }
         };

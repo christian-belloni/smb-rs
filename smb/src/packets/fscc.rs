@@ -22,7 +22,7 @@ pub use set_file_info::*;
 
 /// MS-FSCC 2.6
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct FileAttributes {
     pub readonly: bool,
@@ -161,6 +161,7 @@ macro_rules! file_info_classes {
             // Trait to be implemented for all the included value types.
             pub trait [<$name Value>] :
                 TryFrom<$name, Error = crate::Error>
+                + Send + 'static
                 + Into<$name>
                 + for <'a> [<Bin $brw_ty>]<Args<'a> = ()> {
                 const CLASS_ID: [<$name Class>];
