@@ -104,7 +104,7 @@ impl Tree {
     /// * A [Resource] object representing the created resource. This can be a file, directory, pipe, or printer.
     #[maybe_async]
     pub async fn create(
-        &mut self,
+        &self,
         file_name: &str,
         disposition: CreateDisposition,
         options: CreateOptions,
@@ -134,7 +134,7 @@ impl Tree {
     /// See [Tree::create] for more information.
     #[maybe_async]
     pub async fn create_file(
-        &mut self,
+        &self,
         file_name: &str,
         disposition: CreateDisposition,
         desired_access: FileAccessMask,
@@ -153,7 +153,7 @@ impl Tree {
     /// See [Tree::create] for more information.
     #[maybe_async]
     pub async fn create_directory(
-        &mut self,
+        &self,
         dir_name: &str,
         disposition: CreateDisposition,
         desired_access: FileAccessMask,
@@ -172,7 +172,7 @@ impl Tree {
     /// See [Tree::create] for more information.
     #[maybe_async]
     pub async fn open_existing(
-        &mut self,
+        &self,
         file_name: &str,
         desired_access: FileAccessMask,
     ) -> crate::Result<Resource> {

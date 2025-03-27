@@ -32,10 +32,10 @@ impl UncPath {
             .await?;
         smb.connect(format!("{}:{}", self.server, cli.port).as_str())
             .await?;
-        let mut session = smb
+        let session = smb
             .authenticate(&cli.username, cli.password.clone())
             .await?;
-        let mut tree = session
+        let tree = session
             .tree_connect(&format!(r"\\{}\{}", self.server, self.tree))
             .await?;
         if let Some(path) = &self.path {

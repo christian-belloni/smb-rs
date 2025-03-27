@@ -2,7 +2,7 @@
 /// Async/Multi-threaded features in the library, according to the
 /// features enabled.
 #[cfg(not(feature = "async"))]
-pub use std::sync::{Mutex, RwLock};
+pub use std::sync::{Mutex, MutexGuard, RwLock};
 
 #[cfg(feature = "single_threaded")]
 pub use std::cell::OnceCell;
@@ -12,7 +12,7 @@ pub use std::{sync::mpsc, sync::OnceLock as OnceCell, thread::JoinHandle};
 use thiserror::Error;
 #[cfg(feature = "async")]
 pub use tokio::{
-    sync::{mpsc, AcquireError, OnceCell, Semaphore},
+    sync::{mpsc, AcquireError, MutexGuard, OnceCell, Semaphore},
     task::JoinHandle,
 };
 #[cfg(feature = "async")]
@@ -48,7 +48,7 @@ impl<T> RwLock<T> {
     }
 }
 
-// Same for mutex, with lock():
+/// A wrapper for [tokio::sync::Mutex] that mocks the behavior of [std::sync::Mutex].
 #[cfg(feature = "async")]
 #[derive(Debug, Default)]
 pub struct Mutex<T: ?Sized> {

@@ -1,5 +1,6 @@
 use crate::{path::*, Cli};
 use clap::Parser;
+#[cfg(feature = "async")]
 use futures_util::StreamExt;
 use maybe_async::*;
 use smb::{
@@ -30,18 +31,11 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
             }
             Resource::Directory(dir) => {
                 let dir = Arc::new(dir);
-                let mut info_stream =
-                    Directory::query_directory::<FileIdBothDirectoryInformation>(&dir, "*");
-                while let Some(info) = info_stream.next().await {
-                    match info {
-                        Ok(info) => {
-                            log::info!("Directory info: {:?}", info);
-                        }
-                        Err(e) => {
-                            log::error!("Error querying directory info: {:?}", e);
-                        }
-                    }
-                }
+                iterate_directory(&dir, "*", |info| {
+                    log::info!("Directory info: {:?}", info);
+                    Ok(())
+                })
+                .await?;
             }
         };
 
@@ -50,5 +44,31 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
     .close()
     .await?;
 
+    Ok(())
+}
+
+#[maybe_async::sync_impl]
+fn iterate_directory(
+    dir: &Arc<Directory>,
+    pattern: &str,
+    func: impl Fn(&FileIdBothDirectoryInformation) -> smb::Result<()>,
+) -> smb::Result<()> {
+    for info in Directory::query_directory::<FileIdBothDirectoryInformation>(dir, pattern)? {
+        func(&info?)?;
+    }
+    Ok(())
+}
+
+#[maybe_async::async_impl]
+async fn iterate_directory(
+    dir: &Arc<Directory>,
+    pattern: &str,
+    func: impl Fn(&FileIdBothDirectoryInformation) -> smb::Result<()>,
+) -> smb::Result<()> {
+    let mut info_stream =
+        Directory::query_directory::<FileIdBothDirectoryInformation>(dir, pattern).await?;
+    while let Some(info) = info_stream.next().await {
+        func(&info?)?;
+    }
     Ok(())
 }
