@@ -1,6 +1,6 @@
 [package]
 name = "smb"
-version = "0.4.2"
+version = "0.4.3"
 edition.workspace = true
 description.workspace = true
 license.workspace = true
@@ -18,8 +18,8 @@ der = { version = "0.7.9", features = ["std", "alloc"] }
 
 # Async
 tokio = { version = "1.43", optional = true, features = ["full"] }
-futures-core = { version = "*", optional = true }
-futures-util = { version = "*", optional = true }
+futures-core = { version = "0.3", optional = true }
+futures-util = { version = "0.3", optional = true }
 tokio-util = { version = "0.7", optional = true }
 maybe-async = "0.2"
 
