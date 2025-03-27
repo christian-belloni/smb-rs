@@ -29,7 +29,7 @@ pub mod tree;
 pub use connection::{Connection, ConnectionConfig};
 pub use error::Error;
 
-type Result<T> = std::result::Result<T, crate::Error>;
+pub type Result<T> = std::result::Result<T, crate::Error>;
 
 // Re-exports of some dependencies for convenience
 pub mod sync_helpers;

@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-smb = { path = "../smb", default-features = false}
+smb = { path = "../smb", default-features = false }
 maybe-async = "0.2"
 tokio = { version = "1.43", optional = true, features = ["full"] }
+futures-util = { version = "0.3", optional = true }
 
 # CLI & logging
 clap = { version = "4.5.27", features = ["derive"] }
@@ -16,7 +17,7 @@ log = "0.4.22"
 [features]
 default = ["async", "smb/default"]
 
-async = ["smb/async", "dep:tokio"]
+async = ["smb/async", "dep:tokio", "dep:futures-util"]
 sync = ["smb/sync", "maybe-async/is_sync"]
 single_threaded = ["smb/single_threaded", "sync"]
 multi_threaded = ["smb/multi_threaded", "sync"]

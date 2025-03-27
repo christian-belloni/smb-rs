@@ -22,7 +22,7 @@ pub use set_file_info::*;
 
 /// MS-FSCC 2.6
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct FileAttributes {
     pub readonly: bool,
@@ -161,6 +161,7 @@ macro_rules! file_info_classes {
             // Trait to be implemented for all the included value types.
             pub trait [<$name Value>] :
                 TryFrom<$name, Error = crate::Error>
+                + Send + 'static
                 + Into<$name>
                 + for <'a> [<Bin $brw_ty>]<Args<'a> = ()> {
                 const CLASS_ID: [<$name Class>];
@@ -241,13 +242,13 @@ macro_rules! file_info_classes {
 pub struct FileQuotaInformationInner {
     #[bw(calc = PosMarker::default())]
     sid_length: PosMarker<u32>,
-    change_time: FileTime,
-    quota_used: u64,
-    quota_threshold: u64,
-    quota_limit: u64,
+    pub change_time: FileTime,
+    pub quota_used: u64,
+    pub quota_threshold: u64,
+    pub quota_limit: u64,
     #[br(map_stream = |s| s.take_seek(sid_length.value as u64))]
     #[bw(write_with = PosMarker::write_size, args(&sid_length))]
-    sid: SID,
+    pub sid: SID,
 }
 
 pub type FileQuotaInformation = ChainedItem<FileQuotaInformationInner>;
@@ -259,7 +260,7 @@ pub struct FileGetQuotaInformationInner {
     sid_length: PosMarker<u32>,
     #[br(map_stream = |s| s.take_seek(sid_length.value as u64))]
     #[bw(write_with = PosMarker::write_size, args(&sid_length))]
-    sid: SID,
+    pub sid: SID,
 }
 
 pub type FileGetQuotaInformation = ChainedItem<FileGetQuotaInformationInner>;

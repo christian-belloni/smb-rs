@@ -266,11 +266,7 @@ impl Connection {
     }
 
     #[maybe_async]
-    pub async fn authenticate(
-        self: &mut Connection,
-        user_name: &str,
-        password: String,
-    ) -> crate::Result<Session> {
+    pub async fn authenticate(&self, user_name: &str, password: String) -> crate::Result<Session> {
         Session::setup(
             user_name,
             password,

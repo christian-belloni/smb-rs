@@ -1,109 +1,58 @@
-use crate::packets::security::SecurityDescriptor;
-
 use super::*;
+#[cfg(feature = "sync")]
 use std::io::prelude::*;
+use std::ops::{Deref, DerefMut};
 
+/// An opened file on the server.
+/// This struct also represents an open named pipe or a printer. use [File::file_type] to
+/// determine the type of the share this file belongs to.
+///
+/// # [std::io] Support
+/// The [File] struct also supports the [Read][std::io::Read] and [Write][std::io::Write] traits.
+/// Note that both of these traits are blocking, and will block the current thread until the operation is complete.
+/// Use [File::read_block] and [File::write_block] for non-blocking operations.
+/// The [File] struct also implements the [Seek][std::io::Seek] trait.
+/// This allows you to seek to a specific position in the file, combined with the [Read][std::io::Read] and [Write][std::io::Write] traits.
+/// Using any of the implemented [std::io] traits mentioned above should have no effect on calling the other, non-blocking methods.
+/// Since we would NOT like to call a tokio task from a blocking context, these traits are **NOT** implemented in the async context!
+///
+/// You may not directly create this struct. Instead, use the [Tree::create][crate::tree::Tree::create] method to gain
+/// a proper handle against the server in the shape of a [Resource][crate::resource::Resource], that can be then converted to a [File].
 pub struct File {
-    pub handle: ResourceHandle,
+    handle: ResourceHandle,
 
+    #[cfg(feature = "sync")]
     pos: u64,
+    #[cfg(feature = "sync")]
     dirty: bool,
 
     access: FileAccessMask,
     end_of_file: u64,
-
-    file_type: ShareType,
 }
 
-/// The `File` struct represents an opened file on the server.
-/// Do not create it directly, but via Tree
 impl File {
-    pub fn new(
-        handle: ResourceHandle,
-        access: FileAccessMask,
-        end_of_file: u64,
-        file_type: ShareType,
-    ) -> Self {
+    pub fn new(handle: ResourceHandle, access: FileAccessMask, end_of_file: u64) -> Self {
         File {
             handle,
-            pos: 0,
-            dirty: false,
             access,
             end_of_file,
-            file_type,
+            #[cfg(feature = "sync")]
+            pos: 0,
+            #[cfg(feature = "sync")]
+            dirty: false,
         }
     }
 
+    /// Returns the end of file position, as reported by the server.
+    /// This may change if the file is modified.
     pub fn end_of_file(&self) -> u64 {
         self.end_of_file
     }
 
+    /// Returns the access mask of the file,
+    /// when the file was opened.
     pub fn access(&self) -> FileAccessMask {
         self.access
-    }
-
-    #[maybe_async]
-    pub async fn query_info<T>(&self) -> crate::Result<T>
-    where
-        T: QueryFileInfoValue,
-    {
-        let response = self
-            .handle
-            .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
-                info_type: InfoType::File,
-                info_class: QueryInfoClass::File(T::CLASS_ID),
-                output_buffer_length: 1024,
-                additional_information: AdditionalInfo::new(),
-                flags: QueryInfoFlags::new()
-                    .with_restart_scan(true)
-                    .with_return_single_entry(true),
-                file_id: self.handle.file_id(),
-                data: GetInfoRequestData::None(()),
-            }))
-            .await?;
-        let query_info_response = response.message.content.to_queryinforesponse()?;
-        let result = query_info_response
-            .parse(InfoType::File)?
-            .unwrap_file()
-            .parse(T::CLASS_ID)?;
-        Ok(result.try_into()?)
-    }
-
-    #[maybe_async]
-    pub async fn query_security_info(&self) -> crate::Result<SecurityDescriptor> {
-        let response = self
-            .handle
-            .send_receive(Content::QueryInfoRequest(QueryInfoRequest {
-                info_type: InfoType::Security,
-                info_class: Default::default(),
-                output_buffer_length: 1024,
-                additional_information: AdditionalInfo::new().with_owner_security_information(true),
-                flags: QueryInfoFlags::new(),
-                file_id: self.handle.file_id(),
-                data: GetInfoRequestData::None(()),
-            }))
-            .await?;
-        let query_info_response = response.message.content.to_queryinforesponse()?;
-        let result = query_info_response
-            .parse(InfoType::Security)?
-            .unwrap_security();
-        Ok(result)
-    }
-
-    #[maybe_async]
-    pub async fn set_file_info<T>(&self, info: T) -> crate::Result<()>
-    where
-        T: SetFileInfoValue,
-    {
-        let set_file_info: SetFileInfo = info.into();
-        let data = SetInfoData::from(RawSetInfoData::from(set_file_info))
-            .to_req(T::CLASS_ID, self.handle.file_id());
-        let response = self
-            .handle
-            .send_receive(Content::SetInfoRequest(data))
-            .await?;
-        let _response = response.message.content.to_setinforesponse()?;
-        Ok(())
     }
 
     /// Read a block of data from an opened file.
@@ -161,7 +110,7 @@ impl File {
                 flags,
                 length: buf.len() as u32,
                 offset: pos,
-                file_id: self.handle.file_id(),
+                file_id: self.handle.file_id,
                 minimum_count: 1,
             }))
             .await
@@ -183,8 +132,14 @@ impl File {
         Ok(actual_read_length)
     }
 
+    /// Write a block of data to an opened file.
+    /// # Arguments
+    /// * `buf` - The data to write.
+    /// * `pos` - The offset in the file to write to.
+    /// # Returns
+    /// The number of bytes written.
     #[maybe_async]
-    pub async fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    pub async fn write_block(&self, buf: &[u8], pos: u64) -> std::io::Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -199,15 +154,15 @@ impl File {
         log::debug!(
             "Writing {} bytes at offset {} to {}",
             buf.len(),
-            self.pos,
+            pos,
             self.handle.name()
         );
 
         let response = self
             .handle
             .send_receive(Content::WriteRequest(WriteRequest {
-                offset: self.pos,
-                file_id: self.handle.file_id(),
+                offset: pos,
+                file_id: self.handle.file_id,
                 flags: WriteFlags::new(),
                 buffer: buf.to_vec(),
             }))
@@ -220,8 +175,6 @@ impl File {
             .to_writeresponse()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let actual_written_length = content.count as usize;
-        self.pos += actual_written_length as u64;
-        self.dirty = true;
         log::debug!(
             "Wrote {} bytes to {}.",
             actual_written_length,
@@ -230,17 +183,13 @@ impl File {
         Ok(actual_written_length)
     }
 
+    /// Sends a flush request to the server to flush the file.
     #[maybe_async]
-    pub async fn flush(&mut self) -> std::io::Result<()> {
-        // Well, no need to flush if nothing has been written...
-        if !self.dirty {
-            return Ok(());
-        }
-
+    pub async fn flush(&self) -> std::io::Result<()> {
         let _response = self
             .handle
             .send_receive(Content::FlushRequest(FlushRequest {
-                file_id: self.handle.file_id(),
+                file_id: self.handle.file_id,
             }))
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
@@ -250,6 +199,9 @@ impl File {
     }
 }
 
+// Despite being available, seeking means nothing here,
+// since it may only be used when calling read/write from the std::io traits.
+#[cfg(feature = "sync")]
 impl Seek for File {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         let next_pos = match pos {
@@ -302,10 +254,30 @@ impl Read for File {
 #[cfg(feature = "sync")]
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        File::write(self, buf)
+        let written_length = File::write_block(self, buf, self.pos)?;
+        self.pos += written_length as u64;
+        self.dirty = true;
+        Ok(written_length)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
+        if !self.dirty {
+            return Ok(());
+        }
         File::flush(self)
+    }
+}
+
+impl Deref for File {
+    type Target = ResourceHandle;
+
+    fn deref(&self) -> &Self::Target {
+        &self.handle
+    }
+}
+
+impl DerefMut for File {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.handle
     }
 }

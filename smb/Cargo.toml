@@ -18,6 +18,8 @@ der = { version = "0.7.9", features = ["std", "alloc"] }
 
 # Async
 tokio = { version = "1.43", optional = true, features = ["full"] }
+futures-core = { version = "*", optional = true }
+futures-util = { version = "*", optional = true }
 tokio-util = { version = "0.7", optional = true }
 maybe-async = "0.2"
 
@@ -58,8 +60,8 @@ serial_test = "3.2"
 default = ["sign", "encrypt", "compress", "async"]
 
 # Threading models
-async = ["dep:tokio", "dep:tokio-util"]
-sync = ["maybe-async/is_sync"]          # sync = not async: single/multi-threaded
+async = ["dep:tokio", "dep:futures-core", "dep:tokio-util", "dep:futures-util"]
+sync = ["maybe-async/is_sync"]                                                  # sync = not async: single/multi-threaded
 multi_threaded = ["sync"]
 single_threaded = ["sync"]
 

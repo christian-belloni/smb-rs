@@ -28,7 +28,7 @@ pub struct QueryInfoRequest {
     _reserved: u16,
     #[bw(calc = PosMarker::default())]
     input_buffer_length: PosMarker<u32>,
-    pub additional_information: AdditionalInfo,
+    pub additional_info: AdditionalInfo,
     pub flags: QueryInfoFlags,
     pub file_id: FileId,
     #[br(map_stream = |s| s.take_seek(input_buffer_length.value as u64))]
@@ -60,7 +60,7 @@ impl Default for QueryInfoClass {
 }
 
 #[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct NullByte {
     #[bw(calc = 0)]
     #[br(assert(_null == 0))]
@@ -91,19 +91,25 @@ pub struct QueryInfoFlags {
     __: B29,
 }
 
+/// This struct describes the payload to be added in the [QueryInfoRequest]
+/// when asking for information about Quota or Extended Attributes.
+/// In other cases, it is empty.
 #[binrw::binrw]
 #[derive(Debug)]
 #[brw(import(file_info_class: &QueryInfoClass, query_info_type: InfoType))]
 pub enum GetInfoRequestData {
-    #[br(pre_assert(query_info_type == InfoType::File))]
-    #[bw(assert(query_info_type == InfoType::File))]
-    QuotaInfo(QueryQuotaInfo),
+    /// The query quota to perform.
+    #[br(pre_assert(query_info_type == InfoType::Quota))]
+    #[bw(assert(query_info_type == InfoType::Quota))]
+    Quota(QueryQuotaInfo),
 
+    /// Extended attributes information to query.
     #[br(pre_assert(matches!(file_info_class, QueryInfoClass::File(QueryFileInfoClass::FullEaInformation)) && query_info_type == InfoType::File))]
     #[bw(assert(matches!(file_info_class, QueryInfoClass::File(QueryFileInfoClass::FullEaInformation)) && query_info_type == InfoType::File))]
     EaInfo(GetEaInfoList),
 
     // Other cases have no data.
+    #[br(pre_assert(query_info_type != InfoType::Quota && !(query_info_type == InfoType::File && matches!(file_info_class , QueryInfoClass::File(QueryFileInfoClass::FullEaInformation)))))]
     None(()),
 }
 
@@ -113,7 +119,6 @@ pub struct QueryQuotaInfo {
     pub return_single: Boolean,
     pub restart_scan: Boolean,
     #[bw(calc = 0)]
-    #[br(assert(_reserved == 0))]
     _reserved: u16,
     #[bw(calc = PosMarker::default())]
     sid_list_length: PosMarker<u32>, // type 1: list of FileGetQuotaInformation structs.
@@ -122,18 +127,21 @@ pub struct QueryQuotaInfo {
     #[bw(calc = PosMarker::default())]
     start_sid_offset: PosMarker<u32>,
 
-    // Option 1: list of FileGetQuotaInformation structs.
+    /// Option 1: list of FileGetQuotaInformation structs.
     #[br(if(sid_list_length.value > 0))]
     #[br(map_stream = |s| s.take_seek(sid_list_length.value as u64), parse_with = binrw::helpers::until_eof)]
-    get_quota_info_content: Option<Vec<FileGetQuotaInformation>>,
+    #[bw(if(get_quota_info_content.is_some()))]
+    #[bw(write_with = ChainedItem::write_chained_size_opt, args(&sid_list_length))]
+    pub get_quota_info_content: Option<Vec<FileGetQuotaInformation>>,
 
-    // Option 2: SID (usually not used).
+    /// Option 2: SID (usually not used).
     #[br(if(start_sid_length.value > 0))]
-    #[br(seek_before = SeekFrom::Current(start_sid_offset.value as i64))]
     #[bw(if(sid.is_some()))]
+    #[br(seek_before = SeekFrom::Current(start_sid_offset.value as i64))]
     #[bw(write_with = PosMarker::write_size, args(&start_sid_length))]
+    #[brw(assert(matches!(get_quota_info_content, None) != matches!(sid, None)))]
     // offset is 0, the default anyway.
-    sid: Option<SID>,
+    pub sid: Option<SID>,
 }
 
 #[binrw::binrw]
@@ -141,7 +149,7 @@ pub struct QueryQuotaInfo {
 pub struct GetEaInfoList {
     #[br(parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = FileGetEaInformation::write_chained)]
-    values: Vec<FileGetEaInformation>,
+    pub values: Vec<FileGetEaInformation>,
 }
 
 #[binrw::binrw]
@@ -161,6 +169,10 @@ pub struct QueryInfoResponse {
 }
 
 impl QueryInfoResponse {
+    /// Call this method first when parsing an incoming query info response.
+    /// It will parse the raw data into a [QueryInfoResponseData] struct, which has
+    /// a variation for each information type: File, FileSystem, Security, Quota.
+    /// This is done by calling the [QueryInfoResponseData::parse] method.
     pub fn parse(&self, info_type: InfoType) -> Result<QueryInfoData, binrw::Error> {
         self.data.parse(info_type)
     }
@@ -176,8 +188,7 @@ pub struct QueryInfoResponseData {
 }
 
 impl QueryInfoResponseData {
-    /// Call this method to parse the raw data into a specific info type.
-    pub fn parse(&self, info_type: InfoType) -> Result<QueryInfoData, binrw::Error> {
+    fn parse(&self, info_type: InfoType) -> Result<QueryInfoData, binrw::Error> {
         let mut cursor = Cursor::new(&self.data);
         QueryInfoData::read_args(&mut cursor, (info_type,))
     }
@@ -213,7 +224,7 @@ mod tests {
             info_type: InfoType::File,
             info_class: QueryInfoClass::File(QueryFileInfoClass::NetworkOpenInformation),
             output_buffer_length: 56,
-            additional_information: AdditionalInfo::new(),
+            additional_info: AdditionalInfo::new(),
             flags: QueryInfoFlags::new(),
             file_id: [
                 0x77, 0x5, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0xc5, 0x0, 0x10, 0x0, 0xc, 0x0, 0x0, 0x0,
@@ -236,7 +247,7 @@ mod tests {
         let req = QueryInfoRequest {
             info_type: InfoType::File,
             info_class: QueryInfoClass::File(QueryFileInfoClass::FullEaInformation),
-            additional_information: AdditionalInfo::new(),
+            additional_info: AdditionalInfo::new(),
             flags: QueryInfoFlags::new()
                 .with_restart_scan(true)
                 .with_return_single_entry(true),
@@ -271,7 +282,7 @@ mod tests {
             info_type: InfoType::Security,
             info_class: Default::default(),
             output_buffer_length: 0,
-            additional_information: AdditionalInfo::new()
+            additional_info: AdditionalInfo::new()
                 .with_owner_security_information(true)
                 .with_group_security_information(true)
                 .with_dacl_security_information(true)

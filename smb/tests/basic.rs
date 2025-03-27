@@ -1,14 +1,17 @@
-use log::info;
+use common::make_server_connection;
+#[cfg(feature = "async")]
+use futures_util::StreamExt;
 use serial_test::serial;
 use smb::{
     connection::EncryptionMode,
     packets::{
         fscc::*,
-        smb2::{CreateDisposition, Dialect},
+        smb2::{AdditionalInfo, CreateDisposition, Dialect},
     },
-    Connection, ConnectionConfig,
+    resource::Directory,
 };
-use std::env::var;
+use std::sync::Arc;
+mod common;
 
 macro_rules! basic_test {
     ([$dialect:ident], [$($encrypt_mode:ident),*]) => {
@@ -48,41 +51,15 @@ async fn test_smb_integration_basic(
         encryption_mode
     );
 
-    let mut smb = Connection::build(ConnectionConfig {
-        min_dialect: Some(force_dialect),
-        max_dialect: Some(force_dialect),
-        encryption_mode,
-        ..Default::default()
-    })?;
-    smb.set_timeout(Some(std::time::Duration::from_secs(10)))
-        .await?;
-    // Default to localhost, LocalAdmin, 123456
-    let server = var("SMB_RUST_TESTS_SERVER").unwrap_or("127.0.0.1:445".to_string());
-    let user = var("SMB_RUST_TESTS_USER_NAME").unwrap_or("LocalAdmin".to_string());
-    let password = var("SMB_RUST_TESTS_PASSWORD").unwrap_or("123456".to_string());
-
-    info!("Connecting to {} as {}", server, user);
-
-    // Connect & Authenticate
-    smb.connect(&server).await?;
-    info!("Connected, authenticating...");
-    let mut session = smb.authenticate(&user, password).await?;
-    info!("Authenticated!");
-
-    // String before ':', after is port:
-    let server_name = server.split(':').next().unwrap();
-    let mut tree = session
-        .tree_connect(format!("\\\\{}\\MyShare", server_name).as_str())
-        .await?;
-    info!("Connected to share, start test basic");
+    let (_smb, _session, tree) = make_server_connection("MyShare", None).await?;
 
     const TEST_FILE: &str = "test.txt";
     const TEST_DATA: &[u8] = b"Hello, World!";
 
     // Hello, World! > test.txt
-    {
-        let mut file = tree
-            .create(
+    let security = {
+        let file = tree
+            .create_file(
                 TEST_FILE,
                 CreateDisposition::Create,
                 FileAccessMask::new()
@@ -92,32 +69,58 @@ async fn test_smb_integration_basic(
             .await?
             .unwrap_file();
 
-        file.write(TEST_DATA).await?;
+        file.write_block(TEST_DATA, 0).await?;
+
+        // Query security info (owner only)
+        file.query_security_info(AdditionalInfo::new().with_owner_security_information(true))
+            .await?
+    };
+
+    if security.owner_sid.is_none() {
+        return Err("No owner SID found".into());
     }
 
     // Query directory and make sure our file exists there:
     {
-        let dir_info = tree
-            .create(
-                "",
-                CreateDisposition::Open,
-                FileAccessMask::new().with_generic_read(true),
-            )
+        let directory = tree
+            .open_existing("", FileAccessMask::new().with_generic_read(true))
             .await?
             .unwrap_dir();
-        dir_info
-            .query::<FileDirectoryInformation>("*")
-            .await?
-            .iter()
-            .find(|info| info.file_name.to_string() == TEST_FILE)
-            .expect("File not found in directory");
+        let directory = Arc::new(directory);
+        let ds =
+            Directory::query_directory::<FileDirectoryInformation>(&directory, TEST_FILE).await?;
+        let mut found = false;
+
+        ds.for_each(|entry| {
+            if entry.unwrap().file_name.to_string() == TEST_FILE {
+                found = true;
+            }
+            async { () }
+        })
+        .await;
+
+        if !found {
+            return Err("File not found in directory".into());
+        }
+
+        // TODO: Complete Query quota info -- model + fix request encoding.
+        // directory
+        //     .query_quota_info(QueryQuotaInfo {
+        //         return_single: false.into(),
+        //         restart_scan: false.into(),
+        //         get_quota_info_content: Some(vec![FileGetQuotaInformationInner {
+        //             sid: security.owner_sid.unwrap(),
+        //         }
+        //         .into()]),
+        //         sid: None,
+        //     })
+        //     .await?;
     }
 
     {
         let file = tree
-            .create(
+            .open_existing(
                 TEST_FILE,
-                CreateDisposition::Open,
                 FileAccessMask::new()
                     .with_generic_read(true)
                     .with_delete(true),
@@ -136,11 +139,16 @@ async fn test_smb_integration_basic(
         assert_eq!(read_length, TEST_DATA.len());
         assert_eq!(&buf[..read_length], TEST_DATA);
 
+        // Query file info.
         let all_info = file.query_info::<FileAllInformation>().await?;
         assert_eq!(
             all_info.name.file_name.to_string(),
             "\\".to_string() + TEST_FILE
         );
+
+        // Query filesystem info.
+        file.query_fs_info::<FileFsSizeInformation>().await?;
+
         assert_eq!(all_info.standard.end_of_file, TEST_DATA.len() as u64);
     }
 

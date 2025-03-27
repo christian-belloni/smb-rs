@@ -63,11 +63,11 @@ You are welcome to see the project's roadmap in the [GitHub Project](https://git
 Check out the `Connection` struct, exported from the `smb` crate, to initiate a connection to an SMB server:
 ```rust
 use smb::Connection;
-let mut connection = Connection::build(Default::default());
+let connection = Connection::build(Default::default());
 connection.connect("10.0.0.1:445").await?;
-let mut session = connection.authenticate(&"user", "password".to_string()).await?;
-let mut tree = session.tree_connect("share").await?;
-let mut file = tree.create("file.txt", ...).await?;
+let session = connection.authenticate(&"user", "password".to_string()).await?;
+let tree = session.tree_connect("share").await?;
+let file = tree.create("file.txt", ...).await?;
 ```
 
 ### Switch Threading model

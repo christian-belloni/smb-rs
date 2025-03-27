@@ -50,6 +50,33 @@ where
         }
         Ok(())
     }
+
+    /// Write a vector of chained items, and write the size of the vector
+    /// to the given `size_dest` position marker.
+    #[binrw::writer(writer, endian)]
+    pub fn write_chained_size(
+        value: &Vec<ChainedItem<T, OFFSET_PAD>>,
+        size_dest: &PosMarker<u32>,
+    ) -> BinResult<()> {
+        let pos = writer.stream_position()?;
+        for (i, item) in value.iter().enumerate() {
+            item.write_options(writer, endian, (i == value.len() - 1,))?;
+        }
+        size_dest.write_back(pos, writer, endian)?;
+        Ok(())
+    }
+
+    #[binrw::writer(writer, endian)]
+    pub fn write_chained_size_opt(
+        value: &Option<Vec<ChainedItem<T, OFFSET_PAD>>>,
+        size_dest: &PosMarker<u32>,
+    ) -> BinResult<()> {
+        if let Some(value) = value {
+            Self::write_chained_size(value, writer, endian, (size_dest,))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl<T, const OFFSET_PAD: u32> PartialEq for ChainedItem<T, OFFSET_PAD>

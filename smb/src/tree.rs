@@ -3,7 +3,8 @@ use std::sync::Arc;
 use maybe_async::*;
 
 use crate::connection::connection_info::ConnectionInfo;
-use crate::packets::smb2::ShareType;
+use crate::packets::fscc::FileAttributes;
+use crate::packets::smb2::{CreateOptions, ShareType};
 use crate::sync_helpers::*;
 
 use crate::{
@@ -92,12 +93,23 @@ impl Tree {
     }
 
     /// Creates a resource (file, directory, pipe, or printer) on the remote server by it's name.
+    /// See [Tree::create_file] and [Tree::create_directory] for an easier API.
+    /// # Arguments
+    /// * `file_name` - The name of the resource to create. This should NOT contain the share name, or begin with a backslash.
+    /// * `disposition` - The disposition of the resource. This determines how the resource is created or opened. See [CreateDisposition] for more information.
+    /// * `desired_access` - The access mask for the resource. This determines what operations are allowed on the resource. See [FileAccessMask] for more information.
+    /// * `attributes` - The attributes of the resource. This determines how the resource is created. See [FileAttributes] for more information.
+    /// * `options` - The options for the resource. This determines how the resource is created. See [CreateOptions] for more information.
+    /// # Returns
+    /// * A [Resource] object representing the created resource. This can be a file, directory, pipe, or printer.
     #[maybe_async]
     pub async fn create(
-        &mut self,
+        &self,
         file_name: &str,
         disposition: CreateDisposition,
+        options: CreateOptions,
         desired_access: FileAccessMask,
+        attributes: FileAttributes,
     ) -> crate::Result<Resource> {
         let info = self
             .handler
@@ -109,11 +121,69 @@ impl Tree {
             file_name,
             &self.handler,
             disposition,
+            attributes,
+            options,
             desired_access,
             &self.conn_info,
             info.share_type,
         )
         .await?)
+    }
+
+    /// A wrapper around [Tree::create] that creates a file on the remote server.
+    /// See [Tree::create] for more information.
+    #[maybe_async]
+    pub async fn create_file(
+        &self,
+        file_name: &str,
+        disposition: CreateDisposition,
+        desired_access: FileAccessMask,
+    ) -> crate::Result<Resource> {
+        self.create(
+            file_name,
+            disposition,
+            CreateOptions::new(),
+            desired_access,
+            FileAttributes::new(),
+        )
+        .await
+    }
+
+    /// A wrapper around [Tree::create] that creates a directory on the remote server.
+    /// See [Tree::create] for more information.
+    #[maybe_async]
+    pub async fn create_directory(
+        &self,
+        dir_name: &str,
+        disposition: CreateDisposition,
+        desired_access: FileAccessMask,
+    ) -> crate::Result<Resource> {
+        self.create(
+            dir_name,
+            disposition,
+            CreateOptions::new().with_directory_file(true),
+            desired_access.with_generic_read(true),
+            FileAttributes::new().with_directory(true),
+        )
+        .await
+    }
+
+    /// A wrapper around [Tree:create] that opens an existing file or directory on the remote server.
+    /// See [Tree::create] for more information.
+    #[maybe_async]
+    pub async fn open_existing(
+        &self,
+        file_name: &str,
+        desired_access: FileAccessMask,
+    ) -> crate::Result<Resource> {
+        self.create(
+            file_name,
+            CreateDisposition::Open,
+            Default::default(),
+            desired_access.with_generic_read(true),
+            Default::default(),
+        )
+        .await
     }
 }
 

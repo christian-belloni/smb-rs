@@ -171,7 +171,7 @@ impl Session {
 
     /// Connects to the specified tree using the current session.
     #[maybe_async]
-    pub async fn tree_connect(&mut self, name: &str) -> crate::Result<Tree> {
+    pub async fn tree_connect(&self, name: &str) -> crate::Result<Tree> {
         Tree::connect(name, &self.handler, &self.conn_info).await
     }
 }
