@@ -198,7 +198,7 @@ impl NetBiosClient {
             return crate::Error::NotConnected;
         }
         if e.kind() == io::ErrorKind::WouldBlock {
-            log::debug!("Got IO error: {} -- with ErrorKind::WouldBlock.", e);
+            log::trace!("Got IO error: {} -- with ErrorKind::WouldBlock.", e);
         } else {
             log::error!("Got IO error: {} -- Mapping to IO error.", e);
         }

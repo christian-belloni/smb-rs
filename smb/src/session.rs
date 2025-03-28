@@ -71,7 +71,7 @@ impl Session {
         )));
 
         // response hash is processed later, in the loop.
-        let response = upstream
+        let init_response = upstream
             .sendo_recvo(
                 request,
                 ReceiveOptions::new().status(Status::MoreProcessingRequired),
@@ -80,13 +80,64 @@ impl Session {
 
         let handler = SessionMessageHandler::new(upstream, session_state.clone());
         // Set session id.
-        *handler.session_id.write().await? = response.message.header.session_id;
-        session_state.lock().await?.session_id = response.message.header.session_id;
+        *handler.session_id.write().await? = init_response.message.header.session_id;
+        session_state.lock().await?.session_id = init_response.message.header.session_id;
 
-        let mut response = Some(response);
+        let setup_result = Self::setup_more_processing(
+            &mut authenticator,
+            init_response,
+            &session_state,
+            req_security_mode,
+            &handler,
+            conn_info,
+        )
+        .await;
+
+        let flags = match setup_result {
+            Ok(flags) => flags,
+            Err(e) => {
+                // Make sure the session is removed.
+                if let Err(x) = SessionState::invalidate(&session_state).await {
+                    log::debug!("Failed to invalidate session: {}!", x);
+                }
+                // Notify the worker that the session is invalid.
+                if let Err(x) = upstream
+                    .worker()
+                    .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
+                    .session_ended(*handler.session_id.read().await?)
+                    .await
+                {
+                    log::debug!("Failed to notify worker about session end: {}!", x);
+                }
+                return Err(e);
+            }
+        };
+
+        log::info!("Session setup complete.");
+        SessionState::set_flags(&mut session_state, flags, &conn_info).await?;
+
+        let session = Session {
+            handler,
+            conn_info: conn_info.clone(),
+        };
+
+        Ok(session)
+    }
+
+    #[maybe_async]
+    pub async fn setup_more_processing(
+        authenticator: &mut GssAuthenticator,
+        init_response: IncomingMessage,
+        session_state: &Arc<Mutex<SessionState>>,
+        req_security_mode: SessionSecurityMode,
+        handler: &HandlerReference<SessionMessageHandler>,
+        conn_info: &Arc<ConnectionInfo>,
+    ) -> crate::Result<SessionFlags> {
+        let mut response = Some(init_response);
         let mut flags = None;
+
+        // While there's a response to process, do so.
         while !authenticator.is_authenticated()? {
-            // If there's a response to process, do so.
             let last_setup_response = match response.as_ref() {
                 Some(response) => Some(
                     match &response.message.content {
@@ -126,7 +177,7 @@ impl Session {
                         let ntlm_key: KeyToDerive = authenticator.session_key()?;
 
                         SessionState::set(
-                            &mut session_state,
+                            &session_state,
                             &ntlm_key,
                             &result.preauth_hash,
                             conn_info,
@@ -134,7 +185,8 @@ impl Session {
                         .await?;
                         log::trace!("Session signing key set.");
 
-                        upstream
+                        handler
+                            .upstream
                             .handler
                             .worker()
                             .ok_or_else(|| {
@@ -158,15 +210,10 @@ impl Session {
                 None => None,
             };
         }
-        log::info!("Session setup complete.");
-        SessionState::set_flags(&mut session_state, flags.unwrap(), &conn_info).await?;
 
-        let session = Session {
-            handler,
-            conn_info: conn_info.clone(),
-        };
-
-        Ok(session)
+        flags.ok_or(Error::InvalidState(
+            "Failed to complete authentication properly.".to_string(),
+        ))
     }
 
     /// Connects to the specified tree using the current session.

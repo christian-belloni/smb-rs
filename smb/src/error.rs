@@ -32,10 +32,10 @@ pub enum Error {
     NegotiationError(String),
     #[error("Signature verification failed!")]
     SignatureVerificationFailed,
-    #[error("Unexpected message status: {0}")]
-    UnexpectedMessageStatus(Status),
-    #[error("Server returned an error message with status {0}.")]
-    ReceivedErrorMessage(Status, ErrorResponse),
+    #[error("Unexpected message status: {}.", Status::try_display_as_status(*.0))]
+    UnexpectedMessageStatus(u32),
+    #[error("Server returned an error message with status: {}.", Status::try_display_as_status(*.0))]
+    ReceivedErrorMessage(u32, ErrorResponse),
     #[error("Unexpected command: {0}")]
     UnexpectedCommand(Command),
     #[error("Unexpected content: {0} - expected {1}", actual, expected)]

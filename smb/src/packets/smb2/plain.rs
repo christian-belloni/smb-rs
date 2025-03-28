@@ -198,7 +198,7 @@ impl PlainMessage {
         PlainMessage {
             header: Header {
                 credit_charge: 0,
-                status: Status::Success,
+                status: Status::Success as u32,
                 command: content.associated_cmd(),
                 credit_request: 0,
                 flags: HeaderFlags::new(),

@@ -62,7 +62,7 @@ mod tests {
             0xd, 0xa6, 0x1d, 0x9b, 0x2c, 0x43, 0xd3, 0x26, 0x88, 0x74, 0xf, 0xdf, 0x47, 0x59, 0x24,
             0x9, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
         ]);
-        assert_eq!(msg.header.status, Status::ObjectNameNotFound);
+        assert_eq!(msg.header.status, Status::ObjectNameNotFound as u32);
         let msg = match msg.content {
             Content::ErrorResponse(msg) => msg,
             _ => panic!("Unexpected response"),

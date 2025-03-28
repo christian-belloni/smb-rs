@@ -1,9 +1,5 @@
 use log::info;
-use smb::{
-    session::Session,
-    tree::Tree,
-    Connection, ConnectionConfig,
-};
+use smb::{session::Session, tree::Tree, Connection, ConnectionConfig};
 use std::env::var;
 
 #[maybe_async::maybe_async]

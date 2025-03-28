@@ -447,7 +447,7 @@ impl MessageHandler for ConnectionMessageHandler {
         }
 
         // Expected status matching.
-        if msg.message.header.status != options.status {
+        if msg.message.header.status != options.status as u32 {
             // Return error only if it is unexpected.
             if let Content::ErrorResponse(error_res) = msg.message.content {
                 return Err(Error::ReceivedErrorMessage(

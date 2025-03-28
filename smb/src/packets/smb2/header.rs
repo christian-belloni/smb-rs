@@ -1,3 +1,5 @@
+use std::io::Cursor;
+
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
@@ -52,6 +54,7 @@ impl std::fmt::Display for Command {
     }
 }
 
+/// NT Status codes.
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u32))]
@@ -78,6 +81,7 @@ pub enum Status {
     ObjectNameNotFound = 0xC0000034,
     ObjectNameCollision = 0xC0000035,
     ObjectPathNotFound = 0xC000003A,
+    LogonFailure = 0xC000006D,
     BadImpersonationLevel = 0xC00000A5,
     IoTimeout = 0xC00000B5,
     FileIsADirectory = 0xC00000BA,
@@ -86,6 +90,7 @@ pub enum Status {
     BadNetworkName = 0xC00000CC,
     DirectoryNotEmpty = 0xC0000101,
     UserSessionDeleted = 0xC0000203,
+    UserAccountLockedOut = 0xC0000234,
     NetworkSessionExpired = 0xC000035C,
     SmbTooManyUids = 0xC000205A,
 }
@@ -115,6 +120,7 @@ impl std::fmt::Display for Status {
             Status::ObjectNameNotFound => "Object Name Not Found",
             Status::ObjectNameCollision => "Object Name Collision",
             Status::ObjectPathNotFound => "Object Path Not Found",
+            Status::LogonFailure => "Logon Failure",
             Status::BadImpersonationLevel => "Bad Impersonation Level",
             Status::IoTimeout => "I/O Timeout",
             Status::FileIsADirectory => "File is a Directory",
@@ -122,11 +128,36 @@ impl std::fmt::Display for Status {
             Status::NetworkNameDeleted => "Network Name Deleted",
             Status::BadNetworkName => "Bad Network Name",
             Status::DirectoryNotEmpty => "Directory Not Empty",
+            Status::UserAccountLockedOut => "User Account Locked Out",
             Status::UserSessionDeleted => "User Session Deleted",
             Status::NetworkSessionExpired => "Network Session Expired",
             Status::SmbTooManyUids => "SMB Too Many UIDs",
         };
         write!(f, "{} ({:#x})", message_as_string, *self as u32)
+    }
+}
+
+impl Status {
+    /// A helper function that tries converting u32 to a [`Status`],
+    /// and returns a string representation of the status. Otherwise,
+    /// it returns the hex representation of the u32 value.
+    /// This is useful for displaying NT status codes that are not necessarily
+    /// defined in the [`Status`] enum.
+    pub fn try_display_as_status(value: u32) -> String {
+        match Self::try_from(value) {
+            Ok(status) => format!("{}", status),
+            Err(_) => format!("{:#06x}", value),
+        }
+    }
+}
+
+impl TryFrom<u32> for Status {
+    type Error = crate::Error;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Status::read_le(&mut Cursor::new(value.to_le_bytes())).map_err(|_| {
+            crate::Error::InvalidMessage(format!("NT Status code variant not found: {:#x}", value))
+        })
     }
 }
 
@@ -138,7 +169,8 @@ pub struct Header {
     #[br(assert(_structure_size == Self::STRUCT_SIZE as u16))]
     _structure_size: u16,
     pub credit_charge: u16,
-    pub status: Status,
+    /// NT status. Use the [`Header::status()`] method to convert to a [`Status`].
+    pub status: u32,
     pub command: Command,
     pub credit_request: u16,
     pub flags: HeaderFlags,
@@ -153,6 +185,12 @@ pub struct Header {
 
 impl Header {
     pub const STRUCT_SIZE: usize = 64;
+
+    /// Tries to convert the [`Header::status`] field to a [`Status`],
+    /// returning it, if successful.
+    pub fn status(&self) -> crate::Result<Status> {
+        self.status.try_into()
+    }
 }
 
 #[bitfield]

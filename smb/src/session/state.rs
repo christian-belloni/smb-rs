@@ -36,7 +36,7 @@ impl SessionState {
 
     #[maybe_async]
     pub async fn set(
-        state: &mut Arc<Mutex<Self>>,
+        state: &Arc<Mutex<Self>>,
         session_key: &KeyToDerive,
         preauth_hash: &Option<PreauthHashValue>,
         info: &ConnectionInfo,
@@ -195,6 +195,9 @@ impl SessionState {
         Ok(())
     }
 
+    /// Makes the session invalid, so it may not be used anymore.
+    /// This should be called once a session is closed, expired, or failed setup.
+    /// This function should never fail.
     #[maybe_async]
     pub async fn invalidate(state: &Arc<Mutex<Self>>) -> crate::Result<()> {
         let mut state = state.lock().await?;
@@ -235,7 +238,21 @@ impl SessionState {
     }
 }
 
+impl Default for SessionState {
+    fn default() -> Self {
+        Self {
+            session_id: Default::default(),
+            flags: SessionFlags::new(),
+            signer: Default::default(),
+            decryptor: Default::default(),
+            encryptor: Default::default(),
+        }
+    }
+}
+
 /// A helper struct for deriving SMB2 keys from a session key and preauth hash.
+///
+/// This is relevant for SMB3+ dialects.
 struct KeyDeriver<'a> {
     session_key: &'a KeyToDerive,
 }
@@ -249,18 +266,6 @@ impl<'a> KeyDeriver<'a> {
     #[inline]
     pub fn derive(&self, label: &[u8], context: &'a [u8]) -> Result<DerivedKey, CryptoError> {
         kbkdf_hmacsha256::<16>(self.session_key, label, context)
-    }
-}
-
-impl Default for SessionState {
-    fn default() -> Self {
-        Self {
-            session_id: Default::default(),
-            flags: SessionFlags::new(),
-            signer: Default::default(),
-            decryptor: Default::default(),
-            encryptor: Default::default(),
-        }
     }
 }
 
