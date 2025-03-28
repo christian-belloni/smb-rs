@@ -34,7 +34,7 @@ pub trait MultiWorkerBackend {
 
     async fn wait_on_waiter(
         waiter: Self::AwaitingWaiter,
-        timeout: Option<Duration>,
+        timeout: Duration,
     ) -> crate::Result<IncomingMessage>;
     fn send_notify(
         tx: Self::AwaitingNotifier,

@@ -28,8 +28,7 @@ impl UncPath {
             encryption_mode: EncryptionMode::Allowed,
             ..Default::default()
         })?;
-        smb.set_timeout(Some(std::time::Duration::from_secs(10)))
-            .await?;
+        smb.set_timeout(std::time::Duration::from_secs(10)).await?;
         smb.connect(format!("{}:{}", self.server, cli.port).as_str())
             .await?;
         let session = smb

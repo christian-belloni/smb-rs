@@ -118,7 +118,7 @@ impl MultiWorkerBackend for ThreadingBackend {
         let (netbios_receive, netbios_send) = netbios_client.split()?;
         let backend_send = backend.clone();
 
-        netbios_receive.set_read_timeout(Some(Self::READ_POLL_TIMEOUT))?;
+        netbios_receive.set_read_timeout(Self::READ_POLL_TIMEOUT)?;
 
         let handle1 = std::thread::spawn(move || backend_receive.loop_receive(netbios_receive));
         let handle2 =
@@ -173,18 +173,18 @@ impl MultiWorkerBackend for ThreadingBackend {
 
     fn wait_on_waiter(
         waiter: Self::AwaitingWaiter,
-        timeout: Option<Duration>,
+        timeout: Duration,
     ) -> crate::Result<IncomingMessage> {
-        if let None = timeout {
+        if timeout == Duration::ZERO {
             return waiter.recv().map_err(|_| {
                 Error::MessageProcessingError("Failed to receive message.".to_string())
             })?;
         }
-        waiter.recv_timeout(timeout.unwrap()).map_err(|e| match e {
-            std::sync::mpsc::RecvTimeoutError::Timeout => Error::OperationTimeout(
-                "Waiting for message receive.".to_string(),
-                timeout.unwrap(),
-            ),
+
+        waiter.recv_timeout(timeout).map_err(|e| match e {
+            std::sync::mpsc::RecvTimeoutError::Timeout => {
+                Error::OperationTimeout("Waiting for message receive.".to_string(), timeout)
+            }
             _ => Error::MessageProcessingError("Failed to receive message.".to_string()),
         })?
     }

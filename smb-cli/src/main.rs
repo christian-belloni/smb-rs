@@ -6,7 +6,7 @@ use smb_cli::*;
 
 #[cfg(feature = "sync")]
 fn main() -> Result<(), Box<dyn Error>> {
-    _main().await.or_else(|e| {
+    _main().or_else(|e| {
         log::error!("Error: {}", e);
         Err(e)
     })

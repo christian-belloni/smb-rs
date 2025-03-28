@@ -19,15 +19,12 @@ use crate::{
 #[allow(async_fn_in_trait)]
 pub trait Worker: Sized + std::fmt::Debug {
     /// Instantiates a new connection worker.
-    async fn start(
-        netbios_client: NetBiosClient,
-        timeout: Option<Duration>,
-    ) -> crate::Result<Arc<Self>>;
+    async fn start(netbios_client: NetBiosClient, timeout: Duration) -> crate::Result<Arc<Self>>;
     /// Stops the worker, shutting down the connection.
     async fn stop(&self) -> crate::Result<()>;
 
     /// Sets the timeout for the worker.
-    async fn set_timeout(&self, timeout: Option<Duration>) -> crate::Result<()>;
+    async fn set_timeout(&self, timeout: Duration) -> crate::Result<()>;
 
     async fn send(self: &Self, msg: OutgoingMessage) -> crate::Result<SendMessageResult>;
     /// Receive a message from the server.
