@@ -61,7 +61,16 @@ pub struct FileEndOfFileInformation {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileDispositionInformation {
+    /// *Note:* Default is TRUE
     pub delete_pending: Boolean,
+}
+
+impl Default for FileDispositionInformation {
+    fn default() -> Self {
+        Self {
+            delete_pending: true.into(),
+        }
+    }
 }
 
 #[binrw::binrw]

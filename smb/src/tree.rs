@@ -73,14 +73,18 @@ impl Tree {
             )));
         }
 
-        log::info!(
-            "Connected to tree {} (#{})",
-            name,
-            response.message.header.tree_id
-        );
+        let tree_id = response
+            .message
+            .header
+            .tree_id
+            .ok_or(Error::InvalidMessage(
+                "Tree ID is not set in the response".to_string(),
+            ))?;
+
+        log::info!("Connected to tree {} (#{})", name, tree_id);
 
         let tree_connect_info = TreeConnectInfo {
-            tree_id: response.message.header.tree_id,
+            tree_id: tree_id,
             share_type: content.share_type,
         };
 
@@ -253,14 +257,15 @@ impl MessageHandler for TreeMessageHandler {
         msg.message.header.tree_id = match self.connect_info.get() {
             Some(info) => info.tree_id,
             None => 0,
-        };
+        }
+        .into();
         self.upstream.sendo(msg).await
     }
 
     #[maybe_async]
     async fn recvo(
         &self,
-        options: crate::msg_handler::ReceiveOptions,
+        options: crate::msg_handler::ReceiveOptions<'_>,
     ) -> crate::Result<crate::msg_handler::IncomingMessage> {
         self.upstream.recvo(options).await
     }

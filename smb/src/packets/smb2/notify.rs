@@ -13,11 +13,10 @@ pub struct ChangeNotifyRequest {
     #[bw(calc = 32)]
     #[br(assert(_structure_size == 32))]
     _structure_size: u16,
-    flags: NotifyFlags,
-    output_buffer_length: u32,
-    file_id: FileId,
-    completion_filter: NotifyFilter,
-    #[br(assert(_reserved == 0))]
+    pub flags: NotifyFlags,
+    pub output_buffer_length: u32,
+    pub file_id: FileId,
+    pub completion_filter: NotifyFilter,
     #[bw(calc = 0)]
     _reserved: u32,
 }
@@ -54,6 +53,8 @@ pub struct NotifyFilter {
     __: B20,
 }
 
+impl NotifyFilter {}
+
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ChangeNotifyResponse {
@@ -66,7 +67,7 @@ pub struct ChangeNotifyResponse {
     _output_buffer_length: PosMarker<u32>,
     #[br(seek_before = SeekFrom::Start(_output_buffer_offset.value.into()))]
     #[br(map_stream = |s| s.take_seek(_output_buffer_length.value.into()), parse_with = binrw::helpers::until_eof)]
-    buffer: Vec<FileNotifyInformation>,
+    pub buffer: Vec<FileNotifyInformation>,
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 use super::ResourceHandle;
+use crate::msg_handler::{MessageHandler, ReceiveOptions};
 use crate::sync_helpers::Mutex;
 use crate::{
     packets::{fscc::*, smb2::*},
@@ -107,6 +108,70 @@ impl Directory {
         T: QueryDirectoryInfoValue,
     {
         iter_sync::QueryDirectoryIterator::new(self, pattern.to_string())
+    }
+
+    /// Watches the directory for changes.
+    /// # Arguments
+    /// * `filter` - The filter to use for the changes. This is a bitmask of the changes to watch for.
+    /// * `recursive` - Whether to watch the directory recursively or not.
+    /// # Returns
+    /// * A vector of [`FileNotifyInformation`] objects, containing the changes that occurred.
+    /// # Notes
+    /// * This is a long-running operation, and will block until a result is received, or the operation gets cancelled.
+    #[maybe_async]
+    pub async fn watch(
+        &self,
+        filter: NotifyFilter,
+        recursive: bool,
+    ) -> crate::Result<Vec<FileNotifyInformation>> {
+        // First, the client sends a Change Notify Request to the server,
+        // and gets a pending response.
+        let response = self
+            .handle
+            .handler
+            .send_recvo(
+                Content::ChangeNotifyRequest(ChangeNotifyRequest {
+                    file_id: self.file_id,
+                    flags: NotifyFlags::new().with_watch_tree(recursive),
+                    completion_filter: filter,
+                    output_buffer_length: 1024,
+                }),
+                ReceiveOptions {
+                    status: &[Status::Pending],
+                    cmd: Some(Command::ChangeNotify),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        if !response.message.header.flags.async_command() {
+            return Err(Error::InvalidMessage(
+                "Change Notify Request is not async".into(),
+            ));
+        }
+
+        // Now, we wait for the response to be completed, or cancelled.
+        let res = self
+            .handler
+            .recvo(ReceiveOptions {
+                status: &[Status::Success, Status::Cancelled],
+                cmd: Some(Command::ChangeNotify),
+                msg_id_filter: response.message.header.message_id,
+            })
+            .await?;
+
+        match res.message.header.status.try_into()? {
+            Status::Success => {
+                let content = res.message.content.to_changenotifyresponse()?;
+                log::debug!("Change Notify Response: {:?}", content);
+                Ok(content.buffer)
+            }
+            Status::Cancelled => {
+                log::debug!("Change Notify Response: Cancelled");
+                Err(Error::Cancelled)
+            }
+            _ => panic!("Unexpected status: {:?}", res.message.header.status),
+        }
     }
 
     #[maybe_async]

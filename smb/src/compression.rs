@@ -423,7 +423,8 @@ mod tests {
                     .with_priority_mask(1),
                 next_command: 0,
                 message_id: 7,
-                tree_id: 1,
+                tree_id: Some(1),
+                async_id: None,
                 session_id: 0x340000000051,
                 signature: 133569463218962867026972765300193336074
             }

@@ -98,6 +98,18 @@ impl Semaphore {
         }
     }
 
+    pub fn acquire(&self) -> Result<SemaphorePermit, AcquireError> {
+        let mut guard = self.inner.lock().unwrap();
+        while *guard == 0 {
+            guard = self.condvar.wait(guard).unwrap();
+        }
+        *guard -= 1;
+        Ok(SemaphorePermit {
+            sem: self,
+            count: 1,
+        })
+    }
+
     pub fn acquire_many(&self, count: u32) -> Result<SemaphorePermit, AcquireError> {
         let guard = self.inner.lock().unwrap();
         let mut guard = self.condvar.wait_while(guard, |c| *c < count).unwrap();

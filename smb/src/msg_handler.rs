@@ -74,16 +74,17 @@ pub struct MessageForm {
 /// use smb::msg_handler::ReceiveOptions;
 ///
 /// let options = ReceiveOptions::new()
-///    .status(Status::Success)
+///    .status(&[Status::Success])
 ///    .cmd(Some(Command::Negotiate));
 /// ```
 #[derive(Debug)]
-pub struct ReceiveOptions {
-    /// The expected status of the received message.
+pub struct ReceiveOptions<'a> {
+    /// The expected status(es) of the received message.
     /// If the received message has a different status, an error will be returned.
-    pub status: Status,
+    pub status: &'a [Status],
 
     /// If set, this command will be checked against the received command.
+    /// If not set, no check will be performed.
     pub cmd: Option<Command>,
 
     /// When receiving a message, only messages with this msg_id will be returned.
@@ -91,12 +92,12 @@ pub struct ReceiveOptions {
     pub msg_id_filter: u64,
 }
 
-impl ReceiveOptions {
+impl<'a> ReceiveOptions<'a> {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn status(mut self, status: Status) -> Self {
+    pub fn status(mut self, status: &'a [Status]) -> Self {
         self.status = status;
         self
     }
@@ -113,10 +114,10 @@ impl ReceiveOptions {
     }
 }
 
-impl Default for ReceiveOptions {
+impl<'a> Default for ReceiveOptions<'a> {
     fn default() -> Self {
         ReceiveOptions {
-            status: Status::Success,
+            status: &[Status::Success],
             cmd: None,
             msg_id_filter: 0,
         }
@@ -154,7 +155,7 @@ pub trait MessageHandler {
     async fn sendo_recvo(
         &self,
         msg: OutgoingMessage,
-        mut options: ReceiveOptions,
+        mut options: ReceiveOptions<'_>,
     ) -> crate::Result<IncomingMessage> {
         // Send the message and wait for the matching response.
         let send_result = self.sendo(msg).await?;
@@ -166,7 +167,7 @@ pub trait MessageHandler {
     async fn send_recvo(
         &self,
         msg: Content,
-        options: ReceiveOptions,
+        options: ReceiveOptions<'_>,
     ) -> crate::Result<IncomingMessage> {
         self.sendo_recvo(OutgoingMessage::new(PlainMessage::new(msg)), options)
             .await
