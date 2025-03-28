@@ -51,8 +51,8 @@ impl Connection {
 
     /// Sets operations timeout for the connection.
     #[maybe_async]
-    pub async fn set_timeout(&mut self, timeout: Option<Duration>) -> crate::Result<()> {
-        self.config.timeout = timeout;
+    pub async fn set_timeout(&mut self, timeout: Duration) -> crate::Result<()> {
+        self.config.timeout = Some(timeout);
         if let Some(worker) = self.handler.worker.get() {
             worker.set_timeout(timeout).await?;
         }
@@ -66,7 +66,7 @@ impl Connection {
             return Err(Error::InvalidState("Already connected".into()));
         }
 
-        let mut netbios_client = NetBiosClient::new(self.config.timeout);
+        let mut netbios_client = NetBiosClient::new(self.config.timeout());
 
         log::debug!("Connecting to {}...", address);
         netbios_client.connect(address).await?;
@@ -126,7 +126,7 @@ impl Connection {
             }
         }
 
-        Ok(WorkerImpl::start(netbios_client, self.config.timeout).await?)
+        Ok(WorkerImpl::start(netbios_client, self.config.timeout()).await?)
     }
 
     /// This method perofrms the SMB2 negotiation.
@@ -447,7 +447,7 @@ impl MessageHandler for ConnectionMessageHandler {
         }
 
         // Expected status matching.
-        if msg.message.header.status != options.status {
+        if msg.message.header.status != options.status as u32 {
             // Return error only if it is unexpected.
             if let Content::ErrorResponse(error_res) = msg.message.content {
                 return Err(Error::ReceivedErrorMessage(

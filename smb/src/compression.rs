@@ -414,7 +414,7 @@ mod tests {
             plain_unwrapped.header,
             Header {
                 credit_charge: 1,
-                status: Status::Success,
+                status: Status::Success as u32,
                 command: Command::Read,
                 credit_request: 1,
                 flags: HeaderFlags::new()

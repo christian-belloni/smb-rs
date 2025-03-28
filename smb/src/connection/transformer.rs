@@ -330,7 +330,7 @@ impl Transformer {
     ) -> crate::Result<()> {
         if form.encrypted
             || message.header.message_id == u64::MAX
-            || message.header.status == Status::Pending
+            || message.header.status == Status::Pending as u32
             || !message.header.flags.signed()
         {
             return Ok(());

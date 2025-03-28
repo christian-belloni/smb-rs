@@ -6,13 +6,19 @@ use smb_cli::*;
 
 #[cfg(feature = "sync")]
 fn main() -> Result<(), Box<dyn Error>> {
-    _main()
+    _main().or_else(|e| {
+        log::error!("Error: {}", e);
+        Err(e)
+    })
 }
 
 #[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    _main().await
+    _main().await.or_else(|e| {
+        log::error!("Error: {}", e);
+        Err(e)
+    })
 }
 
 #[maybe_async]

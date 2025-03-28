@@ -37,7 +37,7 @@ where
     stopped: AtomicBool,
 
     /// atomic duration:
-    timeout: RwLock<Option<Duration>>,
+    timeout: RwLock<Duration>,
 }
 
 /// Holds state for the worker, regarding messages to be received.
@@ -144,10 +144,7 @@ where
     T::AwaitingNotifier: std::fmt::Debug,
 {
     #[maybe_async]
-    async fn start(
-        netbios_client: NetBiosClient,
-        timeout: Option<Duration>,
-    ) -> crate::Result<Arc<Self>> {
+    async fn start(netbios_client: NetBiosClient, timeout: Duration) -> crate::Result<Arc<Self>> {
         // Build the worker
         let (tx, rx) = T::make_send_channel_pair();
         let worker = Arc::new(MultiWorkerBase::<T> {
@@ -257,7 +254,7 @@ where
     }
 
     #[maybe_async]
-    async fn set_timeout(&self, timeout: Option<Duration>) -> crate::Result<()> {
+    async fn set_timeout(&self, timeout: Duration) -> crate::Result<()> {
         *self.timeout.write().await? = timeout;
         Ok(())
     }

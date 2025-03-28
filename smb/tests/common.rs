@@ -1,9 +1,5 @@
 use log::info;
-use smb::{
-    session::Session,
-    tree::Tree,
-    Connection, ConnectionConfig,
-};
+use smb::{session::Session, tree::Tree, Connection, ConnectionConfig};
 use std::env::var;
 
 #[maybe_async::maybe_async]
@@ -12,8 +8,7 @@ pub async fn make_server_connection(
     config: Option<ConnectionConfig>,
 ) -> Result<(Connection, Session, Tree), Box<dyn std::error::Error>> {
     let mut smb = Connection::build(config.unwrap_or(Default::default()))?;
-    smb.set_timeout(Some(std::time::Duration::from_secs(10)))
-        .await?;
+    smb.set_timeout(std::time::Duration::from_secs(10)).await?;
     // Default to localhost, LocalAdmin, 123456
     let server = var("SMB_RUST_TESTS_SERVER").unwrap_or("127.0.0.1:445".to_string());
     let user = var("SMB_RUST_TESTS_USER_NAME").unwrap_or("LocalAdmin".to_string());

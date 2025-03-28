@@ -193,22 +193,21 @@ impl MultiWorkerBackend for AsyncBackend {
 
     async fn wait_on_waiter(
         waiter: Self::AwaitingWaiter,
-        timeout: Option<Duration>,
+        timeout: Duration,
     ) -> crate::Result<IncomingMessage> {
-        match timeout {
-            Some(timeout) => {
-                tokio::select! {
-                    msg = waiter => {
-                        msg.map_err(|_| Error::MessageProcessingError("Failed to receive message.".to_string()))?
-                    },
-                    _ = tokio::time::sleep(timeout) => {
-                        Err(Error::OperationTimeout("Waiting for message receive.".to_string(), timeout))
-                    }
+        if timeout == Duration::ZERO {
+            waiter.await.map_err(|_| {
+                Error::MessageProcessingError("Failed to receive message.".to_string())
+            })?
+        } else {
+            tokio::select! {
+                msg = waiter => {
+                    msg.map_err(|_| Error::MessageProcessingError("Failed to receive message.".to_string()))?
+                },
+                _ = tokio::time::sleep(timeout) => {
+                    Err(Error::OperationTimeout("Waiting for message receive.".to_string(), timeout))
                 }
             }
-            None => waiter.await.map_err(|_| {
-                Error::MessageProcessingError("Failed to receive message.".to_string())
-            })?,
         }
     }
 

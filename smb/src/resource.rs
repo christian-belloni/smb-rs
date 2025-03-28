@@ -37,6 +37,9 @@ impl Resource {
         conn_info: &Arc<ConnectionInfo>,
         share_type: ShareType,
     ) -> crate::Result<Resource> {
+        // Prevent invalid file names in a first place.
+        Self::check_file_name(name)?;
+
         let share_access = if share_type == ShareType::Disk {
             ShareAccessFlags::new()
                 .with_read(true)
@@ -102,6 +105,27 @@ impl Resource {
                 content.endof_file,
             )))
         }
+    }
+
+    fn check_file_name(name: &str) -> crate::Result<()> {
+        if name.len() == 0 {
+            return Ok(());
+        }
+
+        let chars = name.chars();
+
+        let first_char = chars
+            .clone()
+            .next()
+            .ok_or_else(|| Error::InvalidArgument("File name is empty".to_string()))?;
+
+        if first_char == '\\' {
+            return Err(Error::InvalidArgument(
+                "File name cannot start with a backslash".to_string(),
+            ));
+        }
+
+        Ok(())
     }
 
     pub fn as_file(&self) -> Option<&File> {

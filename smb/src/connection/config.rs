@@ -33,6 +33,9 @@ impl EncryptionMode {
 #[derive(Debug, Default, Clone)]
 pub struct ConnectionConfig {
     /// Specifies the timeout for the connection.
+    /// If unset, defaults to [`ConnectionConfig::DEFAULT_TIMEOUT`].
+    /// 0 means wait forever.
+    /// Access the timeout using the [`ConnectionConfig::timeout()`] method.
     pub timeout: Option<Duration>,
 
     /// Specifies the minimum and maximum dialects to be used in the connection.
@@ -64,6 +67,8 @@ pub struct ConnectionConfig {
 }
 
 impl ConnectionConfig {
+    pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+
     /// Validates common configuration settings.
     pub fn validate(&self) -> crate::Result<()> {
         // Make sure dialects min <= max.
@@ -75,5 +80,9 @@ impl ConnectionConfig {
             }
         }
         Ok(())
+    }
+
+    pub fn timeout(&self) -> Duration {
+        self.timeout.unwrap_or(Self::DEFAULT_TIMEOUT)
     }
 }

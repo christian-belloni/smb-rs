@@ -178,7 +178,6 @@ pub mod iter_stream {
         /// to prevent multiple queries at the same time.
         /// See [Directory::query_directory] for more information.
         _lock_guard: MutexGuard<'a, ()>,
-        directory: &'a Directory,
     }
 
     impl<'a, T> QueryDirectoryStream<'a, T>
@@ -200,7 +199,6 @@ pub mod iter_stream {
                 receiver,
                 notify_fetch_next,
                 _lock_guard: guard,
-                directory: directory.as_ref(),
             })
         }
 
@@ -215,6 +213,7 @@ pub mod iter_stream {
                 let result = directory.send_query::<T>(&pattern, is_first).await;
                 is_first = false;
 
+                const NO_MORE_FILES: u32 = Status::NoMoreFiles as u32;
                 match result {
                     Ok(items) => {
                         for item in items {
@@ -223,7 +222,7 @@ pub mod iter_stream {
                             }
                         }
                     }
-                    Err(Error::UnexpectedMessageStatus(Status::NoMoreFiles)) => {
+                    Err(Error::UnexpectedMessageStatus(NO_MORE_FILES)) => {
                         break; // No more files
                     }
                     Err(e) => {
@@ -313,6 +312,7 @@ pub mod iter_sync {
             // If we have no backlog, we need to query the directory again.
             let result = self.directory.send_query::<T>(&self.pattern, self.is_first);
             self.is_first = false;
+            const NO_MORE_FILES: u32 = Status::NoMoreFiles as u32;
             match result {
                 Ok(items) => {
                     if items.is_empty() {
@@ -323,7 +323,7 @@ pub mod iter_sync {
                         self.next()
                     }
                 }
-                Err(Error::UnexpectedMessageStatus(Status::NoMoreFiles)) => {
+                Err(Error::UnexpectedMessageStatus(NO_MORE_FILES)) => {
                     None // No more files!
                 }
                 Err(e) => {

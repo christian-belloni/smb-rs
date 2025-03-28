@@ -18,7 +18,7 @@ pub struct SingleWorker {
 }
 
 impl Worker for SingleWorker {
-    fn start(netbios_client: NetBiosClient, timeout: Option<Duration>) -> crate::Result<Arc<Self>> {
+    fn start(netbios_client: NetBiosClient, timeout: Duration) -> crate::Result<Arc<Self>> {
         if !netbios_client.can_read() || !netbios_client.can_write() {
             return Err(crate::Error::NotConnected);
         }
@@ -68,7 +68,7 @@ impl Worker for SingleWorker {
         &self.transformer
     }
 
-    fn set_timeout(&self, timeout: Option<Duration>) -> crate::Result<()> {
+    fn set_timeout(&self, timeout: Duration) -> crate::Result<()> {
         self.netbios_client.borrow_mut().set_read_timeout(timeout)
     }
 }
