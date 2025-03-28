@@ -253,7 +253,7 @@ impl ResourceHandle {
                 data: GetInfoRequestData::None(()),
             })
             .await?
-            .unwrap_file()
+            .as_file()?
             .parse(T::CLASS_ID)?
             .try_into()?)
     }
@@ -287,7 +287,7 @@ impl ResourceHandle {
                 }),
             })
             .await?
-            .unwrap_file()
+            .as_file()?
             .parse(QueryFileInfoClass::FullEaInformation)?
             .try_into()?)
     }
@@ -478,7 +478,7 @@ impl MessageHandler for ResourceMessageHandle {
     #[inline]
     async fn recvo(
         &self,
-        options: crate::msg_handler::ReceiveOptions,
+        options: crate::msg_handler::ReceiveOptions<'_>,
     ) -> crate::Result<crate::msg_handler::IncomingMessage> {
         self.upstream.recvo(options).await
     }

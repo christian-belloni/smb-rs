@@ -424,7 +424,7 @@ impl MessageHandler for ConnectionMessageHandler {
     }
 
     #[maybe_async]
-    async fn recvo(&self, options: ReceiveOptions) -> crate::Result<IncomingMessage> {
+    async fn recvo(&self, options: ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
         let msg = self
             .worker
             .get()
@@ -435,7 +435,7 @@ impl MessageHandler for ConnectionMessageHandler {
         // Command matching (if needed).
         if let Some(cmd) = options.cmd {
             if msg.message.header.command != cmd {
-                return Err(Error::UnexpectedCommand(msg.message.header.command));
+                return Err(Error::UnexpectedMessageCommand(msg.message.header.command));
             }
         }
 
@@ -447,7 +447,12 @@ impl MessageHandler for ConnectionMessageHandler {
         }
 
         // Expected status matching.
-        if msg.message.header.status != options.status as u32 {
+
+        if !options
+            .status
+            .iter()
+            .any(|s| msg.message.header.status == *s as u32)
+        {
             // Return error only if it is unexpected.
             if let Content::ErrorResponse(error_res) = msg.message.content {
                 return Err(Error::ReceivedErrorMessage(

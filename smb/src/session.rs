@@ -74,7 +74,7 @@ impl Session {
         let init_response = upstream
             .sendo_recvo(
                 request,
-                ReceiveOptions::new().status(Status::MoreProcessingRequired),
+                ReceiveOptions::new().status(&[Status::MoreProcessingRequired, Status::Success]),
             )
             .await?;
 
@@ -83,15 +83,19 @@ impl Session {
         *handler.session_id.write().await? = init_response.message.header.session_id;
         session_state.lock().await?.session_id = init_response.message.header.session_id;
 
-        let setup_result = Self::setup_more_processing(
-            &mut authenticator,
-            init_response,
-            &session_state,
-            req_security_mode,
-            &handler,
-            conn_info,
-        )
-        .await;
+        let setup_result = if init_response.message.header.status == Status::Success as u32 {
+            unimplemented!()
+        } else {
+            Self::setup_more_processing(
+                &mut authenticator,
+                init_response,
+                &session_state,
+                req_security_mode,
+                &handler,
+                conn_info,
+            )
+            .await
+        };
 
         let flags = match setup_result {
             Ok(flags) => flags,
@@ -203,7 +207,7 @@ impl Session {
                         Status::MoreProcessingRequired
                     };
                     let response = handler
-                        .recvo(ReceiveOptions::new().status(expected_status).to(result))
+                        .recvo(ReceiveOptions::new().status(&[expected_status]).to(result))
                         .await?;
                     Some(response)
                 }
@@ -323,7 +327,7 @@ impl MessageHandler for SessionMessageHandler {
     #[maybe_async]
     async fn recvo(
         &self,
-        options: crate::msg_handler::ReceiveOptions,
+        options: crate::msg_handler::ReceiveOptions<'_>,
     ) -> crate::Result<IncomingMessage> {
         if *self.session_id.read().await? == 0 {
             return Err(Error::InvalidState(
@@ -340,10 +344,6 @@ impl MessageHandler for SessionMessageHandler {
         } else if incoming.message.header.session_id != *self.session_id.read().await? {
             return Err(Error::InvalidMessage(
                 "Message not for this session!".to_string(),
-            ));
-        } else if !incoming.form.signed && !incoming.form.encrypted {
-            return Err(Error::InvalidMessage(
-                "Message not signed or encrypted!".to_string(),
             ));
         }
 

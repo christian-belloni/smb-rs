@@ -37,7 +37,7 @@ pub enum Error {
     #[error("Server returned an error message with status: {}.", Status::try_display_as_status(*.0))]
     ReceivedErrorMessage(u32, ErrorResponse),
     #[error("Unexpected command: {0}")]
-    UnexpectedCommand(Command),
+    UnexpectedMessageCommand(Command),
     #[error("Unexpected content: {0} - expected {1}", actual, expected)]
     UnexpectedContent {
         actual: &'static str,
@@ -82,6 +82,8 @@ pub enum Error {
     InvalidConfiguration(String),
     #[error("Invalid argument: {0}")]
     InvalidArgument(String),
+    #[error("Cancelled")]
+    Cancelled,
 }
 
 impl<T> From<PoisonError<T>> for Error {

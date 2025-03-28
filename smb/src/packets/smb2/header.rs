@@ -61,6 +61,7 @@ impl std::fmt::Display for Command {
 pub enum Status {
     Success = 0x00000000,
     Pending = 0x00000103,
+    NotifyCleanup = 0x0000010B,
     InvalidSmb = 0x00010002,
     SmbBadTid = 0x00050002,
     SmbBadCommand = 0x00160002,
@@ -89,6 +90,7 @@ pub enum Status {
     NetworkNameDeleted = 0xC00000C9,
     BadNetworkName = 0xC00000CC,
     DirectoryNotEmpty = 0xC0000101,
+    Cancelled = 0xC0000120,
     UserSessionDeleted = 0xC0000203,
     UserAccountLockedOut = 0xC0000234,
     NetworkSessionExpired = 0xC000035C,
@@ -100,6 +102,7 @@ impl std::fmt::Display for Status {
         let message_as_string = match self {
             Status::Success => "Success",
             Status::Pending => "Pending",
+            Status::NotifyCleanup => "Notify Cleanup",
             Status::InvalidSmb => "Invalid SMB",
             Status::SmbBadTid => "SMB Bad TID",
             Status::SmbBadCommand => "SMB Bad Command",
@@ -128,6 +131,7 @@ impl std::fmt::Display for Status {
             Status::NetworkNameDeleted => "Network Name Deleted",
             Status::BadNetworkName => "Bad Network Name",
             Status::DirectoryNotEmpty => "Directory Not Empty",
+            Status::Cancelled => "Cancelled",
             Status::UserAccountLockedOut => "User Account Locked Out",
             Status::UserSessionDeleted => "User Session Deleted",
             Status::NetworkSessionExpired => "Network Session Expired",
@@ -161,6 +165,8 @@ impl TryFrom<u32> for Status {
     }
 }
 
+/// Sync and Async SMB2 Message header.
+///
 #[binrw::binrw]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[brw(magic(b"\xfeSMB"), little)]
@@ -176,9 +182,20 @@ pub struct Header {
     pub flags: HeaderFlags,
     pub next_command: u32,
     pub message_id: u64,
+
+    // Option 1 - Sync: Reserved + TreeId. flags.async_command MUST NOT be set.
+    #[brw(if(!flags.async_command()))]
     #[bw(calc = 0)]
     _reserved: u32,
-    pub tree_id: u32,
+    #[br(if(!flags.async_command()))]
+    #[bw(assert(tree_id.is_some() == !flags.async_command()))]
+    pub tree_id: Option<u32>,
+
+    // Option 2 - Async: AsyncId. flags.async_command MUST be set manually.
+    #[brw(if(flags.async_command()))]
+    #[bw(assert(tree_id.is_none() == flags.async_command()))]
+    pub async_id: Option<u64>,
+
     pub session_id: u64,
     pub signature: u128,
 }
@@ -208,4 +225,44 @@ pub struct HeaderFlags {
     pub replay_operation: bool,
     #[skip]
     __: B2,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    pub fn test_async_header_parse() {
+        let arr = &[
+            0xfe, 0x53, 0x4d, 0x42, 0x40, 0x0, 0x0, 0x0, 0x3, 0x1, 0x0, 0x0, 0xf, 0x0, 0x1, 0x0,
+            0x13, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x8,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xd7, 0x27, 0x53, 0x8, 0x0, 0x0, 0x0, 0x0, 0x63,
+            0xf8, 0x25, 0xde, 0xae, 0x2, 0x95, 0x2f, 0xa3, 0xd8, 0xc8, 0xaa, 0xf4, 0x6e, 0x7c,
+            0x99,
+        ];
+        let mut cursor = Cursor::new(arr);
+        let header = Header::read_le(&mut cursor).unwrap();
+        assert_eq!(
+            header,
+            Header {
+                credit_charge: 0,
+                status: Status::Pending as u32,
+                command: Command::ChangeNotify,
+                credit_request: 1,
+                flags: HeaderFlags::new()
+                    .with_async_command(true)
+                    .with_server_to_redir(true)
+                    .with_priority_mask(1),
+                next_command: 0,
+                message_id: 8,
+                tree_id: None,
+                async_id: Some(8),
+                session_id: 0x00000000085327d7,
+                signature: u128::from_le_bytes(u128::to_be_bytes(
+                    0x63f825deae02952fa3d8c8aaf46e7c99
+                )),
+            }
+        )
+    }
 }
