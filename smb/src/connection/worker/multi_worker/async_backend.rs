@@ -102,7 +102,7 @@ impl AsyncBackend {
         debug_assert!(netbios_client.can_read());
         select! {
             // Receive a message from the server.
-            message = netbios_client.received_bytes() => {
+            message = netbios_client.receive_bytes() => {
                 worker.incoming_data_callback(message).await
             }
             // Cancel the loop.

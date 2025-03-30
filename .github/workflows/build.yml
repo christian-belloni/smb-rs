@@ -44,3 +44,9 @@ jobs:
       run: |
         export SMB_RUST_TESTS_SERVER=samba:445
         cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress" -- --nocapture
+        # Test without encryption and compression
+        cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign" -- --nocapture
+        # Test signing with specific algorithms
+        cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign_cmac" -- --nocapture
+        cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign_gmac" -- --nocapture
+        cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign_hmac" -- --nocapture

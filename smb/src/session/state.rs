@@ -33,49 +33,16 @@ struct SessionAlgos {
     decryptor: Option<MessageDecryptor>,
 }
 
-#[derive(Debug, Default)]
-enum SessionInfoState {
-    #[default]
-    /// The session is not set up yet.
-    Initialized,
-    /// The session is set up, but not yet authenticated.
-    SetUp { algos: SessionAlgos },
-    /// The session is invalid, and should not be used anymore.
-    Invalid,
-}
+impl SessionAlgos {
+    const NO_PREAUTH_HASH_DERIVE_SIGN_CTX: &[u8] = b"SmbSign\x00";
+    const NO_PREAUTH_HASH_DERIVE_ECRNYPT_S2C_CTX: &[u8] = b"ServerOut\x00";
+    const NO_PREAUTH_HASH_DERIVE_ENCRYPT_C2S_CTX: &[u8] = b"ServerIn \x00";
 
-impl SessionInfo {
-    pub const NO_PREAUTH_HASH_DERIVE_SIGN_CTX: &[u8] = b"SmbSign\x00";
-    pub const NO_PREAUTH_HASH_DERIVE_ECRNYPT_S2C_CTX: &[u8] = b"ServerOut\x00";
-    pub const NO_PREAUTH_HASH_DERIVE_ENCRYPT_C2S_CTX: &[u8] = b"ServerIn \x00";
-
-    /// Creates a new session info object.
-    pub fn new(session_id: u64) -> Self {
-        Self {
-            session_id,
-            state: Some(SessionInfoState::Initialized),
-            flags: Default::default(),
-        }
-    }
-
-    pub fn id(&self) -> u64 {
-        self.session_id
-    }
-
-    /// Sets up the session state with the given session key and preauth hash.
-
-    pub fn setup(
-        &mut self,
+    pub fn build(
         session_key: &KeyToDerive,
         preauth_hash: &Option<PreauthHashValue>,
         info: &ConnectionInfo,
-    ) -> crate::Result<()> {
-        if !matches!(self.state, Some(SessionInfoState::Initialized)) {
-            return Err(crate::Error::InvalidState(
-                "Session is not in state initialized, cannot set up.".to_string(),
-            ));
-        }
-
+    ) -> crate::Result<Self> {
         if (info.negotiation.dialect_rev == Dialect::Smb0311) != preauth_hash.is_some() {
             return Err(crate::Error::InvalidMessage(
                 "Preauth hash must be present for SMB3.1.1, and not present for SMB3.0.2 or older revisions."
@@ -93,10 +60,7 @@ impl SessionInfo {
             }
         };
 
-        log::trace!("Session algos set up: {:?}", algos);
-        self.state = Some(SessionInfoState::SetUp { algos });
-
-        Ok(())
+        Ok(algos)
     }
 
     fn smb2_make_signer(
@@ -129,6 +93,8 @@ impl SessionInfo {
         {
             (Some(e), Some(d))
         } else {
+            // There's no matching algorithm, so no encryption/decryption.
+            // if the encryption is required, then we should fail ASAP.
             if info.config.encryption_mode.is_required() {
                 return Err(crate::Error::InvalidMessage(
                     "Encryption is required, seems to be unsupported by the server with current config.".to_string(),
@@ -177,16 +143,22 @@ impl SessionInfo {
         if info.config.encryption_mode.is_disabled() {
             return Ok(None);
         }
-        // Cipher is selected only for SMB3.1.1
-        debug_assert_eq!(
-            (info.negotiation.dialect_rev == Dialect::Smb0311),
-            info.negotiation.encryption_cipher.is_some()
-        );
-        // Use AES-128-CCM by default.
-        let cipher = match info.negotiation.encryption_cipher {
-            Some(c) => c,
-            None => EncryptionCipher::Aes128Ccm,
+
+        // If dialect is 3.1.1, then cipher is taken from negotiation.
+        let cipher = if info.negotiation.dialect_rev == Dialect::Smb0311 {
+            match info.negotiation.encryption_cipher {
+                Some(x) => x,
+                None => return Ok(None),
+            }
+        } else {
+            // Otherwise, we use AES-128-CCM.
+            EncryptionCipher::Aes128Ccm
         };
+
+        // Check if the cipher is supported in the current build.
+        if !crate::crypto::ENCRYPTING_ALGOS.contains(&cipher) {
+            return Ok(None);
+        }
 
         // Make the keys.
         let enc_key = deriver.derive(
@@ -213,12 +185,61 @@ impl SessionInfo {
             .map(|h| h.as_ref())
             .unwrap_or(else_val)
     }
+}
+
+#[derive(Debug, Default)]
+enum SessionInfoState {
+    #[default]
+    /// The session is not set up yet.
+    Initialized,
+    /// The session is set up, but not yet authenticated.
+    SetUp { algos: SessionAlgos },
+    /// The session is invalid, and should not be used anymore.
+    Invalid,
+}
+
+impl SessionInfo {
+    /// Creates a new session info object.
+    pub fn new(session_id: u64) -> Self {
+        Self {
+            session_id,
+            state: Some(SessionInfoState::Initialized),
+            flags: Default::default(),
+        }
+    }
+
+    /// Returns the session ID of the session.
+    pub fn id(&self) -> u64 {
+        self.session_id
+    }
+
+    /// Sets up the session state with the given session key and preauth hash.
+    pub fn setup(
+        &mut self,
+        session_key: &KeyToDerive,
+        preauth_hash: &Option<PreauthHashValue>,
+        info: &ConnectionInfo,
+    ) -> crate::Result<()> {
+        if !matches!(self.state, Some(SessionInfoState::Initialized)) {
+            return Err(crate::Error::InvalidState(
+                "Session is not in state initialized, cannot set up.".to_string(),
+            ));
+        }
+
+        let algos = SessionAlgos::build(session_key, preauth_hash, info)?;
+        log::trace!("Session algos set up: {:?}", algos);
+        self.state = Some(SessionInfoState::SetUp { algos });
+
+        Ok(())
+    }
 
     pub fn set_flags(
         &mut self,
         flags: SessionFlags,
         conn_info: &ConnectionInfo,
     ) -> crate::Result<()> {
+        // When session flags are finally set, make sure the server accepts encryption,
+        // if it is required for us.
         if conn_info.config.encryption_mode.is_required() && !flags.encrypt_data() {
             return Err(crate::Error::InvalidMessage(
                 "Encryption is required, but not enabled for this session by the server."
@@ -232,14 +253,14 @@ impl SessionInfo {
         Ok(())
     }
 
-    /// Makes the session invalid, so it may not be used anymore.
-    /// This should be called once a session is closed, expired, or failed setup.
-    /// This function should never fail.
+    /// Changes the state of the session to be invalid,
+    /// so it can no longer be used.
     pub fn invalidate(&mut self) {
         log::debug!("Invalidating session {}", self.session_id);
         self.state = Some(SessionInfoState::Invalid);
     }
 
+    /// Returns whether encryption is set up for this session, and is specified in the session flags.
     pub fn should_encrypt(&self) -> bool {
         if let Some(SessionInfoState::SetUp { algos }) = &self.state {
             algos.encryptor.is_some() && self.flags.get().map_or(false, |f| f.encrypt_data())
@@ -248,12 +269,12 @@ impl SessionInfo {
         }
     }
 
-    /// Returns whether the session is set up and ready to use.
-
+    /// Returns whether the session is set up.
     pub fn is_set_up(&self) -> bool {
         return matches!(self.state, Some(SessionInfoState::SetUp { .. }));
     }
 
+    /// Returns whether the session is invalid (by calling [`SessionInfo::invalidate`]).
     pub fn is_invalid(&self) -> bool {
         return matches!(self.state, Some(SessionInfoState::Invalid));
     }

@@ -22,7 +22,6 @@ use crate::{
     },
     session::Session,
 };
-use aead::OsRng;
 use binrw::prelude::*;
 pub use config::*;
 use connection_info::{ConnectionInfo, NegotiatedProperties};
@@ -30,6 +29,7 @@ use maybe_async::*;
 use netbios_client::NetBiosClient;
 #[cfg(not(feature = "single_threaded"))]
 use notification_handler::NotificationHandler;
+use rand::rngs::OsRng;
 use rand::Rng;
 use std::cmp::max;
 use std::sync::atomic::{AtomicU16, AtomicU64};
@@ -109,7 +109,7 @@ impl Connection {
                 .await?;
 
             // 2. Expect SMB2 negotiate response
-            let response = netbios_client.received_bytes().await?.parse_content()?;
+            let response = netbios_client.receive_bytes().await?.parse_content()?;
             let message = match response {
                 NetBiosMessageContent::SMB2Message(Message::Plain(m)) => m,
                 _ => {
@@ -161,7 +161,7 @@ impl Connection {
         }
 
         let encryption_algos = if !self.config.encryption_mode.is_disabled() {
-            crypto::SIGNING_ALGOS.into()
+            crypto::ENCRYPTING_ALGOS.into()
         } else {
             vec![]
         };
@@ -171,8 +171,8 @@ impl Connection {
             .handler
             .send_recv(Content::NegotiateRequest(self.make_smb2_neg_request(
                 dialects,
+                crypto::SIGNING_ALGOS.to_vec(),
                 encryption_algos,
-                crypto::ENCRYPTING_ALGOS.to_vec(),
                 compression::SUPPORTED_ALGORITHMS.to_vec(),
             )))
             .await?;
@@ -242,15 +242,12 @@ impl Connection {
             .client_name
             .clone()
             .unwrap_or_else(|| "smb-client".to_string());
-        let mut capabilities = GlobalCapabilities::new();
-        let mut security_mode = NegotiateSecurityMode::new();
-        if signing_algorithms.len() > 0 {
-            capabilities.set_encryption(true);
-        }
+        let has_signing = signing_algorithms.len() > 0;
+        let has_encryption = encrypting_algorithms.len() > 0;
 
         // Context list supported on SMB3.1.1+
         let ctx_list = if supported_dialects.contains(&Dialect::Smb0311) {
-            let mut ctx_list = vec![
+            let ctx_list = vec![
                 NegotiateContext {
                     context_type: NegotiateContextType::PreauthIntegrityCapabilities,
                     data: NegotiateContextValue::PreauthIntegrityCapabilities(
@@ -268,43 +265,37 @@ impl Connection {
                         },
                     ),
                 },
-            ];
-            if encrypting_algorithms.len() > 0 {
-                ctx_list.push(NegotiateContext {
+                NegotiateContext {
                     context_type: NegotiateContextType::EncryptionCapabilities,
                     data: NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
                         ciphers: encrypting_algorithms,
                     }),
-                });
-            }
-            if compression_algorithms.len() > 0 {
-                ctx_list.push(NegotiateContext {
+                },
+                NegotiateContext {
                     context_type: NegotiateContextType::CompressionCapabilities,
                     data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
-                        flags: CompressionCapsFlags::new().with_chained(true),
+                        flags: CompressionCapsFlags::new()
+                            .with_chained(compression_algorithms.len() > 0),
                         compression_algorithms,
                     }),
-                });
-            }
-            if signing_algorithms.len() > 0 {
-                ctx_list.push(NegotiateContext {
+                },
+                NegotiateContext {
                     context_type: NegotiateContextType::SigningCapabilities,
                     data: NegotiateContextValue::SigningCapabilities(SigningCapabilities {
                         signing_algorithms,
                     }),
-                });
-                security_mode.set_signing_enabled(true);
-            }
+                },
+            ];
             Some(ctx_list)
         } else {
             None
         };
 
         // Set capabilities to 0 if no SMB3 dialects are supported.
-        capabilities = if supported_dialects.iter().all(|d| !d.is_smb3()) {
+        let capabilities = if supported_dialects.iter().all(|d| !d.is_smb3()) {
             GlobalCapabilities::new()
         } else {
-            capabilities = capabilities
+            let capabilities = GlobalCapabilities::new()
                 .with_dfs(true)
                 .with_leasing(true)
                 .with_large_mtu(true)
@@ -312,12 +303,21 @@ impl Connection {
                 .with_persistent_handles(true)
                 .with_directory_leasing(true);
 
+            if has_encryption {
+                capabilities.with_encryption(true);
+            }
+
             // Enable notifications by client config + build config.
-            if !self.config.disable_notifications && cfg!(not(feature = "single_threaded")) {
+            if !self.config.disable_notifications
+                && cfg!(not(feature = "single_threaded"))
+                && supported_dialects.contains(&Dialect::Smb0311)
+            {
                 capabilities.with_notifications(true);
             }
             capabilities
         };
+
+        let security_mode = NegotiateSecurityMode::new().with_signing_enabled(has_signing);
 
         NegotiateRequest {
             security_mode: security_mode,
@@ -357,12 +357,12 @@ impl Connection {
             .negotaite_complete(&info)
             .await;
 
-        self.handler.conn_info.set(Arc::new(info)).unwrap();
-
         #[cfg(not(feature = "single_threaded"))]
-        if !self.config.disable_notifications {
+        if !self.config.disable_notifications && info.negotiation.caps.notifications() {
             self.handler.start_notification_handler().await?;
         }
+
+        self.handler.conn_info.set(Arc::new(info)).unwrap();
 
         log::info!("Negotiation successful");
         Ok(())

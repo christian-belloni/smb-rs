@@ -20,9 +20,13 @@ const NUM_ITEMS: usize = 1000;
 /// To make sure it works properly, since dealing with streams can be tricky.
 #[maybe_async::test(
     feature = "sync",
-    async(feature = "async", tokio::test(flavor = "multi_thread"))
+    async(
+        feature = "async",
+        test_log::test(tokio::test(flavor = "multi_thread"))
+    )
 )]
 #[serial]
+#[cfg(all(feature = "sign", feature = "encrypt"))] // Run only in a full-feature test, because it takes a while
 async fn test_smb_iterating_long_directory() -> Result<(), Box<dyn std::error::Error>> {
     let (_smb, _session, tree) = make_server_connection(
         "MyShare",

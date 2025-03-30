@@ -31,7 +31,7 @@ impl ThreadingBackend {
             netbios_client.can_read() && netbios_client.read_timeout().unwrap().is_some()
         );
         while !self.is_cancelled() {
-            let next = netbios_client.received_bytes();
+            let next = netbios_client.receive_bytes();
             // Handle polling fail
             if let Err(Error::IoError(ref e)) = next {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
