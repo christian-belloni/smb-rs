@@ -100,6 +100,7 @@ mod tests {
     ];
 
     #[test]
+    #[cfg(feature = "sign_gmac")]
     fn test_calc_signature() {
         // Some random session logoff request for testing.
         let raw_data = vec![

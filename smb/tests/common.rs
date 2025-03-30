@@ -27,7 +27,7 @@ pub async fn make_server_connection(
     let tree = session
         .tree_connect(format!("\\\\{}\\{}", server_name, share).as_str())
         .await?;
-    info!("Connected to share, start test basic");
+    info!("Connected to share, start test");
 
     Ok((smb, session, tree))
 }

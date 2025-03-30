@@ -301,9 +301,7 @@ where
         let wait_result = T::wait_on_waiter(wait_for_receive, timeout).await;
 
         // Wait for the message to be received.
-        Ok(wait_result.map_err(|_| {
-            Error::MessageProcessingError("Failed to receive message from worker!".to_string())
-        })?)
+        Ok(wait_result?)
     }
 
     fn transformer(&self) -> &Transformer {

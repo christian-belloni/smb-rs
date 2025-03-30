@@ -1,4 +1,6 @@
+#[cfg(not(feature = "single_threaded"))]
 use serial_test::serial;
+#[cfg(not(feature = "single_threaded"))]
 use smb::{
     connection::EncryptionMode,
     packets::{
@@ -6,13 +8,16 @@ use smb::{
         smb2::{CreateDisposition, NotifyFilter},
     },
     resource::Resource,
+    sync_helpers::*,
     ConnectionConfig,
 };
+#[cfg(not(feature = "single_threaded"))]
 use std::sync::Arc;
+#[cfg(not(feature = "single_threaded"))]
 mod common;
+#[cfg(not(feature = "single_threaded"))]
 use common::make_server_connection;
-use smb::sync_helpers::*;
-
+#[cfg(not(feature = "single_threaded"))]
 const NEW_FILE_NAME_UNDER_WORKDIR: &str = "test_file.txt";
 
 #[cfg(not(feature = "single_threaded"))]

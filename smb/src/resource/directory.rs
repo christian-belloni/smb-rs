@@ -1,4 +1,5 @@
 use super::ResourceHandle;
+#[cfg(not(feature = "single_threaded"))]
 use crate::msg_handler::{MessageHandler, ReceiveOptions};
 use crate::sync_helpers::Mutex;
 use crate::{
@@ -52,7 +53,7 @@ impl Directory {
                 flags: QueryDirectoryFlags::new().with_restart_scans(restart),
                 file_index: 0,
                 file_id: self.handle.file_id,
-                output_buffer_length: 0x10000,
+                output_buffer_length: 0x1000,
                 file_name: pattern.into(),
             }))
             .await?;

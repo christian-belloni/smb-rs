@@ -61,7 +61,7 @@ pub struct FileEndOfFileInformation {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct FileDispositionInformation {
-    /// *Note:* Default is TRUE
+    /// **Note:** Default is TRUE
     pub delete_pending: Boolean,
 }
 

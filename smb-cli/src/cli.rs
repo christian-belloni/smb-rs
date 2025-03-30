@@ -7,6 +7,9 @@ pub struct Cli {
     #[arg(long, default_value = "445")]
     pub port: u16,
 
+    #[arg(long)]
+    pub timeout: Option<u16>,
+
     #[arg(short, long)]
     pub username: String,
     #[arg(short, long)]

@@ -4,12 +4,14 @@ use crate::packets::smb2::*;
 
 use super::CryptoError;
 
+/// Holds the signature of the payload after encryption.
 pub struct EncryptionResult {
     pub signature: u128,
 }
 
+/// A trait for an implementation of an encryption algorithm.
 pub trait EncryptingAlgo: Debug + Send {
-    /// Algo-specific encryption function.
+    /// Algo-specific encryption function, in-place.
     fn encrypt(
         &mut self,
         payload: &mut [u8],
@@ -17,7 +19,7 @@ pub trait EncryptingAlgo: Debug + Send {
         nonce: &EncryptionNonce,
     ) -> Result<EncryptionResult, CryptoError>;
 
-    /// Algo-specific decryption function.
+    /// Algo-specific decryption function, in-place.
     fn decrypt(
         &mut self,
         payload: &mut [u8],
@@ -45,6 +47,8 @@ pub trait EncryptingAlgo: Debug + Send {
     fn clone_box(&self) -> Box<dyn EncryptingAlgo>;
 }
 
+/// A list of all the supported encryption algorithms,
+/// available in the current build.
 pub const ENCRYPTING_ALGOS: &[EncryptionCipher] = &[
     #[cfg(feature = "encrypt_aes128ccm")]
     EncryptionCipher::Aes128Ccm,
@@ -56,6 +60,8 @@ pub const ENCRYPTING_ALGOS: &[EncryptionCipher] = &[
     EncryptionCipher::Aes256Gcm,
 ];
 
+/// A factory method that instantiates a [`EncryptingAlgo`] implementation
+/// based on the provided encryption algorithm and key.
 pub fn make_encrypting_algo(
     encrypting_algorithm: EncryptionCipher,
     encrypting_key: &[u8],

@@ -32,7 +32,7 @@ type TcpWrite = TcpStream;
 /// This client is NOT thread-safe, and should only be used for SMB wraaping.
 ///
 /// Use [connect](NetBiosClient::connect), [send](NetBiosClient::send),
-/// and [receive_bytes](NetBiosClient::received_bytes) to interact with a server.
+/// and [receive_bytes](NetBiosClient::receive_bytes) to interact with a server.
 
 #[derive(Debug)]
 pub struct NetBiosClient {
@@ -121,9 +121,9 @@ impl NetBiosClient {
         Ok(())
     }
 
-    // Receiveds and parses a NetBios message header, without parsing the message data.
+    // Receives and parses a NetBios message header, without parsing the message data.
     #[maybe_async]
-    pub async fn received_bytes(&mut self) -> crate::Result<NetBiosTcpMessage> {
+    pub async fn receive_bytes(&mut self) -> crate::Result<NetBiosTcpMessage> {
         let tcp = self.reader.as_mut().ok_or(crate::Error::NotConnected)?;
 
         // Received header.
