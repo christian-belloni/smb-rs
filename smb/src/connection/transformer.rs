@@ -12,8 +12,9 @@ use std::{collections::HashMap, io::Cursor, sync::Arc};
 use super::connection_info::ConnectionInfo;
 use super::preauth_hash::{PreauthHashState, PreauthHashValue};
 
-/// This struct is tranforming messages to plain, parsed SMB2,
-/// including (en|de)cryption, (de)compression, and signing/verifying.
+/// The [`Transformer`] structure is responsible for transforming messages to and from bytes,
+/// send over NetBios TCP connection.
+/// See [`Transformer::transform_outgoing`] and [`Transformer::transform_incoming`] for transformation functions.
 #[derive(Debug)]
 pub struct Transformer {
     /// Sessions opened from this connection.
@@ -33,8 +34,8 @@ struct TransformerConfig {
 }
 
 impl Transformer {
-    /// When the connection is negotiated, this function is called to set up additional transformers,
-    /// according to the allowed in the negotiation state.
+    /// Notifies that the connection negotiation has been completed,
+    /// with the given [`ConnectionInfo`].
     #[maybe_async]
     pub async fn negotiated(&self, neg_info: &ConnectionInfo) -> crate::Result<()> {
         {
@@ -66,7 +67,7 @@ impl Transformer {
         Ok(())
     }
 
-    /// Adds the session to the list of active sessions.
+    /// Notifies that a session has started.
     #[maybe_async]
     pub async fn session_started(&self, session: Arc<Mutex<SessionState>>) -> crate::Result<()> {
         let rconfig = self.config.read().await?;
@@ -85,6 +86,7 @@ impl Transformer {
         Ok(())
     }
 
+    /// Notifies that a session has ended.
     #[maybe_async]
     pub async fn session_ended(&self, session_id: u64) -> crate::Result<()> {
         let s = { self.sessions.lock().await?.remove(&session_id) };
@@ -94,9 +96,10 @@ impl Transformer {
         }
     }
 
+    /// Internal: Returns the session with the given ID.
     #[maybe_async]
     #[inline]
-    pub async fn get_session(&self, session_id: u64) -> crate::Result<Arc<Mutex<SessionState>>> {
+    async fn get_session(&self, session_id: u64) -> crate::Result<Arc<Mutex<SessionState>>> {
         if session_id == 0 {
             return Err(crate::Error::InvalidState("Session ID is 0!".to_string()));
         }
@@ -108,7 +111,7 @@ impl Transformer {
             .ok_or(crate::Error::InvalidState("Session not found!".to_string()))
     }
 
-    /// Calculate preauth integrity hash value, if required.
+    /// Internal: Calculates the next preauth integrity hash value, if required.
     #[maybe_async]
     async fn step_preauth_hash(&self, raw: &Vec<u8>) -> crate::Result<()> {
         let mut pa_hash = self.preauth_hash.lock().await?;
@@ -125,11 +128,10 @@ impl Transformer {
         Ok(())
     }
 
-    /// Finalizes the preauth hash, if it's not already finalized, and returns the value.
+    /// Finalizes the preauth hash. if it's not already finalized, and returns the value.
     /// If the hash is not supported, returns None.
     #[maybe_async]
     pub async fn finalize_preauth_hash(&self) -> crate::Result<Option<PreauthHashValue>> {
-        // TODO: Move into preauth hash structure.
         let mut pa_hash = self.preauth_hash.lock().await?;
         if let Some(PreauthHashState::Finished(hash)) = &*pa_hash {
             return Ok(Some(hash.clone()));
@@ -146,8 +148,7 @@ impl Transformer {
         }
     }
 
-    /// Gets an OutgoingMessage ready for sending, performs crypto operations, and returns the
-    /// final bytes to be sent.
+    /// Transforms an outgoing message to a [`NetBiosTcpMessage`].
     #[maybe_async]
     pub async fn transform_outgoing(
         &self,
@@ -228,7 +229,7 @@ impl Transformer {
         Ok(NetBiosTcpMessage::from_content_bytes(data))
     }
 
-    /// Given a NetBiosTcpMessage, decrypts (if necessary), decompresses (if necessary) and returns the plain SMB2 message.
+    /// Transforms an incoming [`NetBiosTcpMessage`] to an [`IncomingMessage`].
     #[maybe_async]
     pub async fn transform_incoming(
         &self,
@@ -321,6 +322,9 @@ impl Transformer {
         Ok(IncomingMessage { message, raw, form })
     }
 
+    /// Internal: a helper method to verify the incoming message.
+    /// This method is used to verify the signature of the incoming message,
+    /// if such verification is required.
     #[maybe_async]
     async fn verify_plain_incoming(
         &self,
@@ -328,6 +332,7 @@ impl Transformer {
         raw: &Vec<u8>,
         form: &mut MessageForm,
     ) -> crate::Result<()> {
+        // Check if signing check is required.
         if form.encrypted
             || message.header.message_id == u64::MAX
             || message.header.status == Status::Pending as u32
@@ -335,7 +340,8 @@ impl Transformer {
         {
             return Ok(());
         }
-        // 1. Verify signature (if required, according to the spec)
+
+        // Verify signature (if required, according to the spec)
         let session_id = message.header.session_id;
         let session = self.get_session(session_id).await?;
         let verifier = { session.lock().await?.signer().cloned() };
@@ -366,13 +372,17 @@ impl Default for Transformer {
     }
 }
 
+/// An error that can occur during the transformation of messages.
 #[derive(Debug)]
 pub struct TransformError {
+    /// If true, the error occurred while transforming an outgoing message.
+    /// If false, it occurred while transforming an incoming message.
     pub outgoing: bool,
     pub phase: TranformPhase,
     pub session_id: Option<u64>,
     pub why: &'static str,
-    /// Allows error-notifying if there was a message ID associated with the error.
+    /// If a message ID is available, it will be set here,
+    /// for error-handling purposes.
     pub msg_id: Option<u64>,
 }
 
@@ -394,10 +404,15 @@ impl std::fmt::Display for TransformError {
     }
 }
 
+/// The phase of the transformation process.
 #[derive(Debug)]
 pub enum TranformPhase {
+    /// Initial to/from bytes.
     EncodeDecode,
+    /// Signature calculation and verification.
     SignVerify,
+    /// Compression and decompression.
     CompressDecompress,
+    /// Encryption and decryption.
     EncryptDecrypt,
 }

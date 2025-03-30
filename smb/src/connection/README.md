@@ -43,7 +43,8 @@ class ThreadingBackend
     ThreadingBackend : loop_receive()
 class AsyncBackend
     MultiWorkerBackend <|-- AsyncBackend
-    AsyncBackend : loop_fn()
+    AsyncBackend : loop_send()
+    AsyncBackend : loop_receive()
 
 ```
 This is a general overview of the design, the actual implementation is slightly different, but the basic idea is the same. Visit the module's source code for more details.

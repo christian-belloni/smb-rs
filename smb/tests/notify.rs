@@ -78,7 +78,7 @@ fn start_notify_task(sem: Arc<Semaphore>, r: Resource) {
 }
 #[cfg(not(feature = "single_threaded"))]
 #[maybe_async::sync_impl]
-fn start_notify_task(sem: Arc<Semaphore>, r: Resource) -> Result<(), Box<dyn std::error::Error>> {
+fn start_notify_task(sem: Arc<Semaphore>, r: Resource) {
     let filter = NotifyFilter::new()
         .with_file_name(true)
         .with_dir_name(true)
@@ -93,7 +93,6 @@ fn start_notify_task(sem: Arc<Semaphore>, r: Resource) -> Result<(), Box<dyn std
             }
         }
     });
-    Ok(())
 }
 #[cfg(not(feature = "single_threaded"))]
 #[maybe_async::maybe_async]

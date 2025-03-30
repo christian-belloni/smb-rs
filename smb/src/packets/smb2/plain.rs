@@ -81,6 +81,10 @@ pub enum Content {
     #[br(pre_assert(matches!(command, Command::OplockBreak) && from_srv))]
     LeaseBreakResponse(oplock::LeaseBreakResponse),
 
+    // server to client notification
+    #[br(pre_assert(matches!(command, Command::ServerToClientNotification) && from_srv))]
+    ServerToClientNotification(notify::ServerToClientNotification),
+
     // error response
     #[br(pre_assert(from_srv))]
     ErrorResponse(error::ErrorResponse),
@@ -106,6 +110,7 @@ impl Content {
             | OplockBreakResponse(_)
             | LeaseBreakNotify(_)
             | LeaseBreakResponse(_) => Command::OplockBreak,
+            ServerToClientNotification(_) => Command::ServerToClientNotification,
             ErrorResponse(_) => panic!("Error has no matching command!"),
         }
     }
@@ -123,6 +128,7 @@ make_content_impl!{
     {LeaseBreakNotify, oplock},
     {OplockBreakResponse, oplock},
     {LeaseBreakResponse, oplock},
+    {ServerToClientNotification, notify},
     {ErrorResponse, error},
 }
         }

@@ -38,7 +38,7 @@ impl ThreadingBackend {
                     continue;
                 }
             }
-            match self.worker.loop_handle_incoming(next) {
+            match self.worker.incoming_data_callback(next) {
                 Ok(_) => {}
                 Err(Error::NotConnected) => {
                     if self.is_cancelled() {
@@ -87,7 +87,7 @@ impl ThreadingBackend {
         message: Result<Option<NetBiosTcpMessage>, mpsc::RecvError>,
         netbios_client: &mut NetBiosClient,
     ) -> crate::Result<()> {
-        self.worker.loop_handle_outgoing(message?, netbios_client)
+        self.worker.outgoing_data_callback(message?, netbios_client)
     }
 }
 

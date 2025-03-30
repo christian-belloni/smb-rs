@@ -1,8 +1,6 @@
 use binrw::io::{SeekFrom, TakeSeekExt};
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
-use rand::rngs::OsRng;
-use rand::Rng;
 
 use crate::Error;
 
@@ -66,95 +64,6 @@ pub struct GlobalCapabilities {
 
     #[skip]
     __: B24,
-}
-
-impl NegotiateRequest {
-    pub fn new(
-        client_netname: String,
-        client_guid: Guid,
-        supported_dialects: Vec<Dialect>,
-        signing_algorithms: Vec<SigningAlgorithmId>,
-        encrypting_algorithms: Vec<EncryptionCipher>,
-        compression_algorithms: Vec<CompressionAlgorithm>,
-    ) -> NegotiateRequest {
-        let mut capabilities = GlobalCapabilities::new();
-        let mut security_mode = NegotiateSecurityMode::new();
-        if signing_algorithms.len() > 0 {
-            capabilities.set_encryption(true);
-        }
-
-        let ctx_list = if supported_dialects.contains(&Dialect::Smb0311) {
-            let mut ctx_list = vec![
-                NegotiateContext {
-                    context_type: NegotiateContextType::PreauthIntegrityCapabilities,
-                    data: NegotiateContextValue::PreauthIntegrityCapabilities(
-                        PreauthIntegrityCapabilities {
-                            hash_algorithms: vec![HashAlgorithm::Sha512],
-                            salt: (0..32).map(|_| OsRng.gen()).collect(),
-                        },
-                    ),
-                },
-                NegotiateContext {
-                    context_type: NegotiateContextType::NetnameNegotiateContextId,
-                    data: NegotiateContextValue::NetnameNegotiateContextId(
-                        NetnameNegotiateContextId {
-                            netname: client_netname.into(),
-                        },
-                    ),
-                },
-            ];
-            if encrypting_algorithms.len() > 0 {
-                ctx_list.push(NegotiateContext {
-                    context_type: NegotiateContextType::EncryptionCapabilities,
-                    data: NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
-                        ciphers: encrypting_algorithms,
-                    }),
-                });
-            }
-            if compression_algorithms.len() > 0 {
-                ctx_list.push(NegotiateContext {
-                    context_type: NegotiateContextType::CompressionCapabilities,
-                    data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
-                        flags: CompressionCapsFlags::new().with_chained(true),
-                        compression_algorithms,
-                    }),
-                });
-            }
-            if signing_algorithms.len() > 0 {
-                ctx_list.push(NegotiateContext {
-                    context_type: NegotiateContextType::SigningCapabilities,
-                    data: NegotiateContextValue::SigningCapabilities(SigningCapabilities {
-                        signing_algorithms,
-                    }),
-                });
-                security_mode.set_signing_enabled(true);
-            }
-            Some(ctx_list)
-        } else {
-            None
-        };
-
-        // Set capabilities to 0 if no SMB3 dialects are supported.
-        capabilities = if supported_dialects.iter().all(|d| !d.is_smb3()) {
-            GlobalCapabilities::new()
-        } else {
-            capabilities
-                .with_dfs(true)
-                .with_leasing(true)
-                .with_large_mtu(true)
-                .with_multi_channel(true)
-                .with_persistent_handles(true)
-                .with_directory_leasing(true)
-        };
-
-        NegotiateRequest {
-            security_mode: security_mode,
-            capabilities,
-            client_guid,
-            dialects: supported_dialects,
-            negotiate_context_list: ctx_list,
-        }
-    }
 }
 
 #[binrw::binrw]
@@ -422,7 +331,7 @@ pub struct EncryptionCapabilities {
     #[bw(try_calc(u16::try_from(ciphers.len())))]
     cipher_count: u16,
     #[br(count = cipher_count)]
-    ciphers: Vec<EncryptionCipher>,
+    pub ciphers: Vec<EncryptionCipher>,
 }
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]
@@ -496,7 +405,7 @@ pub struct CompressionCapsFlags {
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 pub struct NetnameNegotiateContextId {
     #[br(parse_with = binrw::helpers::until_eof)]
-    netname: SizedWideString,
+    pub netname: SizedWideString,
 }
 
 #[bitfield]

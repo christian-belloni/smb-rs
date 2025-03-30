@@ -98,7 +98,6 @@ pub struct LogoffRequest {
     #[br(assert(_structure_size == 4))]
     _structure_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(_reserved == 0))]
     _reserved: u16,
 }
 
@@ -109,7 +108,6 @@ pub struct LogoffResponse {
     #[br(assert(_structure_size == 4))]
     _structure_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(_reserved == 0))]
     _reserved: u16,
 }
 

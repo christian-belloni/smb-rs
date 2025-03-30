@@ -64,6 +64,10 @@ pub struct ConnectionConfig {
     /// Specifies the GUID of the client to be used in the SMB2 negotiate request.
     /// If not set, a random GUID will be generated.
     pub client_guid: Option<Guid>,
+
+    /// Specifies whether to disable support for Server-to-client notifications.
+    /// If set to true, the client will NOT support notifications.
+    pub disable_notifications: bool,
 }
 
 impl ConnectionConfig {

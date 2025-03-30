@@ -306,7 +306,9 @@ impl SessionMessageHandler {
 impl MessageHandler for SessionMessageHandler {
     #[maybe_async]
     async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
-        if *self.session_id.read().await? == 0 {
+        if *self.session_id.read().await? == 0
+            || !SessionState::is_set_up(&self.session_state).await?
+        {
             return Err(
                 Error::InvalidState("Session is invalid or not set up!".to_string()).into(),
             );
@@ -329,7 +331,9 @@ impl MessageHandler for SessionMessageHandler {
         &self,
         options: crate::msg_handler::ReceiveOptions<'_>,
     ) -> crate::Result<IncomingMessage> {
-        if *self.session_id.read().await? == 0 {
+        if *self.session_id.read().await? == 0
+            || !SessionState::is_set_up(&self.session_state).await?
+        {
             return Err(Error::InvalidState(
                 "Session is invalid or not set up!".to_string(),
             ));
