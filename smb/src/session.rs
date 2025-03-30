@@ -31,7 +31,7 @@ mod state;
 use authenticator::GssAuthenticator;
 pub use encryptor_decryptor::{MessageDecryptor, MessageEncryptor};
 pub use signer::MessageSigner;
-pub use state::SessionState;
+pub use state::SessionInfo;
 
 pub struct Session {
     handler: HandlerReference<SessionMessageHandler>,
@@ -48,8 +48,6 @@ impl Session {
         conn_info: &Arc<ConnectionInfo>,
     ) -> crate::Result<Session> {
         let req_security_mode = SessionSecurityMode::new().with_signing_enabled(true);
-
-        let mut session_state = Arc::new(Mutex::new(SessionState::default()));
 
         log::debug!("Setting up session for user {}.", user_name);
 
@@ -78,10 +76,10 @@ impl Session {
             )
             .await?;
 
-        let handler = SessionMessageHandler::new(upstream, session_state.clone());
-        // Set session id.
-        *handler.session_id.write().await? = init_response.message.header.session_id;
-        session_state.lock().await?.session_id = init_response.message.header.session_id;
+        let session_id = init_response.message.header.session_id;
+        // Construct info object and handler.
+        let session_state = Arc::new(Mutex::new(SessionInfo::new(session_id)));
+        let handler = SessionMessageHandler::new(session_id, upstream, session_state.clone());
 
         let setup_result = if init_response.message.header.status == Status::Success as u32 {
             unimplemented!()
@@ -100,15 +98,11 @@ impl Session {
         let flags = match setup_result {
             Ok(flags) => flags,
             Err(e) => {
-                // Make sure the session is removed.
-                if let Err(x) = SessionState::invalidate(&session_state).await {
-                    log::debug!("Failed to invalidate session: {}!", x);
-                }
                 // Notify the worker that the session is invalid.
                 if let Err(x) = upstream
                     .worker()
                     .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
-                    .session_ended(*handler.session_id.read().await?)
+                    .session_ended(handler.session_id)
                     .await
                 {
                     log::debug!("Failed to notify worker about session end: {}!", x);
@@ -118,7 +112,7 @@ impl Session {
         };
 
         log::info!("Session setup complete.");
-        SessionState::set_flags(&mut session_state, flags, &conn_info).await?;
+        session_state.lock().await?.set_flags(flags, &conn_info)?;
 
         let session = Session {
             handler,
@@ -132,7 +126,7 @@ impl Session {
     pub async fn setup_more_processing(
         authenticator: &mut GssAuthenticator,
         init_response: IncomingMessage,
-        session_state: &Arc<Mutex<SessionState>>,
+        session_state: &Arc<Mutex<SessionInfo>>,
         req_security_mode: SessionSecurityMode,
         handler: &HandlerReference<SessionMessageHandler>,
         conn_info: &Arc<ConnectionInfo>,
@@ -171,8 +165,7 @@ impl Session {
                         OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
                             SessionSetupRequest::new(next_buf, req_security_mode),
                         )));
-                    let is_about_to_finish = authenticator.keys_exchanged()
-                        && !SessionState::is_set_up(&session_state).await?;
+                    let is_about_to_finish = authenticator.keys_exchanged();
                     request.finalize_preauth_hash = is_about_to_finish;
                     let result = handler.sendo(request).await?;
 
@@ -180,13 +173,11 @@ impl Session {
                     if is_about_to_finish {
                         let ntlm_key: KeyToDerive = authenticator.session_key()?;
 
-                        SessionState::set(
-                            &session_state,
+                        session_state.lock().await?.setup(
                             &ntlm_key,
                             &result.preauth_hash,
                             conn_info,
-                        )
-                        .await?;
+                        )?;
                         log::trace!("Session signing key set.");
 
                         handler
@@ -228,44 +219,33 @@ impl Session {
 }
 
 pub struct SessionMessageHandler {
-    session_id: RwLock<u64>,
+    session_id: u64,
     upstream: Upstream,
 
-    session_state: Arc<Mutex<SessionState>>,
+    session_state: Arc<Mutex<SessionInfo>>,
 }
 
 impl SessionMessageHandler {
     pub fn new(
+        session_id: u64,
         upstream: &Upstream,
-        session_state: Arc<Mutex<SessionState>>,
+        session_state: Arc<Mutex<SessionInfo>>,
     ) -> HandlerReference<SessionMessageHandler> {
         HandlerReference::new(SessionMessageHandler {
-            session_id: RwLock::new(0),
+            session_id,
             upstream: upstream.clone(),
             session_state,
         })
     }
 
     #[maybe_async]
-    pub async fn should_sign(&self) -> crate::Result<bool> {
-        SessionState::signing_enabled(&self.session_state).await
-    }
-
-    #[maybe_async]
-    pub async fn should_encrypt(&self) -> crate::Result<bool> {
-        SessionState::encryption_enabled(&self.session_state).await
-    }
-
-    #[maybe_async]
     async fn logoff(&self) -> crate::Result<()> {
-        if *self.session_id.read().await? == 0 {
-            log::trace!("Session not set up/already logged-off.");
-            return Ok(());
-        }
-
-        if !SessionState::is_set_up(&self.session_state).await? {
-            log::trace!("Session not set up/already logged-off.");
-            return Ok(());
+        {
+            let state = self.session_state.lock().await?;
+            if !state.is_set_up() {
+                log::trace!("Session not set up/already logged-off.");
+                return Ok(());
+            }
         }
 
         log::debug!("Logging off session.");
@@ -274,19 +254,12 @@ impl SessionMessageHandler {
             .send_recv(Content::LogoffRequest(Default::default()))
             .await?;
 
-        // Reset session ID and keys.
-        SessionState::invalidate(&self.session_state).await?;
-        let session_id = {
-            let mut session_id_ref = self.session_id.write().await?;
-            let session_id = *session_id_ref;
-            *session_id_ref = 0;
-            session_id
-        };
+        // This also invalidates the session object.
         self.upstream
             .handler
             .worker()
             .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
-            .session_ended(session_id)
+            .session_ended(self.session_id)
             .await?;
 
         log::info!("Session logged off.");
@@ -306,23 +279,24 @@ impl SessionMessageHandler {
 impl MessageHandler for SessionMessageHandler {
     #[maybe_async]
     async fn sendo(&self, mut msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
-        if *self.session_id.read().await? == 0
-            || !SessionState::is_set_up(&self.session_state).await?
         {
-            return Err(
-                Error::InvalidState("Session is invalid or not set up!".to_string()).into(),
-            );
-        }
+            let session = self.session_state.lock().await?;
+            if session.is_invalid() {
+                return Err(Error::InvalidState("Session is invalid".to_string()).into());
+            }
 
-        // Encrypt?
-        if self.should_encrypt().await? {
-            msg.encrypt = true;
+            if session.is_set_up() {
+                // Encrypt?
+                if session.should_encrypt() {
+                    msg.encrypt = true;
+                }
+                // Sign instead?
+                else {
+                    msg.message.header.flags.set_signed(true);
+                }
+            }
         }
-        // Sign instead?
-        else if self.should_sign().await? {
-            msg.message.header.flags.set_signed(true);
-        }
-        msg.message.header.session_id = *self.session_id.read().await?;
+        msg.message.header.session_id = self.session_id;
         self.upstream.sendo(msg).await
     }
 
@@ -331,12 +305,11 @@ impl MessageHandler for SessionMessageHandler {
         &self,
         options: crate::msg_handler::ReceiveOptions<'_>,
     ) -> crate::Result<IncomingMessage> {
-        if *self.session_id.read().await? == 0
-            || !SessionState::is_set_up(&self.session_state).await?
         {
-            return Err(Error::InvalidState(
-                "Session is invalid or not set up!".to_string(),
-            ));
+            let session = self.session_state.lock().await?;
+            if session.is_invalid() {
+                return Err(Error::InvalidState("Session is invalid".to_string()).into());
+            }
         }
 
         let incoming = self.upstream.recvo(options).await?;
@@ -345,7 +318,7 @@ impl MessageHandler for SessionMessageHandler {
             return Err(Error::InvalidMessage(
                 "No session ID in message that got to session!".to_string(),
             ));
-        } else if incoming.message.header.session_id != *self.session_id.read().await? {
+        } else if incoming.message.header.session_id != self.session_id {
             return Err(Error::InvalidMessage(
                 "Message not for this session!".to_string(),
             ));

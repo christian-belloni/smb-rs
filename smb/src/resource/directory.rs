@@ -64,7 +64,7 @@ impl Directory {
             .read_output()?)
     }
 
-    /// Asynchronously iterates over the directory contents, using the provided pattern and infromation type.
+    /// Asynchronously iterates over the directory contents, using the provided pattern and information type.
     /// # Arguments
     /// * `pattern` - The pattern to match against the file names in the directory. Use wildcards like `*` and `?` to match multiple files.
     /// * `info` - The information type to query. This is a trait object that implements the [`QueryDirectoryInfoValue`] trait.
@@ -90,7 +90,7 @@ impl Directory {
         iter_stream::QueryDirectoryStream::new(this, pattern.to_string()).await
     }
 
-    /// Synchronously iterates over the directory contents, using the provided pattern and infromation type.
+    /// Synchronously iterates over the directory contents, using the provided pattern and information type.
     /// # Arguments
     /// * `pattern` - The pattern to match against the file names in the directory. Use wildcards like `*` and `?` to match multiple files.
     /// # Returns

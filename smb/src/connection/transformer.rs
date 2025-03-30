@@ -3,7 +3,7 @@ use crate::{
     compression::*,
     msg_handler::*,
     packets::{netbios::*, smb2::*},
-    session::SessionState,
+    session::SessionInfo,
 };
 use binrw::prelude::*;
 use maybe_async::*;
@@ -18,7 +18,7 @@ use super::preauth_hash::{PreauthHashState, PreauthHashValue};
 #[derive(Debug)]
 pub struct Transformer {
     /// Sessions opened from this connection.
-    sessions: Mutex<HashMap<u64, Arc<Mutex<SessionState>>>>,
+    sessions: Mutex<HashMap<u64, Arc<Mutex<SessionInfo>>>>,
 
     config: RwLock<TransformerConfig>,
 
@@ -69,7 +69,7 @@ impl Transformer {
 
     /// Notifies that a session has started.
     #[maybe_async]
-    pub async fn session_started(&self, session: Arc<Mutex<SessionState>>) -> crate::Result<()> {
+    pub async fn session_started(&self, session: Arc<Mutex<SessionInfo>>) -> crate::Result<()> {
         let rconfig = self.config.read().await?;
         if !rconfig.negotiated {
             return Err(crate::Error::InvalidState(
@@ -77,7 +77,7 @@ impl Transformer {
             ));
         }
 
-        let session_id = session.lock().await?.session_id;
+        let session_id = session.lock().await?.id();
         self.sessions
             .lock()
             .await?
@@ -91,7 +91,10 @@ impl Transformer {
     pub async fn session_ended(&self, session_id: u64) -> crate::Result<()> {
         let s = { self.sessions.lock().await?.remove(&session_id) };
         match s {
-            Some(_) => Ok(()),
+            Some(session_state) => {
+                session_state.lock().await?.invalidate();
+                Ok(())
+            }
             None => Err(crate::Error::InvalidState("Session not found!".to_string())),
         }
     }
@@ -99,16 +102,16 @@ impl Transformer {
     /// Internal: Returns the session with the given ID.
     #[maybe_async]
     #[inline]
-    async fn get_session(&self, session_id: u64) -> crate::Result<Arc<Mutex<SessionState>>> {
-        if session_id == 0 {
-            return Err(crate::Error::InvalidState("Session ID is 0!".to_string()));
-        }
+    async fn get_session(&self, session_id: u64) -> crate::Result<Arc<Mutex<SessionInfo>>> {
         self.sessions
             .lock()
             .await?
             .get(&session_id)
             .cloned()
-            .ok_or(crate::Error::InvalidState("Session not found!".to_string()))
+            .ok_or(crate::Error::InvalidState(format!(
+                "Session {} not found!",
+                session_id
+            )))
     }
 
     /// Internal: Calculates the next preauth integrity hash value, if required.
@@ -215,7 +218,7 @@ impl Transformer {
                 } else {
                     return Err(crate::Error::TranformFailed(TransformError {
                         outgoing: true,
-                        phase: TranformPhase::EncryptDecrypt,
+                        phase: TransformPhase::EncryptDecrypt,
                         session_id: Some(set_session_id),
                         why: "Message is required to be encrypted, but no encryptor is set up!",
                         msg_id: Some(msg.message.header.message_id),
@@ -241,7 +244,7 @@ impl Transformer {
         }
         .ok_or(crate::Error::TranformFailed(TransformError {
             outgoing: false,
-            phase: TranformPhase::EncodeDecode,
+            phase: TransformPhase::EncodeDecode,
             session_id: None,
             why: "Message is not an SMB2 message!",
             msg_id: None,
@@ -261,7 +264,7 @@ impl Transformer {
                 None => {
                     return Err(crate::Error::TranformFailed(TransformError {
                         outgoing: false,
-                        phase: TranformPhase::EncryptDecrypt,
+                        phase: TransformPhase::EncryptDecrypt,
                         session_id: Some(encrypted_message.header.session_id),
                         why: "Message is encrypted, but no decryptor is set up!",
                         msg_id: None,
@@ -282,7 +285,7 @@ impl Transformer {
                 None => {
                     return Err(crate::Error::TranformFailed(TransformError {
                         outgoing: false,
-                        phase: TranformPhase::CompressDecompress,
+                        phase: TransformPhase::CompressDecompress,
                         session_id: None,
                         why: "Compression is requested, but no decompressor is set up!",
                         msg_id: None,
@@ -309,7 +312,7 @@ impl Transformer {
                 log::error!("Failed to verify incoming message: {:?}", e);
                 return Err(crate::Error::TranformFailed(TransformError {
                     outgoing: false,
-                    phase: TranformPhase::SignVerify,
+                    phase: TransformPhase::SignVerify,
                     session_id: Some(message.header.session_id),
                     why: "Failed to verify incoming message!",
                     msg_id: Some(message.header.message_id),
@@ -352,7 +355,7 @@ impl Transformer {
         } else {
             Err(crate::Error::TranformFailed(TransformError {
                 outgoing: false,
-                phase: TranformPhase::SignVerify,
+                phase: TransformPhase::SignVerify,
                 session_id: Some(session_id),
                 why: "Message is signed, but no verifier is set up!",
                 msg_id: Some(message.header.message_id),
@@ -378,7 +381,7 @@ pub struct TransformError {
     /// If true, the error occurred while transforming an outgoing message.
     /// If false, it occurred while transforming an incoming message.
     pub outgoing: bool,
-    pub phase: TranformPhase,
+    pub phase: TransformPhase,
     pub session_id: Option<u64>,
     pub why: &'static str,
     /// If a message ID is available, it will be set here,
@@ -406,7 +409,7 @@ impl std::fmt::Display for TransformError {
 
 /// The phase of the transformation process.
 #[derive(Debug)]
-pub enum TranformPhase {
+pub enum TransformPhase {
     /// Initial to/from bytes.
     EncodeDecode,
     /// Signature calculation and verification.

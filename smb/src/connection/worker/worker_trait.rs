@@ -7,7 +7,7 @@ use maybe_async::*;
 use crate::{
     connection::{netbios_client::NetBiosClient, transformer::Transformer},
     msg_handler::{IncomingMessage, OutgoingMessage, SendMessageResult},
-    session::SessionState,
+    session::SessionInfo,
 };
 
 /// SMB2 connection worker.
@@ -40,7 +40,7 @@ pub trait Worker: Sized + std::fmt::Debug {
     }
 
     #[maybe_async]
-    async fn session_started(&self, session: Arc<Mutex<SessionState>>) -> crate::Result<()> {
+    async fn session_started(&self, session: Arc<Mutex<SessionInfo>>) -> crate::Result<()> {
         self.transformer().session_started(session).await
     }
 

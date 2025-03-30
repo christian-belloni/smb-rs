@@ -1,10 +1,9 @@
-//! Session state
+//! Session information and state
 
 use std::sync::Arc;
 
 use crate::dialects::DialectImpl;
 use crate::sync_helpers::*;
-use maybe_async::*;
 
 use crate::connection::connection_info::ConnectionInfo;
 use crate::connection::preauth_hash::PreauthHashValue;
@@ -15,32 +14,68 @@ use crate::packets::smb2::{Dialect, EncryptionCipher, SessionFlags, SigningAlgor
 
 use super::{MessageDecryptor, MessageEncryptor, MessageSigner};
 
-/// Holds the state of a session, to be used for actions requiring data from session,
+/// Holds the information of a session, to be used for actions requiring data from session,
 /// without accessing the entire session object.
 /// This struct should be single-per-session, and wrapped in a shared pointer.
 #[derive(Debug)]
-pub struct SessionState {
-    pub session_id: u64,
-
-    flags: SessionFlags,
-
-    signer: Option<MessageSigner>,
-    decryptor: Option<MessageDecryptor>,
-    encryptor: Option<MessageEncryptor>,
+pub struct SessionInfo {
+    session_id: u64,
+    flags: OnceCell<SessionFlags>,
+    state: Option<SessionInfoState>,
 }
 
-impl SessionState {
+/// Holds the algorithms used for the session --
+/// signing, encryption, and decryption algorithms.
+#[derive(Debug)]
+struct SessionAlgos {
+    signer: MessageSigner,
+    encryptor: Option<MessageEncryptor>,
+    decryptor: Option<MessageDecryptor>,
+}
+
+#[derive(Debug, Default)]
+enum SessionInfoState {
+    #[default]
+    /// The session is not set up yet.
+    Initialized,
+    /// The session is set up, but not yet authenticated.
+    SetUp { algos: SessionAlgos },
+    /// The session is invalid, and should not be used anymore.
+    Invalid,
+}
+
+impl SessionInfo {
     pub const NO_PREAUTH_HASH_DERIVE_SIGN_CTX: &[u8] = b"SmbSign\x00";
     pub const NO_PREAUTH_HASH_DERIVE_ECRNYPT_S2C_CTX: &[u8] = b"ServerOut\x00";
     pub const NO_PREAUTH_HASH_DERIVE_ENCRYPT_C2S_CTX: &[u8] = b"ServerIn \x00";
 
-    #[maybe_async]
-    pub async fn set(
-        state: &Arc<Mutex<Self>>,
+    /// Creates a new session info object.
+    pub fn new(session_id: u64) -> Self {
+        Self {
+            session_id,
+            state: Some(SessionInfoState::Initialized),
+            flags: Default::default(),
+        }
+    }
+
+    pub fn id(&self) -> u64 {
+        self.session_id
+    }
+
+    /// Sets up the session state with the given session key and preauth hash.
+
+    pub fn setup(
+        &mut self,
         session_key: &KeyToDerive,
         preauth_hash: &Option<PreauthHashValue>,
         info: &ConnectionInfo,
     ) -> crate::Result<()> {
+        if !matches!(self.state, Some(SessionInfoState::Initialized)) {
+            return Err(crate::Error::InvalidState(
+                "Session is not in state initialized, cannot set up.".to_string(),
+            ));
+        }
+
         if (info.negotiation.dialect_rev == Dialect::Smb0311) != preauth_hash.is_some() {
             return Err(crate::Error::InvalidMessage(
                 "Preauth hash must be present for SMB3.1.1, and not present for SMB3.0.2 or older revisions."
@@ -48,42 +83,49 @@ impl SessionState {
             ));
         }
 
-        let (signer, enc, dec) = if info.negotiation.dialect_rev.is_smb3() {
+        let algos = if info.negotiation.dialect_rev.is_smb3() {
             Self::smb3xx_make_ciphers(session_key, preauth_hash, info)?
         } else {
-            (Self::make_smb2_signer(session_key, info)?, None, None)
+            SessionAlgos {
+                signer: Self::smb2_make_signer(session_key, info)?.into(),
+                encryptor: None,
+                decryptor: None,
+            }
         };
 
-        {
-            let mut state = state.lock().await?;
-            state.signer = Some(signer);
-            state.decryptor = dec;
-            state.encryptor = enc;
-            log::trace!("Session state set up: {:?}", state);
-        }
+        log::trace!("Session algos set up: {:?}", algos);
+        self.state = Some(SessionInfoState::SetUp { algos });
 
         Ok(())
+    }
+
+    fn smb2_make_signer(
+        session_key: &KeyToDerive,
+        info: &ConnectionInfo,
+    ) -> Result<MessageSigner, CryptoError> {
+        debug_assert!(info.negotiation.dialect_rev < Dialect::Smb030);
+        Ok(MessageSigner::new(make_signing_algo(
+            SigningAlgorithmId::HmacSha256,
+            session_key,
+        )?))
     }
 
     fn smb3xx_make_ciphers(
         session_key: &KeyToDerive,
         preauth_hash: &Option<PreauthHashValue>,
         info: &ConnectionInfo,
-    ) -> crate::Result<(
-        MessageSigner,
-        Option<MessageEncryptor>,
-        Option<MessageDecryptor>,
-    )> {
+    ) -> crate::Result<SessionAlgos> {
         let deriver = KeyDeriver::new(session_key);
 
-        let signer = Self::make_signer(
+        let signer = Self::smb3xx_make_signer(
             &deriver,
             info.negotiation.signing_algo,
             &info.dialect,
             preauth_hash,
         )?;
 
-        let (enc, dec) = if let Some((e, d)) = Self::make_cipher_pair(&deriver, info, preauth_hash)?
+        let (enc, dec) = if let Some((e, d)) =
+            Self::smb3xx_make_cipher_pair(&deriver, info, preauth_hash)?
         {
             (Some(e), Some(d))
         } else {
@@ -95,21 +137,14 @@ impl SessionState {
             (None, None)
         };
 
-        Ok((signer, enc, dec))
+        Ok(SessionAlgos {
+            signer,
+            encryptor: enc,
+            decryptor: dec,
+        })
     }
 
-    fn make_smb2_signer(
-        session_key: &KeyToDerive,
-        info: &ConnectionInfo,
-    ) -> Result<MessageSigner, CryptoError> {
-        debug_assert!(info.negotiation.dialect_rev < Dialect::Smb030);
-        Ok(MessageSigner::new(make_signing_algo(
-            SigningAlgorithmId::HmacSha256,
-            session_key,
-        )?))
-    }
-
-    fn make_signer(
+    fn smb3xx_make_signer(
         deriver: &KeyDeriver,
         signing_algo: Option<SigningAlgorithmId>,
         dialect: &Arc<DialectImpl>,
@@ -129,7 +164,7 @@ impl SessionState {
         )?))
     }
 
-    fn make_cipher_pair(
+    fn smb3xx_make_cipher_pair(
         deriver: &KeyDeriver,
         info: &ConnectionInfo,
         preauth_hash: &Option<PreauthHashValue>,
@@ -179,9 +214,8 @@ impl SessionState {
             .unwrap_or(else_val)
     }
 
-    #[maybe_async]
-    pub async fn set_flags(
-        state: &mut Arc<Mutex<Self>>,
+    pub fn set_flags(
+        &mut self,
         flags: SessionFlags,
         conn_info: &ConnectionInfo,
     ) -> crate::Result<()> {
@@ -191,61 +225,57 @@ impl SessionState {
                     .to_string(),
             ));
         }
-        state.lock().await?.flags = flags;
+        self.flags
+            .set(flags)
+            .map_err(|_| crate::Error::InvalidMessage("Session flags already set.".to_string()))?;
+        log::debug!("Session {} flags set: {:?}", self.session_id, flags);
         Ok(())
     }
 
     /// Makes the session invalid, so it may not be used anymore.
     /// This should be called once a session is closed, expired, or failed setup.
     /// This function should never fail.
-    #[maybe_async]
-    pub async fn invalidate(state: &Arc<Mutex<Self>>) -> crate::Result<()> {
-        let mut state = state.lock().await?;
-        state.signer = None;
-        state.decryptor = None;
-        state.encryptor = None;
-        Ok(())
+    pub fn invalidate(&mut self) {
+        log::debug!("Invalidating session {}", self.session_id);
+        self.state = Some(SessionInfoState::Invalid);
     }
 
-    #[maybe_async]
-    pub async fn signing_enabled(state: &Arc<Mutex<Self>>) -> crate::Result<bool> {
-        Ok(state.lock().await?.signer.is_some())
+    pub fn should_encrypt(&self) -> bool {
+        if let Some(SessionInfoState::SetUp { algos }) = &self.state {
+            algos.encryptor.is_some() && self.flags.get().map_or(false, |f| f.encrypt_data())
+        } else {
+            false
+        }
     }
 
-    #[maybe_async]
-    pub async fn encryption_enabled(state: &Arc<Mutex<Self>>) -> crate::Result<bool> {
-        let state = state.lock().await?;
-        return Ok(state.flags.encrypt_data()
-            && state.encryptor.is_some()
-            && state.decryptor.is_some());
+    /// Returns whether the session is set up and ready to use.
+
+    pub fn is_set_up(&self) -> bool {
+        return matches!(self.state, Some(SessionInfoState::SetUp { .. }));
     }
 
-    #[maybe_async]
-    pub async fn is_set_up(state: &Arc<Mutex<Self>>) -> crate::Result<bool> {
-        Ok(Self::encryption_enabled(state).await? || Self::signing_enabled(state).await?)
+    pub fn is_invalid(&self) -> bool {
+        return matches!(self.state, Some(SessionInfoState::Invalid));
     }
 
-    pub fn decryptor(&mut self) -> Option<&mut MessageDecryptor> {
-        self.decryptor.as_mut()
+    pub fn decryptor(&self) -> Option<&MessageDecryptor> {
+        match &self.state {
+            Some(SessionInfoState::SetUp { algos }) => algos.decryptor.as_ref(),
+            _ => None,
+        }
     }
 
-    pub fn encryptor(&mut self) -> Option<&mut MessageEncryptor> {
-        self.encryptor.as_mut()
+    pub fn encryptor(&self) -> Option<&MessageEncryptor> {
+        match &self.state {
+            Some(SessionInfoState::SetUp { algos }) => algos.encryptor.as_ref(),
+            _ => None,
+        }
     }
 
-    pub fn signer(&mut self) -> Option<&mut MessageSigner> {
-        self.signer.as_mut()
-    }
-}
-
-impl Default for SessionState {
-    fn default() -> Self {
-        Self {
-            session_id: Default::default(),
-            flags: SessionFlags::new(),
-            signer: Default::default(),
-            decryptor: Default::default(),
-            encryptor: Default::default(),
+    pub fn signer(&self) -> Option<&MessageSigner> {
+        match &self.state {
+            Some(SessionInfoState::SetUp { algos }) => Some(&algos.signer),
+            _ => None,
         }
     }
 }

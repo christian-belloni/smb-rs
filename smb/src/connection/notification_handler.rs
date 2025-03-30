@@ -1,12 +1,18 @@
 //! Notification messages handler for SMB2.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+#[cfg(not(feature = "async"))]
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
 use maybe_async::*;
 
 use crate::{connection::worker::Worker, msg_handler::IncomingMessage, packets::smb2::Content};
 
 use super::worker::WorkerImpl;
+#[cfg(feature = "async")]
 use crate::sync_helpers::*;
 
 /// A helper struct to handle incoming Server to client notifications.
@@ -19,13 +25,13 @@ pub struct NotificationHandler {
 }
 
 impl NotificationHandler {
-    fn start(worker: &Arc<WorkerImpl>) -> crate::Result<NotificationHandler> {
+    pub fn start(worker: &Arc<WorkerImpl>) -> crate::Result<NotificationHandler> {
         let handler = Self::default();
         handler.start_notification_handler(worker)?;
         Ok(handler)
     }
 
-    fn stop(&self) {
+    pub fn stop(&self) {
         #[cfg(feature = "async")]
         self.cancel.cancel();
         #[cfg(not(feature = "async"))]
@@ -64,7 +70,7 @@ impl NotificationHandler {
     #[sync_impl]
     fn start_notification_handler(&self, worker: &Arc<WorkerImpl>) -> crate::Result<()> {
         let worker = worker.clone();
-        let (tx, mut rx) = std::sync::mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::channel();
         worker.start_notify_channel(tx)?;
         let stopped_ref = self.stopped.clone();
         std::thread::spawn(move || {
@@ -90,17 +96,17 @@ impl NotificationHandler {
     #[maybe_async]
     async fn on_notification_message(
         worker: &Arc<WorkerImpl>,
-        notification: IncomingMessage,
+        msg: IncomingMessage,
     ) -> crate::Result<()> {
-        match notification.message.content {
+        match &msg.message.content {
             Content::ServerToClientNotification(notification) => {
                 log::info!("Received notification: {:?}", notification);
-                match notification.notification {
+                match &notification.notification {
                     crate::packets::smb2::Notification::NotifySessionClosed(
                         notify_session_closed,
                     ) => {
                         log::info!("Session closed notification: {:?}", notify_session_closed);
-                        // TODO: Handle session closed notification
+                        worker.session_ended(msg.message.header.session_id).await?;
                     }
                 }
             }
@@ -108,7 +114,7 @@ impl NotificationHandler {
                 log::info!("Received oplock break notification: {:?}", oplock);
             }
             _ => {
-                log::warn!("Received unexpected notification: {:?}", notification);
+                log::warn!("Received unexpected notification: {:?}", msg);
             }
         }
         Ok(())

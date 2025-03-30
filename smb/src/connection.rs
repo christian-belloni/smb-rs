@@ -1,6 +1,7 @@
 pub mod config;
 pub mod connection_info;
 pub mod netbios_client;
+#[cfg(not(feature = "single_threaded"))]
 pub mod notification_handler;
 pub mod preauth_hash;
 pub mod transformer;
@@ -27,6 +28,7 @@ pub use config::*;
 use connection_info::{ConnectionInfo, NegotiatedProperties};
 use maybe_async::*;
 use netbios_client::NetBiosClient;
+#[cfg(not(feature = "single_threaded"))]
 use notification_handler::NotificationHandler;
 use rand::Rng;
 use std::cmp::max;
@@ -357,13 +359,10 @@ impl Connection {
 
         self.handler.conn_info.set(Arc::new(info)).unwrap();
 
-        let worker = self
-            .handler
-            .worker
-            .get()
-            .ok_or("Worker is uninitialized")
-            .unwrap()
-            .clone();
+        #[cfg(not(feature = "single_threaded"))]
+        if !self.config.disable_notifications {
+            self.handler.start_notification_handler().await?;
+        }
 
         log::info!("Negotiation successful");
         Ok(())
@@ -389,8 +388,8 @@ pub struct ConnectionMessageHandler {
     extra_credits_to_request: u16,
 
     worker: OnceCell<Arc<WorkerImpl>>,
-
-    notification_handler: Option<NotificationHandler>,
+    #[cfg(not(feature = "single_threaded"))]
+    notification_handler: OnceCell<NotificationHandler>,
 
     // Negotiation-related state.
     conn_info: OnceCell<Arc<ConnectionInfo>>,
@@ -413,7 +412,8 @@ impl ConnectionMessageHandler {
             curr_credits: Semaphore::new(1),
             curr_msg_id: AtomicU64::new(1),
             credit_pool: AtomicU16::new(1),
-            notification_handler: None,
+            #[cfg(not(feature = "single_threaded"))]
+            notification_handler: OnceCell::new(),
         }
     }
 
@@ -505,6 +505,17 @@ impl ConnectionMessageHandler {
                 self.curr_credits.add_permits(granted_credits as usize);
             }
         }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "single_threaded"))]
+    #[maybe_async]
+    async fn start_notification_handler(&self) -> crate::Result<()> {
+        let worker = self.worker.get().unwrap();
+        let handler = NotificationHandler::start(worker)?;
+        self.notification_handler
+            .set(handler)
+            .map_err(|_| Error::InvalidState("Notification handler already started".into()))?;
         Ok(())
     }
 }
