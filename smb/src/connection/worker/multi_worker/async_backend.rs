@@ -25,7 +25,7 @@ impl AsyncBackend {
     }
 
     /// Internal message loop handler.
-    async fn recv_loop(
+    async fn loop_receive(
         self: Arc<Self>,
         mut netbios_client: NetBiosClient,
         worker: Arc<MultiWorkerBase<Self>>,
@@ -61,7 +61,7 @@ impl AsyncBackend {
         }
     }
 
-    async fn send_loop(
+    async fn loop_send(
         self: Arc<Self>,
         mut netbios_client: NetBiosClient,
         mut send_channel: mpsc::Receiver<NetBiosTcpMessage>,
@@ -103,7 +103,7 @@ impl AsyncBackend {
         select! {
             // Receive a message from the server.
             message = netbios_client.received_bytes() => {
-                worker.loop_handle_incoming(message).await
+                worker.incoming_data_callback(message).await
             }
             // Cancel the loop.
             _ = self.token.cancelled() => {
@@ -124,7 +124,7 @@ impl AsyncBackend {
         select! {
             // Send a message to the server.
             message = send_channel.recv() => {
-                worker.loop_handle_outgoing(message, netbios_client).await
+                worker.outgoing_data_callback(message, netbios_client).await
             },
             // Cancel the loop.
             _ = self.token.cancelled() => {
@@ -153,12 +153,12 @@ impl MultiWorkerBackend for AsyncBackend {
         let recv_task = {
             let backend_clone = backend_clone.clone();
             let worker = worker.clone();
-            tokio::spawn(async move { backend_clone.recv_loop(netbios_recv, worker).await })
+            tokio::spawn(async move { backend_clone.loop_receive(netbios_recv, worker).await })
         };
 
         let send_task = tokio::spawn(async move {
             backend_clone
-                .send_loop(netbios_send, send_channel_recv, worker)
+                .loop_send(netbios_send, send_channel_recv, worker)
                 .await
         });
         backend

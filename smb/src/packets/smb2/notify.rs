@@ -1,3 +1,4 @@
+//! SMB2 Change Notify Request and Response, and Server to Client Notification
 use std::io::SeekFrom;
 
 use binrw::io::TakeSeekExt;
@@ -68,6 +69,48 @@ pub struct ChangeNotifyResponse {
     #[br(seek_before = SeekFrom::Start(_output_buffer_offset.value.into()))]
     #[br(map_stream = |s| s.take_seek(_output_buffer_length.value.into()), parse_with = binrw::helpers::until_eof)]
     pub buffer: Vec<FileNotifyInformation>,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct ServerToClientNotification {
+    structure_size: u16,
+    #[bw(calc = 0)]
+    _reserved: u16,
+    #[bw(calc = notification.get_type())]
+    notification_type: NotificationType,
+    #[br(args(notification_type))]
+    pub notification: Notification,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+#[brw(repr(u32))]
+pub enum NotificationType {
+    NotifySessionClosed = 0,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+#[br(import(notification_type: NotificationType))]
+pub enum Notification {
+    #[br(pre_assert(notification_type == NotificationType::NotifySessionClosed))]
+    NotifySessionClosed(NotifySessionClosed),
+}
+
+impl Notification {
+    pub fn get_type(&self) -> NotificationType {
+        match self {
+            Notification::NotifySessionClosed(_) => NotificationType::NotifySessionClosed,
+        }
+    }
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct NotifySessionClosed {
+    #[bw(calc = 0)]
+    _reserved: u32,
 }
 
 #[cfg(test)]

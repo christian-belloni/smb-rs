@@ -81,7 +81,7 @@ pub struct SessionSetupResponse {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct SessionFlags {
     pub is_guest: bool,
@@ -98,7 +98,6 @@ pub struct LogoffRequest {
     #[br(assert(_structure_size == 4))]
     _structure_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(_reserved == 0))]
     _reserved: u16,
 }
 
@@ -109,7 +108,6 @@ pub struct LogoffResponse {
     #[br(assert(_structure_size == 4))]
     _structure_size: u16,
     #[bw(calc = 0)]
-    #[br(assert(_reserved == 0))]
     _reserved: u16,
 }
 

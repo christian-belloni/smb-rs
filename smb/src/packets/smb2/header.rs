@@ -25,6 +25,7 @@ pub enum Command {
     QueryInfo = 0x10,
     SetInfo = 0x11,
     OplockBreak = 0x12,
+    ServerToClientNotification = 0x13,
 }
 
 impl std::fmt::Display for Command {
@@ -49,6 +50,7 @@ impl std::fmt::Display for Command {
             Command::QueryInfo => "Query Info",
             Command::SetInfo => "Set Info",
             Command::OplockBreak => "Oplock Break",
+            Command::ServerToClientNotification => "Server to Client Notification",
         };
         write!(f, "{} ({:#x})", message_as_string, *self as u16)
     }

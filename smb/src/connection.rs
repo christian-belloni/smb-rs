@@ -1,6 +1,8 @@
 pub mod config;
 pub mod connection_info;
 pub mod netbios_client;
+#[cfg(not(feature = "single_threaded"))]
+pub mod notification_handler;
 pub mod preauth_hash;
 pub mod transformer;
 pub mod worker;
@@ -20,11 +22,15 @@ use crate::{
     },
     session::Session,
 };
+use aead::OsRng;
 use binrw::prelude::*;
 pub use config::*;
 use connection_info::{ConnectionInfo, NegotiatedProperties};
 use maybe_async::*;
 use netbios_client::NetBiosClient;
+#[cfg(not(feature = "single_threaded"))]
+use notification_handler::NotificationHandler;
+use rand::Rng;
 use std::cmp::max;
 use std::sync::atomic::{AtomicU16, AtomicU64};
 use std::sync::Arc;
@@ -161,17 +167,9 @@ impl Connection {
         };
 
         // Send SMB2 negotiate request
-        let client_guid = self.handler.client_guid;
-        let hostname = self
-            .config
-            .client_name
-            .clone()
-            .unwrap_or_else(|| "smb-client".to_string());
         let response = self
             .handler
-            .send_recv(Content::NegotiateRequest(NegotiateRequest::new(
-                hostname,
-                client_guid,
+            .send_recv(Content::NegotiateRequest(self.make_smb2_neg_request(
                 dialects,
                 encryption_algos,
                 crypto::ENCRYPTING_ALGOS.to_vec(),
@@ -230,6 +228,106 @@ impl Connection {
         })
     }
 
+    /// Creates an SMB2 negotiate request.
+    fn make_smb2_neg_request(
+        &self,
+        supported_dialects: Vec<Dialect>,
+        signing_algorithms: Vec<SigningAlgorithmId>,
+        encrypting_algorithms: Vec<EncryptionCipher>,
+        compression_algorithms: Vec<CompressionAlgorithm>,
+    ) -> NegotiateRequest {
+        let client_guid = self.handler.client_guid;
+        let client_netname = self
+            .config
+            .client_name
+            .clone()
+            .unwrap_or_else(|| "smb-client".to_string());
+        let mut capabilities = GlobalCapabilities::new();
+        let mut security_mode = NegotiateSecurityMode::new();
+        if signing_algorithms.len() > 0 {
+            capabilities.set_encryption(true);
+        }
+
+        // Context list supported on SMB3.1.1+
+        let ctx_list = if supported_dialects.contains(&Dialect::Smb0311) {
+            let mut ctx_list = vec![
+                NegotiateContext {
+                    context_type: NegotiateContextType::PreauthIntegrityCapabilities,
+                    data: NegotiateContextValue::PreauthIntegrityCapabilities(
+                        PreauthIntegrityCapabilities {
+                            hash_algorithms: vec![HashAlgorithm::Sha512],
+                            salt: (0..32).map(|_| OsRng.gen()).collect(),
+                        },
+                    ),
+                },
+                NegotiateContext {
+                    context_type: NegotiateContextType::NetnameNegotiateContextId,
+                    data: NegotiateContextValue::NetnameNegotiateContextId(
+                        NetnameNegotiateContextId {
+                            netname: client_netname.into(),
+                        },
+                    ),
+                },
+            ];
+            if encrypting_algorithms.len() > 0 {
+                ctx_list.push(NegotiateContext {
+                    context_type: NegotiateContextType::EncryptionCapabilities,
+                    data: NegotiateContextValue::EncryptionCapabilities(EncryptionCapabilities {
+                        ciphers: encrypting_algorithms,
+                    }),
+                });
+            }
+            if compression_algorithms.len() > 0 {
+                ctx_list.push(NegotiateContext {
+                    context_type: NegotiateContextType::CompressionCapabilities,
+                    data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
+                        flags: CompressionCapsFlags::new().with_chained(true),
+                        compression_algorithms,
+                    }),
+                });
+            }
+            if signing_algorithms.len() > 0 {
+                ctx_list.push(NegotiateContext {
+                    context_type: NegotiateContextType::SigningCapabilities,
+                    data: NegotiateContextValue::SigningCapabilities(SigningCapabilities {
+                        signing_algorithms,
+                    }),
+                });
+                security_mode.set_signing_enabled(true);
+            }
+            Some(ctx_list)
+        } else {
+            None
+        };
+
+        // Set capabilities to 0 if no SMB3 dialects are supported.
+        capabilities = if supported_dialects.iter().all(|d| !d.is_smb3()) {
+            GlobalCapabilities::new()
+        } else {
+            capabilities = capabilities
+                .with_dfs(true)
+                .with_leasing(true)
+                .with_large_mtu(true)
+                .with_multi_channel(true)
+                .with_persistent_handles(true)
+                .with_directory_leasing(true);
+
+            // Enable notifications by client config + build config.
+            if !self.config.disable_notifications && cfg!(not(feature = "single_threaded")) {
+                capabilities.with_notifications(true);
+            }
+            capabilities
+        };
+
+        NegotiateRequest {
+            security_mode: security_mode,
+            capabilities,
+            client_guid,
+            dialects: supported_dialects,
+            negotiate_context_list: ctx_list,
+        }
+    }
+
     /// Send negotiate messages, potentially
     #[maybe_async]
     async fn negotiate(
@@ -261,6 +359,11 @@ impl Connection {
 
         self.handler.conn_info.set(Arc::new(info)).unwrap();
 
+        #[cfg(not(feature = "single_threaded"))]
+        if !self.config.disable_notifications {
+            self.handler.start_notification_handler().await?;
+        }
+
         log::info!("Negotiation successful");
         Ok(())
     }
@@ -285,6 +388,8 @@ pub struct ConnectionMessageHandler {
     extra_credits_to_request: u16,
 
     worker: OnceCell<Arc<WorkerImpl>>,
+    #[cfg(not(feature = "single_threaded"))]
+    notification_handler: OnceCell<NotificationHandler>,
 
     // Negotiation-related state.
     conn_info: OnceCell<Arc<ConnectionInfo>>,
@@ -307,6 +412,8 @@ impl ConnectionMessageHandler {
             curr_credits: Semaphore::new(1),
             curr_msg_id: AtomicU64::new(1),
             credit_pool: AtomicU16::new(1),
+            #[cfg(not(feature = "single_threaded"))]
+            notification_handler: OnceCell::new(),
         }
     }
 
@@ -398,6 +505,17 @@ impl ConnectionMessageHandler {
                 self.curr_credits.add_permits(granted_credits as usize);
             }
         }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "single_threaded"))]
+    #[maybe_async]
+    async fn start_notification_handler(&self) -> crate::Result<()> {
+        let worker = self.worker.get().unwrap();
+        let handler = NotificationHandler::start(worker)?;
+        self.notification_handler
+            .set(handler)
+            .map_err(|_| Error::InvalidState("Notification handler already started".into()))?;
         Ok(())
     }
 }
