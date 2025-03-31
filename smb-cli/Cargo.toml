@@ -25,3 +25,5 @@ multi_threaded = ["smb/multi_threaded", "sync"]
 sign = ["smb/sign"]
 encrypt = ["smb/encrypt"]
 compress = ["smb/compress"]
+
+profiling = []
