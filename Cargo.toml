@@ -1,8 +1,5 @@
 [workspace]
-members = [
-    "smb",
-    "smb-cli"
-]
+members = ["smb", "smb-cli"]
 resolver = "2"
 
 [workspace.package]
@@ -15,3 +12,8 @@ authors = ["Aviv Naaman <avivnaaman04@gmail.com>"]
 keywords = ["smb", "network", "file-sharing", "windows"]
 categories = ["network-programming", "parsing", "filesystem"]
 readme = "README.md"
+
+# Profiling: release (optimized) with debug info
+[profile.profiling]
+inherits = "release"
+debug = true
