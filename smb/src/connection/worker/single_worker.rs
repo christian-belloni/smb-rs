@@ -2,7 +2,7 @@ use std::{cell::RefCell, sync::Arc, time::Duration};
 
 use crate::{
     connection::{netbios_client::NetBiosClient, transformer::Transformer},
-    msg_handler::{IncomingMessage, OutgoingMessage, SendMessageResult},
+    msg_handler::{IncomingMessage, OutgoingMessage, ReceiveOptions, SendMessageResult},
 };
 
 use super::Worker;
@@ -50,13 +50,7 @@ impl Worker for SingleWorker {
         Ok(SendMessageResult::new(msg_id, hash))
     }
 
-    fn receive(self: &Self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
-        if options.allow_async {
-            return Err(crate::Error::InvalidArgument(
-                "Async receive not supported in single-threaded worker".into(),
-            ));
-        }
-
+    fn receive_next(self: &Self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
         // Receive next message
         let msg = self
             .netbios_client
@@ -83,10 +77,10 @@ impl Worker for SingleWorker {
         let im = self.transformer.transform_incoming(msg)?;
         // Make sure this is our message.
         // In async clients, this is no issue, but here, we can't deal with unordered/unexpected message IDs.
-        if im.message.header.message_id != msg_id {
+        if im.message.header.message_id != options.msg_id {
             return Err(crate::Error::UnexpectedMessageId(
                 im.message.header.message_id,
-                msg_id,
+                options.msg_id,
             ));
         }
         Ok(im)

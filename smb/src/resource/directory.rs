@@ -1,5 +1,4 @@
 use super::ResourceHandle;
-#[cfg(not(feature = "single_threaded"))]
 use crate::msg_handler::{MessageHandler, ReceiveOptions};
 use crate::sync_helpers::Mutex;
 use crate::{
@@ -136,9 +135,7 @@ impl Directory {
     /// # Returns
     /// * A vector of [`FileNotifyInformation`] objects, containing the changes that occurred.
     /// # Notes
-    /// * This method is not available when using a single-threaded client.
     /// * This is a long-running operation, and will block until a result is received, or the operation gets cancelled.
-    #[cfg(not(feature = "single_threaded"))]
     #[maybe_async]
     pub async fn watch(
         &self,

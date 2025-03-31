@@ -242,8 +242,8 @@ impl Connection {
             .client_name
             .clone()
             .unwrap_or_else(|| "smb-client".to_string());
-        let has_signing = signing_algorithms.len() > 0;
-        let has_encryption = encrypting_algorithms.len() > 0;
+        let has_signing = !signing_algorithms.is_empty();
+        let has_encryption = !encrypting_algorithms.is_empty();
 
         // Context list supported on SMB3.1.1+
         let ctx_list = if supported_dialects.contains(&Dialect::Smb0311) {
@@ -275,7 +275,7 @@ impl Connection {
                     context_type: NegotiateContextType::CompressionCapabilities,
                     data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
                         flags: CompressionCapsFlags::new()
-                            .with_chained(compression_algorithms.len() > 0),
+                            .with_chained(!compression_algorithms.is_empty()),
                         compression_algorithms,
                     }),
                 },

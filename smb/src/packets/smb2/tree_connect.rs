@@ -36,14 +36,14 @@ pub struct TreeConnectRequest {
 
     // -- Extension --
     #[br(if(flags.extension_present()))]
-    #[bw(calc = if tree_connect_contexts.len() > 0 { Some(PosMarker::default())} else {None})]
+    #[bw(calc = if tree_connect_contexts.is_empty() { None } else { Some(PosMarker::default()) })]
     tree_connect_context_offset: Option<PosMarker<u32>>,
     #[br(if(flags.extension_present()))]
-    #[bw(if(tree_connect_contexts.len() > 0))]
-    #[bw(calc = if tree_connect_contexts.len() > 0 { Some(tree_connect_contexts.len().try_into().unwrap()) } else {None})]
+    #[bw(if(!tree_connect_contexts.is_empty()))]
+    #[bw(calc = if tree_connect_contexts.is_empty() { None } else { Some(tree_connect_contexts.len().try_into().unwrap()) })]
     tree_connect_context_count: Option<u16>,
     #[br(if(flags.extension_present()))]
-    #[bw(if(tree_connect_contexts.len() > 0))]
+    #[bw(if(!tree_connect_contexts.is_empty()))]
     #[bw(calc = Some([0u8; 10]))]
     _reserved: Option<[u8; 10]>,
     // -- Extension End --
@@ -58,7 +58,7 @@ pub struct TreeConnectRequest {
     #[br(if(flags.extension_present()))]
     #[br(seek_before = tree_connect_context_offset.unwrap().seek_relative(true))]
     #[br(count = tree_connect_context_count.unwrap())]
-    #[bw(if(tree_connect_contexts.len() > 0))]
+    #[bw(if(!tree_connect_contexts.is_empty()))]
     #[bw(write_with = PosMarker::write_aoff_m, args(tree_connect_context_offset.as_ref()))]
     tree_connect_contexts: Vec<TreeConnectContext>,
 }

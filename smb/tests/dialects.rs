@@ -1,3 +1,5 @@
+#![cfg(all(feature = "sign", feature = "encrypt"))]
+
 use common::make_server_connection;
 #[cfg(feature = "async")]
 use futures_util::StreamExt;
@@ -17,7 +19,6 @@ macro_rules! basic_test {
     ([$dialect:ident], [$($encrypt_mode:ident),*]) => {
         $(
             paste::paste! {
-                #[cfg(all(feature = "sign", feature = "encrypt"))]
                 #[test_log::test(maybe_async::test(
                     feature = "sync",
                     async(feature = "async", tokio::test(flavor = "multi_thread"))

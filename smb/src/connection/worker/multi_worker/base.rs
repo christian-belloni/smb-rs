@@ -201,51 +201,6 @@ where
 
         Ok(())
     }
-
-    /// Internal: This function is used to receive a single message from the server,
-    /// with the specified filters.
-    /// # Arguments
-    /// * `msg_id` - The message ID to receive. This function will not return until the message id specified
-    /// is received.
-    /// * `async_id` - The async ID to receive. If this is not None, This function will not return until the async ID
-    ///  specified in an async header is received. Otherwise, it will ignore this parameter.
-    /// # Returns
-    /// * The message received from the server, matching the filters.
-    #[maybe_async]
-    async fn receive_next(self: &Self, msg_id: u64) -> crate::Result<IncomingMessage> {
-        let wait_for_receive = {
-            let mut state = self.state.lock().await?;
-            if self.stopped() {
-                log::trace!("Connection is closed, avoid receiving.");
-                return Err(Error::NotConnected);
-            }
-            if state.pending.contains_key(&msg_id) {
-                log::trace!(
-                    "Message with ID {} is already received, remove from pending.",
-                    &msg_id
-                );
-                let data = state.pending.remove(&msg_id).ok_or_else(|| {
-                    Error::InvalidState("Message ID not found in pending messages.".to_string())
-                })?;
-                return data;
-            }
-
-            log::trace!(
-                "Message with ID {} is not received yet, insert channel and await.",
-                msg_id
-            );
-
-            let (tx, rx) = T::make_notifier_awaiter_pair();
-            state.awaiting.insert(msg_id, tx);
-            rx
-        };
-
-        let timeout = { *self.timeout.read().await? };
-        let wait_result = T::wait_on_waiter(wait_for_receive, timeout).await;
-
-        // Wait for the message to be received.
-        Ok(wait_result?)
-    }
 }
 
 impl<T> Worker for MultiWorkerBase<T>
@@ -318,73 +273,43 @@ where
         Ok(SendMessageResult::new(id, hash))
     }
 
-    /// Receive a message from the server.
-    /// This is a user function that will wait for the message to be received.
     #[maybe_async]
-    async fn receive(self: &Self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
-        if options.msg_id == u64::MAX {
-            return Err(Error::InvalidArgument(
-                "Message ID -1 is not valid for receive()".to_string(),
-            ));
-        }
+    async fn receive_next(
+        self: &Self,
+        options: &ReceiveOptions<'_>,
+    ) -> crate::Result<IncomingMessage> {
+        let wait_for_receive = {
+            let mut state = self.state.lock().await?;
+            if self.stopped() {
+                log::trace!("Connection is closed, avoid receiving.");
+                return Err(Error::NotConnected);
+            }
+            if state.pending.contains_key(&options.msg_id) {
+                log::trace!(
+                    "Message with ID {} is already received, remove from pending.",
+                    &options.msg_id
+                );
+                let data = state.pending.remove(&options.msg_id).ok_or_else(|| {
+                    Error::InvalidState("Message ID not found in pending messages.".to_string())
+                })?;
+                return data;
+            }
 
-        let curr = self.receive_next(options.msg_id).await?;
+            log::trace!(
+                "Message with ID {} is not received yet, insert channel and await.",
+                options.msg_id
+            );
 
-        // Not async -- return the result.
-        if !curr.message.header.flags.async_command() {
-            return Ok(curr);
-        }
-
-        // Handle async.
-        if !options.allow_async {
-            return Err(Error::InvalidArgument(
-                "Async command is not allowed in this context.".to_string(),
-            ));
-        }
-
-        // If not pending, that's the result, right away!
-        if curr.message.header.status != crate::packets::smb2::Status::Pending as u32 {
-            return Ok(curr);
-        }
-
-        log::debug!(
-            "Received async pending message with ID {} and status {}.",
-            curr.message.header.message_id,
-            curr.message.header.status
-        );
-
-        let async_id = match curr.message.header.async_id {
-            Some(async_id) => async_id,
-            None => panic!("Async ID is None, but async command is set. This should not happen."),
+            let (tx, rx) = T::make_notifier_awaiter_pair();
+            state.awaiting.insert(options.msg_id, tx);
+            rx
         };
 
-        if async_id == 0 {
-            return Ok(curr);
-        }
+        let timeout = { *self.timeout.read().await? };
+        let wait_result = T::wait_on_waiter(wait_for_receive, timeout).await;
 
-        loop {
-            let msg = self.receive_next(options.msg_id).await?;
-            // Check if the message is async and has the same ID.
-            if !msg.message.header.flags.async_command()
-                || msg.message.header.message_id != async_id
-            {
-                return Err(Error::InvalidArgument(format!(
-                    "Received message with ID {} but expected async ID {}",
-                    msg.message.header.message_id, async_id
-                )));
-            }
-
-            // We've got a result!
-            if msg.message.header.status != crate::packets::smb2::Status::Pending as u32 {
-                return Ok(msg);
-            }
-
-            log::debug!(
-                "Received another async pending message with ID {} and status {}.",
-                msg.message.header.message_id,
-                msg.message.header.status
-            );
-        }
+        // Wait for the message to be received.
+        Ok(wait_result?)
     }
 
     fn transformer(&self) -> &Transformer {
