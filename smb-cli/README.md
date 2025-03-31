@@ -14,7 +14,7 @@ cargo build --profile profiling --features profiling
 - Build the program as described above.
 - Install `instruments` from Xcode.
 - Launch the program from command line.
-- Open `instruments` and attach, using the right porfiler.
+- Open `instruments` and attach, using the right profiler.
 - Enter in the command line to actually begin the execution of the program.
 
 >[!note]
