@@ -72,7 +72,8 @@ impl Session {
         let init_response = upstream
             .sendo_recvo(
                 request,
-                ReceiveOptions::new().status(&[Status::MoreProcessingRequired, Status::Success]),
+                ReceiveOptions::new()
+                    .with_status(&[Status::MoreProcessingRequired, Status::Success]),
             )
             .await?;
 
@@ -198,7 +199,11 @@ impl Session {
                         Status::MoreProcessingRequired
                     };
                     let response = handler
-                        .recvo(ReceiveOptions::new().status(&[expected_status]).to(result))
+                        .recvo(
+                            ReceiveOptions::new()
+                                .with_status(&[expected_status])
+                                .with_msg_id_filter(result.msg_id),
+                        )
                         .await?;
                     Some(response)
                 }

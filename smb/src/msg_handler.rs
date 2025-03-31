@@ -74,8 +74,8 @@ pub struct MessageForm {
 /// use smb::msg_handler::ReceiveOptions;
 ///
 /// let options = ReceiveOptions::new()
-///    .status(&[Status::Success])
-///    .cmd(Some(Command::Negotiate));
+///    .with_status(&[Status::Success])
+///    .with_cmd(Some(Command::Negotiate));
 /// ```
 #[derive(Debug)]
 pub struct ReceiveOptions<'a> {
@@ -89,7 +89,17 @@ pub struct ReceiveOptions<'a> {
 
     /// When receiving a message, only messages with this msg_id will be returned.
     /// This is mostly used for async message handling, where the client is waiting for a specific message.
-    pub msg_id_filter: u64,
+    pub msg_id: u64,
+
+    /// Whether to allow (and wait for) async responses.
+    /// If set to false, an async response from the server will trigger an error.
+    /// If set to true, the handler will allow async messages to be received,
+    /// and will make the caller wait until the final async response is received --
+    /// the async response with status other than [`Status::Pending`].
+    pub allow_async: bool,
+    // TODO: Add a sync primitive to cancel the receive operation.
+    // consider making an abstract Notify in sync_helpers and use it everywhere.
+    // pub cancel: Notify
 }
 
 impl<'a> ReceiveOptions<'a> {
@@ -97,19 +107,23 @@ impl<'a> ReceiveOptions<'a> {
         Self::default()
     }
 
-    pub fn status(mut self, status: &'a [Status]) -> Self {
+    pub fn with_status(mut self, status: &'a [Status]) -> Self {
         self.status = status;
         self
     }
 
-    pub fn cmd(mut self, cmd: Option<Command>) -> Self {
+    pub fn with_cmd(mut self, cmd: Option<Command>) -> Self {
         self.cmd = cmd;
         self
     }
 
-    // A matching message ID to the sent message.
-    pub fn to(mut self, sent: SendMessageResult) -> Self {
-        self.msg_id_filter = sent.msg_id;
+    pub fn with_msg_id_filter(mut self, msg_id: u64) -> Self {
+        self.msg_id = msg_id;
+        self
+    }
+
+    pub fn with_allow_async(mut self, allow_async: bool) -> Self {
+        self.allow_async = allow_async;
         self
     }
 }
@@ -119,7 +133,8 @@ impl<'a> Default for ReceiveOptions<'a> {
         ReceiveOptions {
             status: &[Status::Success],
             cmd: None,
-            msg_id_filter: 0,
+            msg_id: 0,
+            allow_async: false,
         }
     }
 }
@@ -148,7 +163,7 @@ pub trait MessageHandler {
 
     #[maybe_async]
     async fn recv(&self, cmd: Command) -> crate::Result<IncomingMessage> {
-        self.recvo(ReceiveOptions::new().cmd(Some(cmd))).await
+        self.recvo(ReceiveOptions::new().with_cmd(Some(cmd))).await
     }
 
     #[maybe_async]
@@ -159,7 +174,7 @@ pub trait MessageHandler {
     ) -> crate::Result<IncomingMessage> {
         // Send the message and wait for the matching response.
         let send_result = self.sendo(msg).await?;
-        options.msg_id_filter = send_result.msg_id;
+        options.msg_id = send_result.msg_id;
         self.recvo(options).await
     }
 
@@ -176,7 +191,7 @@ pub trait MessageHandler {
     #[maybe_async]
     async fn send_recv(&self, msg: Content) -> crate::Result<IncomingMessage> {
         let cmd = msg.associated_cmd();
-        self.send_recvo(msg, ReceiveOptions::new().cmd(Some(cmd)))
+        self.send_recvo(msg, ReceiveOptions::new().with_cmd(Some(cmd)))
             .await
     }
 }

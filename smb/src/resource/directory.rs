@@ -34,7 +34,12 @@ impl Directory {
     }
 
     /// An internal method that performs a query on the directory.
-    /// it may be used to query information, but it is best to use
+    /// # Arguments
+    /// * `pattern` - The pattern to match against the file names in the directory. Use wildcards like `*` and `?` to match multiple files.
+    /// * `restart` - Whether to restart the scan or not. This is used to indicate whether this is the first query or not.
+    /// # Returns
+    /// * A vector of [`QueryDirectoryInfoValue`] objects, containing the results of the query.
+    /// * If the query returned [`Status::NoMoreFiles`], an empty vector is returned.
     #[maybe_async]
     async fn send_query<T>(&self, pattern: &str, restart: bool) -> crate::Result<Vec<T>>
     where
@@ -56,7 +61,20 @@ impl Directory {
                 output_buffer_length: 0x1000,
                 file_name: pattern.into(),
             }))
-            .await?;
+            .await;
+
+        const STATUS_NO_MORE_FILES: u32 = Status::NoMoreFiles as u32;
+        let response = match response {
+            Ok(res) => res,
+            Err(Error::UnexpectedMessageStatus(STATUS_NO_MORE_FILES)) => {
+                log::debug!("No more files in directory");
+                return Ok(vec![]);
+            }
+            Err(e) => {
+                log::error!("Error querying directory: {}", e);
+                return Err(e);
+            }
+        };
 
         Ok(response
             .message
@@ -127,8 +145,6 @@ impl Directory {
         filter: NotifyFilter,
         recursive: bool,
     ) -> crate::Result<Vec<FileNotifyInformation>> {
-        // First, the client sends a Change Notify Request to the server,
-        // and gets a pending response.
         let response = self
             .handle
             .handler
@@ -140,41 +156,39 @@ impl Directory {
                     output_buffer_length: 1024,
                 }),
                 ReceiveOptions {
-                    status: &[Status::Pending],
+                    allow_async: true,
                     cmd: Some(Command::ChangeNotify),
                     ..Default::default()
                 },
             )
-            .await?;
+            .await;
 
-        if !response.message.header.flags.async_command() {
-            return Err(Error::InvalidMessage(
-                "Change Notify Request is not async".into(),
-            ));
-        }
-
-        // Now, we wait for the response to be completed, or cancelled.
-        let res = self
-            .handler
-            .recvo(ReceiveOptions {
-                status: &[Status::Success, Status::Cancelled],
-                cmd: Some(Command::ChangeNotify),
-                msg_id_filter: response.message.header.message_id,
-            })
-            .await?;
-
-        match res.message.header.status.try_into()? {
-            Status::Success => {
-                let content = res.message.content.to_changenotifyresponse()?;
-                log::debug!("Change Notify Response: {:?}", content);
-                Ok(content.buffer)
+        let response = match response {
+            Ok(res) => res,
+            // Handle `Status::NotifyCleanup` as a special case
+            Err(Error::UnexpectedMessageStatus(c)) => {
+                let status = match Status::try_from(c) {
+                    Ok(status) => status,
+                    _ => return Err(Error::UnexpectedMessageStatus(c)),
+                };
+                if status == Status::NotifyCleanup {
+                    log::info!("Notify cleanup, no more notifications");
+                    return Ok(vec![]);
+                } else {
+                    log::error!(
+                        "Error watching directory: {}",
+                        Error::UnexpectedMessageStatus(c)
+                    );
+                    return Err(Error::UnexpectedMessageStatus(c));
+                }
             }
-            Status::Cancelled => {
-                log::debug!("Change Notify Response: Cancelled");
-                Err(Error::Cancelled)
+            Err(e) => {
+                log::error!("Error watching directory: {}", e);
+                return Err(e);
             }
-            _ => panic!("Unexpected status: {:?}", res.message.header.status),
-        }
+        };
+
+        Ok(response.message.content.to_changenotifyresponse()?.buffer)
     }
 
     #[maybe_async]
@@ -281,17 +295,17 @@ pub mod iter_stream {
                 let result = directory.send_query::<T>(&pattern, is_first).await;
                 is_first = false;
 
-                const NO_MORE_FILES: u32 = Status::NoMoreFiles as u32;
                 match result {
                     Ok(items) => {
+                        if items.is_empty() {
+                            // No more files, exit the loop
+                            break;
+                        }
                         for item in items {
                             if sender.send(Ok(item)).await.is_err() {
                                 return; // Receiver dropped
                             }
                         }
-                    }
-                    Err(Error::UnexpectedMessageStatus(NO_MORE_FILES)) => {
-                        break; // No more files
                     }
                     Err(e) => {
                         if sender.send(Err(e)).await.is_err() {
@@ -378,21 +392,18 @@ pub mod iter_sync {
             }
 
             // If we have no backlog, we need to query the directory again.
-            let result = self.directory.send_query::<T>(&self.pattern, self.is_first);
+            let query_result = self.directory.send_query::<T>(&self.pattern, self.is_first);
             self.is_first = false;
-            const NO_MORE_FILES: u32 = Status::NoMoreFiles as u32;
-            match result {
-                Ok(items) => {
-                    if items.is_empty() {
+            match query_result {
+                Ok(next_backlog) => {
+                    if next_backlog.is_empty() {
+                        // No more items
                         None
                     } else {
                         // Store the items in the backlog and return the first one.
-                        self.backlog = items;
+                        self.backlog = next_backlog;
                         self.next()
                     }
-                }
-                Err(Error::UnexpectedMessageStatus(NO_MORE_FILES)) => {
-                    None // No more files!
                 }
                 Err(e) => {
                     // Another error occurred, return it.

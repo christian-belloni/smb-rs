@@ -50,7 +50,13 @@ impl Worker for SingleWorker {
         Ok(SendMessageResult::new(msg_id, hash))
     }
 
-    fn receive(self: &Self, msg_id: u64) -> crate::Result<IncomingMessage> {
+    fn receive(self: &Self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
+        if options.allow_async {
+            return Err(crate::Error::InvalidArgument(
+                "Async receive not supported in single-threaded worker".into(),
+            ));
+        }
+
         // Receive next message
         let msg = self
             .netbios_client

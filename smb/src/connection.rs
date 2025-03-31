@@ -543,12 +543,7 @@ impl MessageHandler for ConnectionMessageHandler {
 
     #[maybe_async]
     async fn recvo(&self, options: ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
-        let msg = self
-            .worker
-            .get()
-            .unwrap()
-            .receive(options.msg_id_filter)
-            .await?;
+        let msg = self.worker.get().unwrap().receive(&options).await?;
 
         // Command matching (if needed).
         if let Some(cmd) = options.cmd {
@@ -564,14 +559,12 @@ impl MessageHandler for ConnectionMessageHandler {
             ));
         }
 
-        // Expected status matching.
-
+        // Expected status matching. Error if no match.
         if !options
             .status
             .iter()
             .any(|s| msg.message.header.status == *s as u32)
         {
-            // Return error only if it is unexpected.
             if let Content::ErrorResponse(error_res) = msg.message.content {
                 return Err(Error::ReceivedErrorMessage(
                     msg.message.header.status,

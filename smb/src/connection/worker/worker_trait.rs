@@ -1,6 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{connection::connection_info::ConnectionInfo, sync_helpers::*};
+use crate::{
+    connection::connection_info::ConnectionInfo, msg_handler::ReceiveOptions, sync_helpers::*,
+};
 
 use maybe_async::*;
 
@@ -29,7 +31,7 @@ pub trait Worker: Sized + std::fmt::Debug {
     async fn send(self: &Self, msg: OutgoingMessage) -> crate::Result<SendMessageResult>;
     /// Receive a message from the server.
     /// This is a user function that will wait for the message to be received.
-    async fn receive(self: &Self, msg_id: u64) -> crate::Result<IncomingMessage>;
+    async fn receive(self: &Self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage>;
 
     /// Get the transformer for this worker.
     fn transformer(&self) -> &Transformer;

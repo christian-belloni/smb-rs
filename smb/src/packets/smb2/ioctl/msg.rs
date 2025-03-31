@@ -116,7 +116,7 @@ pub struct IoctlResponse {
     pub file_id: FileId,
     #[bw(calc = PosMarker::default())]
     input_offset: PosMarker<u32>,
-    #[bw(assert(out_buffer.len() == 0))] // there is an exception for pass-through operations.
+    #[bw(assert(out_buffer.is_empty()))] // there is an exception for pass-through operations.
     #[bw(try_calc = in_buffer.len().try_into())]
     #[br(assert(input_count == 0))]
     input_count: u32,

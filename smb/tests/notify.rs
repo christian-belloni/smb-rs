@@ -21,10 +21,10 @@ use common::make_server_connection;
 const NEW_FILE_NAME_UNDER_WORKDIR: &str = "test_file.txt";
 
 #[cfg(not(feature = "single_threaded"))]
-#[maybe_async::test(
+#[test_log::test(maybe_async::test(
     feature = "sync",
     async(feature = "async", tokio::test(flavor = "multi_thread"))
-)]
+))]
 #[serial]
 async fn test_smb_notify() -> Result<(), Box<dyn std::error::Error>> {
     let (_connection, _session, tree) = make_server_connection(
