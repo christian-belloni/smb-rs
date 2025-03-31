@@ -1,3 +1,5 @@
+#![cfg(all(feature = "sign", feature = "encrypt"))]
+
 use common::make_server_connection;
 #[cfg(feature = "async")]
 use futures_util::StreamExt;
@@ -17,11 +19,10 @@ macro_rules! basic_test {
     ([$dialect:ident], [$($encrypt_mode:ident),*]) => {
         $(
             paste::paste! {
-                #[cfg(all(feature = "sign", feature = "encrypt"))]
-                #[maybe_async::test(
+                #[test_log::test(maybe_async::test(
                     feature = "sync",
-                    async(feature = "async", test_log::test(tokio::test(flavor = "multi_thread")))
-                )]
+                    async(feature = "async", tokio::test(flavor = "multi_thread"))
+                ))]
                 #[serial]
                 pub async fn [<test_smbint_ $dialect:lower _e $encrypt_mode:lower>]() -> Result<(), Box<dyn std::error::Error>> {
                     test_smb_integration_dialect_encrpytion_mode(Dialect::$dialect, EncryptionMode::$encrypt_mode).await

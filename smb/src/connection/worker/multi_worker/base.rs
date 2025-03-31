@@ -1,6 +1,7 @@
 use crate::connection::netbios_client::NetBiosClient;
 use crate::connection::transformer::Transformer;
 use crate::connection::worker::Worker;
+use crate::msg_handler::ReceiveOptions;
 use crate::packets::smb2::Command;
 use crate::sync_helpers::*;
 use maybe_async::*;
@@ -104,6 +105,7 @@ where
         // Tranform the message and verify it.
         let msg = self.transformer.transform_incoming(netbios).await;
         let (msg, msg_id) = match msg {
+            // Good flow, message is OK.
             Ok(msg) => {
                 let msg_id = msg.message.header.message_id;
                 (Ok(msg), msg_id)
@@ -122,8 +124,11 @@ where
         // Message ID (-1) is used and valid for notifications -
         // OPLOCK_BREAK or SERVER_TO_CLIENT_NOTIFICATION only.
         if msg_id == u64::MAX {
+            // Nothing's waiting, so if there was an error, return it --
+            // no need to notify anyone else.
             let msg = msg?;
 
+            // Server-to-client commands check.
             if msg.message.header.command != Command::OplockBreak
                 && msg.message.header.command != Command::ServerToClientNotification
             {
@@ -147,12 +152,16 @@ where
 
         // Update the state: If awaited, wake up the task. Else, store it.
         let mut state = self.state.lock().await?;
-        if let Some(tx) = state.awaiting.remove(&msg_id) {
-            log::trace!("Waking up awaiting task for message ID {}.", msg_id);
-            T::send_notify(tx, msg)?;
-        } else {
-            log::trace!("Storing message until awaited: {}.", msg_id);
-            state.pending.insert(msg_id, msg);
+        let message_waiter = state.awaiting.remove(&msg_id);
+        match message_waiter {
+            Some(tx) => {
+                log::trace!("Waking up awaiting task for key {}.", msg_id);
+                T::send_notify(tx, msg)?;
+            }
+            None => {
+                log::trace!("Storing message until awaited: {}.", msg_id);
+                state.pending.insert(msg_id, msg);
+            }
         }
         Ok(())
     }
@@ -264,24 +273,23 @@ where
         Ok(SendMessageResult::new(id, hash))
     }
 
-    /// Receive a message from the server.
-    /// This is a user function that will wait for the message to be received.
     #[maybe_async]
-    async fn receive(self: &Self, msg_id: u64) -> crate::Result<IncomingMessage> {
-        // 1. Insert channel to wait for the message, or return the message if already received.
+    async fn receive_next(
+        self: &Self,
+        options: &ReceiveOptions<'_>,
+    ) -> crate::Result<IncomingMessage> {
         let wait_for_receive = {
             let mut state = self.state.lock().await?;
-
             if self.stopped() {
                 log::trace!("Connection is closed, avoid receiving.");
                 return Err(Error::NotConnected);
             }
-            if state.pending.contains_key(&msg_id) {
+            if state.pending.contains_key(&options.msg_id) {
                 log::trace!(
                     "Message with ID {} is already received, remove from pending.",
-                    msg_id
+                    &options.msg_id
                 );
-                let data = state.pending.remove(&msg_id).ok_or_else(|| {
+                let data = state.pending.remove(&options.msg_id).ok_or_else(|| {
                     Error::InvalidState("Message ID not found in pending messages.".to_string())
                 })?;
                 return data;
@@ -289,11 +297,11 @@ where
 
             log::trace!(
                 "Message with ID {} is not received yet, insert channel and await.",
-                msg_id
+                options.msg_id
             );
 
             let (tx, rx) = T::make_notifier_awaiter_pair();
-            state.awaiting.insert(msg_id, tx);
+            state.awaiting.insert(options.msg_id, tx);
             rx
         };
 

@@ -1,3 +1,5 @@
+#![cfg(all(feature = "sign", feature = "encrypt"))]
+
 use serial_test::serial;
 use smb::{
     connection::EncryptionMode,
@@ -18,15 +20,11 @@ const NUM_ITEMS: usize = 1000;
 
 /// This test is to check if we can iterate over a long directory
 /// To make sure it works properly, since dealing with streams can be tricky.
-#[maybe_async::test(
+#[test_log::test(maybe_async::test(
     feature = "sync",
-    async(
-        feature = "async",
-        test_log::test(tokio::test(flavor = "multi_thread"))
-    )
-)]
-#[serial]
-#[cfg(all(feature = "sign", feature = "encrypt"))] // Run only in a full-feature test, because it takes a while
+    async(feature = "async", tokio::test(flavor = "multi_thread"))
+))]
+#[serial] // Run only in a full-feature test, because it takes a while
 async fn test_smb_iterating_long_directory() -> Result<(), Box<dyn std::error::Error>> {
     let (_smb, _session, tree) = make_server_connection(
         "MyShare",
@@ -51,18 +49,9 @@ async fn test_smb_iterating_long_directory() -> Result<(), Box<dyn std::error::E
     // Create NUM_ITEMS files
     for i in 0..NUM_ITEMS {
         let file_name = format!("{}\\file_{}", LONG_DIR, i);
-        let file = tree
-            .create_file(
-                &file_name,
-                CreateDisposition::Create,
-                FileAccessMask::new()
-                    .with_generic_read(true)
-                    .with_generic_write(true),
-            )
+        tree.create_file(&file_name, CreateDisposition::Create, FileAccessMask::new())
             .await?
             .unwrap_file();
-
-        file.write_block(b"Hello, World!", 0).await?;
     }
 
     // Query directory and make sure our files exist there, delete each file found.

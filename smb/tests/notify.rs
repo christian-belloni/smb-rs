@@ -1,6 +1,5 @@
-#[cfg(not(feature = "single_threaded"))]
+#![cfg(not(feature = "single_threaded"))]
 use serial_test::serial;
-#[cfg(not(feature = "single_threaded"))]
 use smb::{
     connection::EncryptionMode,
     packets::{
@@ -11,20 +10,16 @@ use smb::{
     sync_helpers::*,
     ConnectionConfig,
 };
-#[cfg(not(feature = "single_threaded"))]
 use std::sync::Arc;
-#[cfg(not(feature = "single_threaded"))]
 mod common;
-#[cfg(not(feature = "single_threaded"))]
+
 use common::make_server_connection;
-#[cfg(not(feature = "single_threaded"))]
 const NEW_FILE_NAME_UNDER_WORKDIR: &str = "test_file.txt";
 
-#[cfg(not(feature = "single_threaded"))]
-#[maybe_async::test(
+#[test_log::test(maybe_async::test(
     feature = "sync",
     async(feature = "async", tokio::test(flavor = "multi_thread"))
-)]
+))]
 #[serial]
 async fn test_smb_notify() -> Result<(), Box<dyn std::error::Error>> {
     let (_connection, _session, tree) = make_server_connection(
@@ -63,7 +58,6 @@ async fn test_smb_notify() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(feature = "single_threaded"))]
 #[maybe_async::async_impl]
 fn start_notify_task(sem: Arc<Semaphore>, r: Resource) {
     let filter = NotifyFilter::new()
@@ -81,7 +75,6 @@ fn start_notify_task(sem: Arc<Semaphore>, r: Resource) {
         }
     });
 }
-#[cfg(not(feature = "single_threaded"))]
 #[maybe_async::sync_impl]
 fn start_notify_task(sem: Arc<Semaphore>, r: Resource) {
     let filter = NotifyFilter::new()
@@ -99,7 +92,6 @@ fn start_notify_task(sem: Arc<Semaphore>, r: Resource) {
         }
     });
 }
-#[cfg(not(feature = "single_threaded"))]
 #[maybe_async::maybe_async]
 async fn delete_file_from_another_connection(
     share_name: &str,

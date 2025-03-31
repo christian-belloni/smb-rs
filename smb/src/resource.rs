@@ -108,7 +108,7 @@ impl Resource {
     }
 
     fn check_file_name(name: &str) -> crate::Result<()> {
-        if name.len() == 0 {
+        if name.is_empty() {
             return Ok(());
         }
 

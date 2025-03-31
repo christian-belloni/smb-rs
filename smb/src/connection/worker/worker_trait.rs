@@ -1,6 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{connection::connection_info::ConnectionInfo, sync_helpers::*};
+use crate::{
+    connection::connection_info::ConnectionInfo, msg_handler::ReceiveOptions, sync_helpers::*,
+    Error,
+};
 
 use maybe_async::*;
 
@@ -27,9 +30,93 @@ pub trait Worker: Sized + std::fmt::Debug {
     async fn set_timeout(&self, timeout: Duration) -> crate::Result<()>;
 
     async fn send(self: &Self, msg: OutgoingMessage) -> crate::Result<SendMessageResult>;
+
+    /// Internal: This function is implemented to receive a single message from the server,
+    /// with the specified filters.
+    /// Use [`Worker::receive`] instead, if you're a user of this trait, and not an implementor.
+    /// # Arguments
+    /// * `msg_id` - The message ID to receive. This function will not return until the message id specified
+    /// is received.
+    /// # Returns
+    /// * The message received from the server, matching the filters.
+    async fn receive_next(
+        self: &Self,
+        options: &ReceiveOptions<'_>,
+    ) -> crate::Result<IncomingMessage>;
+
     /// Receive a message from the server.
     /// This is a user function that will wait for the message to be received.
-    async fn receive(self: &Self, msg_id: u64) -> crate::Result<IncomingMessage>;
+    async fn receive(self: &Self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
+        if options.msg_id == u64::MAX {
+            return Err(Error::InvalidArgument(
+                "Message ID -1 is not valid for receive()".to_string(),
+            ));
+        }
+
+        let curr = self.receive_next(options).await?;
+
+        // Not async -- return the result.
+        if !curr.message.header.flags.async_command() {
+            return Ok(curr);
+        }
+
+        // Handle async.
+        if !options.allow_async {
+            return Err(Error::InvalidArgument(
+                "Async command is not allowed in this context.".to_string(),
+            ));
+        }
+
+        // If not pending, that's the result, right away!
+        if curr.message.header.status != crate::packets::smb2::Status::Pending as u32 {
+            return Ok(curr);
+        }
+
+        log::debug!(
+            "Received async pending message with ID {} and status {}.",
+            curr.message.header.message_id,
+            curr.message.header.status
+        );
+
+        let async_id = match curr.message.header.async_id {
+            Some(async_id) => async_id,
+            None => panic!("Async ID is None, but async command is set. This should not happen."),
+        };
+
+        if async_id == 0 {
+            return Ok(curr);
+        }
+
+        loop {
+            let msg = self.receive_next(options).await?;
+            // Check if the message is async and has the same ID.
+            if !msg.message.header.flags.async_command()
+                || msg.message.header.async_id != Some(async_id)
+            {
+                return Err(Error::InvalidArgument(format!(
+                    "Received message for msgid {} with async ID {} but expected async ID {}",
+                    msg.message.header.message_id,
+                    msg.message
+                        .header
+                        .async_id
+                        .map(|x| x.to_string())
+                        .unwrap_or("None".to_string()),
+                    async_id
+                )));
+            }
+
+            // We've got a result!
+            if msg.message.header.status != crate::packets::smb2::Status::Pending as u32 {
+                return Ok(msg);
+            }
+
+            log::debug!(
+                "Received another async pending message with ID {} and status {}.",
+                msg.message.header.message_id,
+                msg.message.header.status
+            );
+        }
+    }
 
     /// Get the transformer for this worker.
     fn transformer(&self) -> &Transformer;

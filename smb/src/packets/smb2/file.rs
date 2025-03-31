@@ -97,7 +97,7 @@ pub struct ReadResponse {
 
     #[br(seek_before = SeekFrom::Start(_data_offset.value as u64))]
     #[br(count = _data_length)]
-    #[bw(assert(buffer.len() > 0))] // sanity _data_length > 0 on write.
+    #[bw(assert(!buffer.is_empty()))] // sanity _data_length > 0 on write.
     #[bw(write_with = PosMarker::write_aoff, args(&_data_offset))]
     pub buffer: Vec<u8>,
 }

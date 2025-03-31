@@ -82,8 +82,8 @@ pub enum Error {
     InvalidConfiguration(String),
     #[error("Invalid argument: {0}")]
     InvalidArgument(String),
-    #[error("Cancelled")]
-    Cancelled,
+    #[error("SMB Operation Cancelled: {0}")]
+    Cancelled(String),
 }
 
 impl<T> From<PoisonError<T>> for Error {
