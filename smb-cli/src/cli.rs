@@ -6,9 +6,11 @@ use clap::{Parser, Subcommand};
 pub struct Cli {
     #[arg(long, default_value = "445")]
     pub port: u16,
+    #[arg(short, long)]
+    pub timeout: Option<u16>,
 
     #[arg(long)]
-    pub timeout: Option<u16>,
+    pub negotiate_smb2_only: bool,
 
     #[arg(short, long)]
     pub username: String,

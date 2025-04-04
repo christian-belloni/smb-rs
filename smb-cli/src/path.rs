@@ -23,12 +23,14 @@ impl UncPath {
         &self,
         cli: &Cli,
     ) -> Result<(Connection, Session, Tree, Option<Resource>), Box<dyn Error>> {
+        // Create a new connection to the server. Use the provided CLI arguments to configure the connection.
         let mut smb = Connection::build(ConnectionConfig {
             max_dialect: Some(Dialect::MAX),
             encryption_mode: EncryptionMode::Allowed,
             timeout: cli
                 .timeout
                 .map(|t| std::time::Duration::from_secs(t.into())),
+            smb2_only_negotiate: cli.negotiate_smb2_only,
             ..Default::default()
         })?;
         smb.connect(format!("{}:{}", self.server, cli.port).as_str())

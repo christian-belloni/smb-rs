@@ -68,6 +68,12 @@ pub struct ConnectionConfig {
     /// Specifies whether to disable support for Server-to-client notifications.
     /// If set to true, the client will NOT support notifications.
     pub disable_notifications: bool,
+
+    /// Whether to avoid multi-protocol negotiation,
+    /// and perform smb2-only negotiation. This results in a
+    /// faster negotiation process, but may not be compatible
+    /// with all servers properly.
+    pub smb2_only_negotiate: bool,
 }
 
 impl ConnectionConfig {
