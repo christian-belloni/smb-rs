@@ -78,7 +78,8 @@ impl Connection {
         netbios_client.connect(address).await?;
 
         log::info!("Connected to {}. Negotiating.", address);
-        self.negotiate(netbios_client, true).await?;
+        self.negotiate(netbios_client, self.config.smb2_only_negotiate)
+            .await?;
 
         Ok(())
     }
@@ -96,10 +97,10 @@ impl Connection {
     async fn negotiate_switch_to_smb2(
         &mut self,
         mut netbios_client: NetBiosClient,
-        negotiate_smb1: bool,
+        smb2_only_neg: bool,
     ) -> crate::Result<Arc<WorkerImpl>> {
-        // Multi-protocol negotiation.
-        if negotiate_smb1 {
+        // Multi-protocol negotiation: Begin with SMB1, expect SMB2.
+        if !smb2_only_neg {
             log::debug!("Negotiating multi-protocol");
             // 1. Send SMB1 negotiate request
             netbios_client
@@ -130,6 +131,15 @@ impl Connection {
             if message.header.message_id != 0 {
                 return Err(Error::InvalidMessage("Expected message ID 0".to_string()));
             }
+            if message.header.credit_charge != 0 || message.header.credit_request != 1 {
+                return Err(Error::InvalidMessage(
+                    "Expected credit charge 0 and request 1 for initial message.".to_string(),
+                ));
+            }
+            // Increase sequence number.
+            self.handler
+                .curr_msg_id
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
 
         Ok(WorkerImpl::start(netbios_client, self.config.timeout()).await?)
@@ -333,7 +343,7 @@ impl Connection {
     async fn negotiate(
         &mut self,
         netbios_client: NetBiosClient,
-        multi_protocol: bool,
+        smb2_only_neg: bool,
     ) -> crate::Result<()> {
         if self.handler.conn_info.get().is_some() {
             return Err(Error::InvalidState("Already negotiated".into()));
@@ -341,7 +351,7 @@ impl Connection {
 
         // Negotiate SMB1, Switch to SMB2
         let worker = self
-            .negotiate_switch_to_smb2(netbios_client, multi_protocol)
+            .negotiate_switch_to_smb2(netbios_client, smb2_only_neg)
             .await?;
 
         self.handler.worker.set(worker).unwrap();
@@ -410,7 +420,7 @@ impl ConnectionMessageHandler {
             conn_info: OnceCell::new(),
             extra_credits_to_request: 4,
             curr_credits: Semaphore::new(1),
-            curr_msg_id: AtomicU64::new(1),
+            curr_msg_id: AtomicU64::new(0),
             credit_pool: AtomicU16::new(1),
             #[cfg(not(feature = "single_threaded"))]
             notification_handler: OnceCell::new(),
