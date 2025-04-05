@@ -4,6 +4,7 @@ use modular_bitfield::prelude::*;
 
 use crate::packets::{
     binrw_util::prelude::{FileTime, PosMarker},
+    dfsc::{ReqGetDfsReferral, ReqGetDfsReferralEx, RespGetDfsReferral},
     fscc::ChainedItem,
     guid::Guid,
     smb2::{Dialect, NegotiateSecurityMode},
@@ -169,13 +170,13 @@ pub struct SrvRequestResumeKey {
 
 /// A trait that helps parsing FSCTL responses by matching the FSCTL code.
 pub trait IoctlFsctlResponseContent: for<'a> BinRead<Args<'a> = ()> + std::fmt::Debug {
-    const FSCTL_CODE: FsctlCodes;
+    const FSCTL_CODES: &'static [FsctlCodes];
 }
 
 macro_rules! impl_fsctl_response {
     ($code:ident, $type:ty) => {
         impl IoctlFsctlResponseContent for $type {
-            const FSCTL_CODE: FsctlCodes = FsctlCodes::$code;
+            const FSCTL_CODES: &'static [FsctlCodes] = &[FsctlCodes::$code];
         }
     };
 }
@@ -298,3 +299,21 @@ pub struct ValidateNegotiateInfoResponse {
 }
 
 impl_fsctl_response!(ValidateNegotiateInfo, ValidateNegotiateInfoResponse);
+
+// DFS get referrals FSCTLs.
+impl IoctlFsctlResponseContent for RespGetDfsReferral {
+    const FSCTL_CODES: &'static [FsctlCodes] =
+        &[FsctlCodes::DfsGetReferrals, FsctlCodes::DfsGetReferralsEx];
+}
+
+impl IoctlRequestContent for ReqGetDfsReferral {
+    fn get_bin_size(&self) -> u32 {
+        (size_of::<u16>() + self.request_file_name.len() * size_of::<u16>()) as u32
+    }
+}
+
+impl IoctlRequestContent for ReqGetDfsReferralEx {
+    fn get_bin_size(&self) -> u32 {
+        (size_of::<u16>() * 2 + size_of::<u32>() + self.request_data.get_bin_size()) as u32
+    }
+}

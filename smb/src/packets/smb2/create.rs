@@ -23,6 +23,12 @@ impl FileId {
         persistent: 0,
         volatile: 0,
     };
+    /// A file ID that is used to indicate that the file ID is not valid,
+    /// with setting all bits to 1 - {0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF}.
+    pub const FULL: FileId = FileId {
+        persistent: u64::MAX,
+        volatile: u64::MAX,
+    };
 }
 
 impl From<[u8; 16]> for FileId {

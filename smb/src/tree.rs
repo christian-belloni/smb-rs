@@ -3,8 +3,11 @@ use std::sync::Arc;
 use maybe_async::*;
 
 use crate::connection::connection_info::ConnectionInfo;
+use crate::packets::dfsc::{ReferralLevel, ReqGetDfsReferral, RespGetDfsReferral};
 use crate::packets::fscc::FileAttributes;
-use crate::packets::smb2::{CreateOptions, ShareType};
+use crate::packets::smb2::{
+    CreateOptions, FileId, FsctlCodes, IoctlReqData, IoctlRequest, IoctlRequestFlags, ShareType,
+};
 use crate::sync_helpers::*;
 
 use crate::{
@@ -188,6 +191,30 @@ impl Tree {
             Default::default(),
         )
         .await
+    }
+
+    #[maybe_async]
+    pub async fn dfs_get_referrals(&self, path: &str) -> crate::Result<RespGetDfsReferral> {
+        let res = self
+            .handler
+            .send_recv(Content::IoctlRequest(IoctlRequest {
+                ctl_code: FsctlCodes::DfsGetReferrals as u32,
+                file_id: FileId::FULL,
+                max_input_response: 1024,
+                max_output_response: 1024,
+                flags: IoctlRequestFlags::new().with_is_fsctl(true),
+                buffer: IoctlReqData::FsctlDfsGetReferrals(ReqGetDfsReferral {
+                    max_referral_level: ReferralLevel::V4,
+                    request_file_name: path.into(),
+                }),
+            }))
+            .await?;
+        let res = res
+            .message
+            .content
+            .to_ioctlresponse()?
+            .parse_fsctl::<RespGetDfsReferral>()?;
+        Ok(res)
     }
 }
 

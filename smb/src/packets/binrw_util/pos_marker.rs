@@ -21,8 +21,8 @@ impl<T> PosMarker<T> {
     }
 
     /// Returns a [SeekFrom] that seeks relative from the position of the PosMarker.
-    pub fn seek_from(&self, start: u64) -> SeekFrom {
-        SeekFrom::Start(self.pos.get().unwrap() + start)
+    pub fn seek_from(&self, offset: u64) -> SeekFrom {
+        SeekFrom::Start(self.pos.get().unwrap() + offset)
     }
 
     fn get_pos(&self) -> binrw::BinResult<u64> {
