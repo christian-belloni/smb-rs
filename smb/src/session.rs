@@ -51,10 +51,7 @@ impl Session {
 
         log::debug!("Setting up session for user {}.", user_name);
 
-        let username = Username::new(user_name, Some("WORKGROUP")).map_err(|e| {
-            Error::UsernameError(format!("Failed to create username: {}", e.to_string()))
-        })?;
-
+        let username = Username::parse(user_name).map_err(|e| Error::SspiError(e.into()))?;
         // Build the authenticator.
         let (mut authenticator, next_buf) = {
             let identity = AuthIdentity {

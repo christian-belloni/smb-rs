@@ -105,12 +105,12 @@ pub struct ReferralHeaderFlags {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ReferralEntry {
     #[bw(calc = value.get_version())]
-    version: u16,
+    pub version: u16,
     #[bw(calc = PosMarker::default())]
     _size: PosMarker<u16>,
     #[br(args(version))]
     #[bw(write_with = PosMarker::write_size, args(&_size))]
-    value: ReferralEntryValue,
+    pub value: ReferralEntryValue,
 }
 
 impl ReferralEntry {
@@ -333,7 +333,7 @@ pub struct ReferralEntryValueV4 {
     pub server_type: DfsServerType,
     // The ONLY valid flag is TargetSetBoundary.
     #[br(assert((referral_entry_flags & !u16::from_le_bytes(ReferralEntryFlagsV4::new().with_target_set_boundary(true).into_bytes())) == 0))]
-    referral_entry_flags: u16,
+    pub referral_entry_flags: u16,
     /// The time-out value, in seconds, of the DFS root or DFS link.
     pub time_to_live: u32,
     // name_list_referral: bool is ALWAYS 0, so we know the type of the value.

@@ -53,8 +53,6 @@ pub enum Error {
     UnsupportedAuthenticationMechanism(String),
     #[error("Compression error: {0}")]
     CompressionError(#[from] crate::compression::CompressionError),
-    #[error("Username error: {0}")]
-    UsernameError(String),
     #[error("Message processing failed. {0}")]
     MessageProcessingError(String),
     #[error("Operation timed out: {0}, took >{1:?}")]

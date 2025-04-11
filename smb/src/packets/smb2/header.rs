@@ -95,6 +95,7 @@ pub enum Status {
     Cancelled = 0xC0000120,
     UserSessionDeleted = 0xC0000203,
     UserAccountLockedOut = 0xC0000234,
+    PathNotCovered = 0xC0000257,
     NetworkSessionExpired = 0xC000035C,
     SmbTooManyUids = 0xC000205A,
 }
@@ -136,6 +137,7 @@ impl std::fmt::Display for Status {
             Status::Cancelled => "Cancelled",
             Status::UserAccountLockedOut => "User Account Locked Out",
             Status::UserSessionDeleted => "User Session Deleted",
+            Status::PathNotCovered => "Path Not Covered",
             Status::NetworkSessionExpired => "Network Session Expired",
             Status::SmbTooManyUids => "SMB Too Many UIDs",
         };

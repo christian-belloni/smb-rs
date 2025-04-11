@@ -3,11 +3,8 @@ use std::sync::Arc;
 use maybe_async::*;
 
 use crate::connection::connection_info::ConnectionInfo;
-use crate::packets::dfsc::{ReferralLevel, ReqGetDfsReferral, RespGetDfsReferral};
 use crate::packets::fscc::FileAttributes;
-use crate::packets::smb2::{
-    CreateOptions, FileId, FsctlCodes, IoctlReqData, IoctlRequest, IoctlRequestFlags, ShareType,
-};
+use crate::packets::smb2::{CreateOptions, ShareFlags, ShareType};
 use crate::sync_helpers::*;
 
 use crate::{
@@ -24,6 +21,8 @@ use crate::{
     session::SessionMessageHandler,
     Error,
 };
+mod dfs_tree;
+pub use dfs_tree::*;
 
 type Upstream = HandlerReference<SessionMessageHandler>;
 
@@ -31,6 +30,7 @@ type Upstream = HandlerReference<SessionMessageHandler>;
 pub struct TreeConnectInfo {
     tree_id: u32,
     share_type: ShareType,
+    share_flags: ShareFlags,
 }
 
 /// A tree represents a share on the server.
@@ -89,6 +89,7 @@ impl Tree {
         let tree_connect_info = TreeConnectInfo {
             tree_id: tree_id,
             share_type: content.share_type,
+            share_flags: content.share_flags,
         };
 
         let t = Tree {
@@ -193,28 +194,19 @@ impl Tree {
         .await
     }
 
-    #[maybe_async]
-    pub async fn dfs_get_referrals(&self, path: &str) -> crate::Result<RespGetDfsReferral> {
-        let res = self
-            .handler
-            .send_recv(Content::IoctlRequest(IoctlRequest {
-                ctl_code: FsctlCodes::DfsGetReferrals as u32,
-                file_id: FileId::FULL,
-                max_input_response: 1024,
-                max_output_response: 1024,
-                flags: IoctlRequestFlags::new().with_is_fsctl(true),
-                buffer: IoctlReqData::FsctlDfsGetReferrals(ReqGetDfsReferral {
-                    max_referral_level: ReferralLevel::V4,
-                    request_file_name: path.into(),
-                }),
-            }))
-            .await?;
-        let res = res
-            .message
-            .content
-            .to_ioctlresponse()?
-            .parse_fsctl::<RespGetDfsReferral>()?;
-        Ok(res)
+    pub fn is_dfs(&self) -> bool {
+        self.handler
+            .connect_info
+            .get()
+            .map(|info| info.share_flags.dfs_root())
+            .unwrap_or(false)
+    }
+
+    pub fn into_dfs_tree(self) -> crate::Result<DfsRootTree> {
+        if !self.is_dfs() {
+            return Err(Error::InvalidState("Tree is not a DFS tree".to_string()));
+        }
+        Ok(DfsRootTree::new(self))
     }
 }
 
