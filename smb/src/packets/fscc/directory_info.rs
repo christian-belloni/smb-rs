@@ -2,7 +2,7 @@ use binrw::prelude::*;
 
 use crate::{file_info_classes, packets::binrw_util::prelude::*};
 
-use super::{ChainedItem, FileAttributes};
+use super::{ChainedItem, FileAttributes, ReparseTag};
 
 file_info_classes! {
     pub QueryDirectoryInfo {
@@ -45,6 +45,15 @@ macro_rules! query_dir_type {
                 #[bw(try_calc = file_name.size().try_into())]
                 _file_name_length: u32, // bytes
 
+                #[br(if(!file_attributes.reparse_point()))]
+                // ea_size and reparse_tag are the same field, parsed differently, based on attributes.
+                #[bw(assert(reparse_tag.is_some() != ea_size.is_some()))]
+                pub ea_size: Option<u32>,
+                #[br(if(file_attributes.reparse_point()))]
+                // Must set file_attributes.reparse_point() to true for this to be some.
+                #[bw(assert(reparse_tag.is_some() == file_attributes.reparse_point()))]
+                pub reparse_tag: Option<ReparseTag>,
+
                 $(
                     $(#[$field_meta])*
                     $vis $field_name: $field_ty,
@@ -59,19 +68,30 @@ macro_rules! query_dir_type {
     };
 }
 
-query_dir_type! {
-    pub struct FileDirectoryInformation {}
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileDirectoryInformationInner {
+    pub file_index: u32,
+    pub creation_time: FileTime,
+    pub last_access_time: FileTime,
+    pub last_write_time: FileTime,
+    pub change_time: FileTime,
+    pub end_of_file: u64,
+    pub allocation_size: u64,
+    pub file_attributes: FileAttributes,
+    #[bw(try_calc = file_name.size().try_into())]
+    _file_name_length: u32,
+    #[br(args(_file_name_length as u64))]
+    pub file_name: SizedWideString,
 }
+pub type FileDirectoryInformation = ChainedItem<FileDirectoryInformationInner>;
 
 query_dir_type! {
-    pub struct FileFullDirectoryInformation {
-        ea_size: u32,
-    }
+    pub struct FileFullDirectoryInformation {}
 }
 
 query_dir_type! {
     pub struct FileId64ExtdBothDirectoryInformation {
-        pub ea_size: u32,
         pub reparse_point_tag: u32,
         pub file_id: u64,
         pub short_name_length: u8,
@@ -85,7 +105,6 @@ query_dir_type! {
 
 query_dir_type! {
     pub struct FileId64ExtdDirectoryInformation {
-        pub ea_size: u32,
         pub reparse_point_tag: u32,
         pub file_id: u64,
     }
@@ -93,7 +112,6 @@ query_dir_type! {
 
 query_dir_type! {
     pub struct FileIdAllExtdBothDirectoryInformation {
-        pub ea_size: u32,
         pub reparse_point_tag: u32,
         pub file_id: u64,
         pub file_id_128: u128,
@@ -106,7 +124,6 @@ query_dir_type! {
 
 query_dir_type! {
     pub struct FileIdAllExtdDirectoryInformation {
-        pub ea_size: u32,
         pub reparse_point_tag: u32,
         pub file_id: u64,
         pub file_id_128: u128,
@@ -115,7 +132,6 @@ query_dir_type! {
 
 query_dir_type! {
     pub struct FileIdBothDirectoryInformation {
-        pub ea_size: u32,
         pub short_name_length: u8,
         #[bw(calc = 0)]
         _reserved1: u8,
@@ -128,7 +144,6 @@ query_dir_type! {
 
 query_dir_type! {
     pub struct FileIdExtdDirectoryInformation {
-        pub ea_size: u32,
         pub reparse_point_tag: u32,
         pub file_id: u128,
     }
@@ -136,7 +151,6 @@ query_dir_type! {
 
 query_dir_type! {
     pub struct FileIdFullDirectoryInformation {
-        pub ea_size: u32,
         #[bw(calc = 0)]
         _reserved: u32,
         pub file_id: u64,
@@ -155,7 +169,6 @@ pub struct FileNamesInformationInner {
 
 query_dir_type! {
     pub struct FileBothDirectoryInformation {
-        pub ea_size: u32,
         pub short_name_length: u8,
         #[bw(calc = 0)]
         _reserved1: u8,

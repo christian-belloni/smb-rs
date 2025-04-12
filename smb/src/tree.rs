@@ -4,7 +4,8 @@ use maybe_async::*;
 
 use crate::connection::connection_info::ConnectionInfo;
 use crate::packets::fscc::FileAttributes;
-use crate::packets::smb2::{CreateOptions, ShareType};
+use crate::packets::smb2::{CreateOptions, ShareFlags, ShareType};
+use crate::resource::FileCreateArgs;
 use crate::sync_helpers::*;
 
 use crate::{
@@ -21,6 +22,8 @@ use crate::{
     session::SessionMessageHandler,
     Error,
 };
+mod dfs_tree;
+pub use dfs_tree::*;
 
 type Upstream = HandlerReference<SessionMessageHandler>;
 
@@ -28,6 +31,7 @@ type Upstream = HandlerReference<SessionMessageHandler>;
 pub struct TreeConnectInfo {
     tree_id: u32,
     share_type: ShareType,
+    share_flags: ShareFlags,
 }
 
 /// A tree represents a share on the server.
@@ -35,14 +39,16 @@ pub struct TreeConnectInfo {
 pub struct Tree {
     handler: HandlerReference<TreeMessageHandler>,
     conn_info: Arc<ConnectionInfo>,
+    dfs: bool,
 }
 
 impl Tree {
     #[maybe_async]
-    pub async fn connect(
+    pub(crate) async fn connect(
         name: &str,
         upstream: &Upstream,
         conn_info: &Arc<ConnectionInfo>,
+        dfs: bool,
     ) -> crate::Result<Tree> {
         // send and receive tree request & response.
         let response = upstream
@@ -86,11 +92,13 @@ impl Tree {
         let tree_connect_info = TreeConnectInfo {
             tree_id: tree_id,
             share_type: content.share_type,
+            share_flags: content.share_flags,
         };
 
         let t = Tree {
             handler: TreeMessageHandler::new(upstream, name.to_string(), tree_connect_info),
             conn_info: conn_info.clone(),
+            dfs,
         };
 
         Ok(t)
@@ -100,21 +108,16 @@ impl Tree {
     /// See [Tree::create_file] and [Tree::create_directory] for an easier API.
     /// # Arguments
     /// * `file_name` - The name of the resource to create. This should NOT contain the share name, or begin with a backslash.
-    /// * `disposition` - The disposition of the resource. This determines how the resource is created or opened. See [CreateDisposition] for more information.
-    /// * `desired_access` - The access mask for the resource. This determines what operations are allowed on the resource. See [FileAccessMask] for more information.
-    /// * `attributes` - The attributes of the resource. This determines how the resource is created. See [FileAttributes] for more information.
-    /// * `options` - The options for the resource. This determines how the resource is created. See [CreateOptions] for more information.
+    /// * `args` - The arguments for the create operation. This includes the desired access, file attributes, and create options.
+    ///     See [`FileCreateArgs`] for more information.
     /// # Returns
     /// * A [Resource] object representing the created resource. This can be a file, directory, pipe, or printer.
+    /// # Notes
+    /// This function automatically handles the following:
+    /// * *DFS operations*: If the share has been opened as a DFS referral share, the create operation will modify the file name to include the DFS path.
+    ///     That is, assuming it is NOT prefixed with "\\". This is rquired for a proper DFS referral file open. ("DFS normalization", MS-SMB2 2.2.13 + 3.3.5.9)
     #[maybe_async]
-    pub async fn create(
-        &self,
-        file_name: &str,
-        disposition: CreateDisposition,
-        options: CreateOptions,
-        desired_access: FileAccessMask,
-        attributes: FileAttributes,
-    ) -> crate::Result<Resource> {
+    pub async fn create(&self, file_name: &str, args: &FileCreateArgs) -> crate::Result<Resource> {
         let info = self
             .handler
             .connect_info
@@ -124,12 +127,10 @@ impl Tree {
         Ok(Resource::create(
             file_name,
             &self.handler,
-            disposition,
-            attributes,
-            options,
-            desired_access,
+            args,
             &self.conn_info,
             info.share_type,
+            self.dfs,
         )
         .await?)
     }
@@ -145,10 +146,12 @@ impl Tree {
     ) -> crate::Result<Resource> {
         self.create(
             file_name,
-            disposition,
-            CreateOptions::new(),
-            desired_access,
-            FileAttributes::new(),
+            &FileCreateArgs {
+                disposition,
+                options: CreateOptions::new(),
+                desired_access,
+                attributes: FileAttributes::new(),
+            },
         )
         .await
     }
@@ -164,10 +167,12 @@ impl Tree {
     ) -> crate::Result<Resource> {
         self.create(
             dir_name,
-            disposition,
-            CreateOptions::new().with_directory_file(true),
-            desired_access.with_generic_read(true),
-            FileAttributes::new().with_directory(true),
+            &FileCreateArgs {
+                disposition,
+                options: CreateOptions::new().with_directory_file(true),
+                desired_access,
+                attributes: FileAttributes::new().with_directory(true),
+            },
         )
         .await
     }
@@ -182,12 +187,29 @@ impl Tree {
     ) -> crate::Result<Resource> {
         self.create(
             file_name,
-            CreateDisposition::Open,
-            Default::default(),
-            desired_access.with_generic_read(true),
-            Default::default(),
+            &FileCreateArgs {
+                disposition: CreateDisposition::Open,
+                options: CreateOptions::new(),
+                desired_access,
+                attributes: FileAttributes::new(),
+            },
         )
         .await
+    }
+
+    pub fn is_dfs_root(&self) -> bool {
+        self.handler
+            .connect_info
+            .get()
+            .map(|info| info.share_flags.dfs_root() && info.share_flags.dfs())
+            .unwrap_or(false)
+    }
+
+    pub fn into_dfs_tree(self) -> crate::Result<DfsRootTree> {
+        if !self.is_dfs_root() {
+            return Err(Error::InvalidState("Tree is not a DFS tree".to_string()));
+        }
+        Ok(DfsRootTree::new(self))
     }
 }
 

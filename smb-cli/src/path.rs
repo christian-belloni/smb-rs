@@ -2,10 +2,10 @@ use crate::cli::Cli;
 use maybe_async::*;
 use smb::{
     connection::{Connection, EncryptionMode},
-    packets::{fscc::*, smb2::*},
+    packets::{dfsc::ReferralEntryValue, fscc::*, smb2::*},
     resource::Resource,
     session::Session,
-    tree::Tree,
+    tree::{DfsRootTree, Tree},
     ConnectionConfig,
 };
 use std::{error::Error, str::FromStr};
@@ -18,11 +18,75 @@ pub struct UncPath {
 }
 
 impl UncPath {
+    /// Connects to the server and opens the specified share.
+    /// Returns the connection, session, tree, and a resource, if the given
+    /// UNC path provides a valid path.
+    ///
+    /// * Resolved DFS referrals.
     #[maybe_async]
     pub async fn connect_and_open(
         &self,
         cli: &Cli,
     ) -> Result<(Connection, Session, Tree, Option<Resource>), Box<dyn Error>> {
+        // Create a new connection to the server. Use the provided CLI arguments to configure the connection.
+        let (conn, session, tree) = self.open_share(cli).await?;
+        if let Some(path) = &self.path {
+            let open_result = tree
+                .open_existing(
+                    path.clone().as_str(),
+                    FileAccessMask::new()
+                        .with_generic_read(true)
+                        .with_generic_write(false),
+                )
+                .await;
+
+            // DFS: Handle Status::PathNotCovered by resolving and opening the target DFS path.
+            const STATUS_PATH_NOT_COVERED: u32 = Status::PathNotCovered as u32;
+            let ref_unc_paths = match open_result {
+                Ok(f) => {
+                    return Ok((conn, session, tree, Some(f)));
+                }
+                Err(e) => match e {
+                    smb::Error::ReceivedErrorMessage(STATUS_PATH_NOT_COVERED, _) => {
+                        let dfs_root = tree.into_dfs_tree()?;
+                        self.resolve_next_dfs_ref(&dfs_root).await?
+                    }
+                    e => return Err(e.into()),
+                },
+            };
+
+            // Open the next DFS referral. Try each referral path, since some may be down.
+            for unc_path in ref_unc_paths {
+                // Try opening the share. Log failure, and try next ref.
+                let (dfs_conn, dfs_session, dfs_tree) = match unc_path.open_share(cli).await {
+                    Ok(x) => x,
+                    Err(e) => {
+                        log::error!("Failed to open DFS referral: {}", e);
+                        continue;
+                    }
+                };
+                // Share connection OK. Any error from here should fail the entire operation.
+                let dfs_file = dfs_tree
+                    .open_existing(
+                        unc_path.path.as_ref().unwrap(),
+                        FileAccessMask::new()
+                            .with_generic_read(true)
+                            .with_generic_write(false),
+                    )
+                    .await?;
+                return Ok((dfs_conn, dfs_session, dfs_tree, Some(dfs_file)));
+            }
+            Err("All DFS referral connection attempts failed!".into())
+        } else {
+            Ok((conn, session, tree, None))
+        }
+    }
+
+    /// Opens a share on the server using the provided CLI arguments.
+    /// Returns the connection, session, and tree instances.
+    #[maybe_async]
+    async fn open_share(&self, cli: &Cli) -> Result<(Connection, Session, Tree), Box<dyn Error>> {
+        log::debug!("Opening the share \\\\{}\\{}", self.server, self.tree);
         // Create a new connection to the server. Use the provided CLI arguments to configure the connection.
         let mut smb = Connection::build(ConnectionConfig {
             max_dialect: Some(Dialect::MAX),
@@ -41,19 +105,79 @@ impl UncPath {
         let tree = session
             .tree_connect(&format!(r"\\{}\{}", self.server, self.tree))
             .await?;
-        if let Some(path) = &self.path {
-            let file = tree
-                .open_existing(
-                    path.clone().as_str(),
-                    FileAccessMask::new()
-                        .with_generic_read(true)
-                        .with_generic_write(false),
-                )
-                .await?;
-            Ok((smb, session, tree, Some(file)))
-        } else {
-            Ok((smb, session, tree, None))
+
+        Ok((smb, session, tree))
+    }
+
+    /// Resolves the next DFS referral for the given UNC path.
+    #[maybe_async]
+    async fn resolve_next_dfs_ref(
+        &self,
+        dfs_root: &DfsRootTree,
+    ) -> Result<Vec<UncPath>, Box<dyn Error>> {
+        log::debug!("Resolving DFS referral for {}", self.to_string());
+        let this_as_string = self.to_string();
+        let dfs_refs = dfs_root.dfs_get_referrals(&this_as_string).await?;
+        if !dfs_refs.referral_header_flags.storage_servers() {
+            return Err(smb::Error::InvalidState(
+                "DFS referral does not contain storage servers".to_string(),
+            )
+            .into());
         }
+        let mut paths = vec![];
+        // Resolve the DFS referral entries.
+        for (indx, curr_referral) in dfs_refs.referral_entries.iter().enumerate() {
+            match &curr_referral.value {
+                ReferralEntryValue::V4(v4) => {
+                    // First? verify flags.
+                    if v4.referral_entry_flags == 0 && indx == 0 {
+                        return Err(smb::Error::InvalidState(
+                            "First DFS Referral is not primary one, invalid message!".to_string(),
+                        )
+                        .into());
+                    }
+                    // The path consumed is a wstring index.
+                    let index_end_of_match =
+                        dfs_refs.path_consumed as usize / std::mem::size_of::<u16>();
+
+                    if index_end_of_match > this_as_string.len() {
+                        return Err(smb::Error::InvalidState(
+                            "DFS path consumed is out of bounds".to_string(),
+                        )
+                        .into());
+                    }
+
+                    let suffix = if index_end_of_match < this_as_string.len() {
+                        this_as_string
+                            .char_indices()
+                            .nth(index_end_of_match)
+                            .ok_or_else(|| {
+                                smb::Error::InvalidState(
+                                    "DFS path consumed is out of bounds".to_string(),
+                                )
+                            })?
+                            .0
+                    } else {
+                        // Empty -- exact cover.
+                        this_as_string.len()
+                    };
+
+                    let unc_str_dest = "\\".to_string()
+                        + &v4.refs.network_address.to_string()
+                        + &this_as_string[suffix..];
+                    let unc_path = UncPath::from_str(&unc_str_dest)?;
+                    log::debug!("Resolved DFS referral to {}", unc_path.to_string());
+                    paths.push(unc_path);
+                }
+                _ => {
+                    return Err(smb::Error::InvalidState(
+                        "Unsupported DFS referral entry value".to_string(),
+                    )
+                    .into());
+                }
+            }
+        }
+        Ok(paths)
     }
 }
 
@@ -73,6 +197,16 @@ impl FromStr for UncPath {
             tree: parts[1].to_string(),
             path: parts.get(2).map(|s| s.to_string()),
         })
+    }
+}
+
+impl ToString for UncPath {
+    fn to_string(&self) -> String {
+        let mut unc = format!(r"\\{}\{}", self.server, self.tree);
+        if let Some(path) = &self.path {
+            unc.push_str(&format!(r"\{}", path));
+        }
+        unc
     }
 }
 

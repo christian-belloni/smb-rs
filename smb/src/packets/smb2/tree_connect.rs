@@ -215,14 +215,14 @@ pub struct TreeConnectResponse {
     #[bw(calc = 0)]
     #[br(assert(_reserved == 0))]
     _reserved: u8,
-    pub share_flags: TreeShareFlags,
+    pub share_flags: ShareFlags,
     pub capabilities: TreeCapabilities,
     pub maximal_access: u32,
 }
 
 #[derive(BitfieldSpecifier, Debug, Clone, Copy)]
 #[bits = 4]
-pub enum TreeConnectShareFlagsCacheMode {
+pub enum ShareCacheMode {
     Manual,
     Auto,
     Vdo,
@@ -233,12 +233,12 @@ pub enum TreeConnectShareFlagsCacheMode {
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
-pub struct TreeShareFlags {
+pub struct ShareFlags {
     pub dfs: bool,
     pub dfs_root: bool,
     #[skip]
     __: B2,
-    pub caching_mode: TreeConnectShareFlagsCacheMode,
+    pub caching_mode: ShareCacheMode,
 
     pub restrict_exclusive_opens: bool,
     pub force_shared_delete: bool,
@@ -342,7 +342,7 @@ mod tests {
             content_parsed,
             TreeConnectResponse {
                 share_type: ShareType::Disk,
-                share_flags: TreeShareFlags::new().with_access_based_directory_enum(true),
+                share_flags: ShareFlags::new().with_access_based_directory_enum(true),
                 capabilities: TreeCapabilities::new(),
                 maximal_access: 0x001f01ff,
             }

@@ -7,7 +7,11 @@ use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 use std::io::SeekFrom;
 
-use crate::packets::{binrw_util::prelude::*, smb2::FileId};
+use crate::packets::{
+    binrw_util::prelude::*,
+    dfsc::{ReqGetDfsReferral, ReqGetDfsReferralEx},
+    smb2::FileId,
+};
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
@@ -86,11 +90,11 @@ ioctl_req_data! {
     LmrRequestResiliency: NetworkResiliencyRequest,
     ValidateNegotiateInfo: ValidateNegotiateInfoRequest,
     // And the rest provide some input buffer.
-    DfsGetReferrals: IoctlBuffer,
+    DfsGetReferrals: ReqGetDfsReferral,
     PipeWait: IoctlBuffer,
     PipeTransceive: IoctlBuffer,
     SetReparsePoint: IoctlBuffer,
-    DfsGetReferralsEx: IoctlBuffer,
+    DfsGetReferralsEx: ReqGetDfsReferralEx,
     FileLevelTrim: IoctlBuffer,
 }
 
@@ -145,16 +149,20 @@ pub struct IoctlResponse {
 }
 
 impl IoctlResponse {
-    pub fn parse_fsctl<T>(&self) -> T
+    /// Parses the response content into the specified type.
+    pub fn parse_fsctl<T>(&self) -> crate::Result<T>
     where
         T: IoctlFsctlResponseContent,
     {
-        if self.ctl_code == T::FSCTL_CODE as u32 {
-            let mut cursor = std::io::Cursor::new(&self.out_buffer);
-            T::read_le(&mut cursor).unwrap()
-        } else {
-            panic!("Invalid FSCTL code for this response.")
+        if !T::FSCTL_CODES.iter().any(|&f| f as u32 == self.ctl_code) {
+            return Err(crate::Error::InvalidArgument(format!(
+                "The type {} is not valid for FSCTL {}!",
+                std::any::type_name::<T>(),
+                self.ctl_code
+            )));
         }
+        let mut cursor = std::io::Cursor::new(&self.out_buffer);
+        Ok(T::read_le(&mut cursor).unwrap())
     }
 }
 

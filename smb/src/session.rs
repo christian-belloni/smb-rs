@@ -51,10 +51,7 @@ impl Session {
 
         log::debug!("Setting up session for user {}.", user_name);
 
-        let username = Username::new(user_name, Some("WORKGROUP")).map_err(|e| {
-            Error::UsernameError(format!("Failed to create username: {}", e.to_string()))
-        })?;
-
+        let username = Username::parse(user_name).map_err(|e| Error::SspiError(e.into()))?;
         // Build the authenticator.
         let (mut authenticator, next_buf) = {
             let identity = AuthIdentity {
@@ -64,8 +61,9 @@ impl Session {
             GssAuthenticator::build(&conn_info.negotiation.auth_buffer, identity)?
         };
 
-        let request = OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
-            SessionSetupRequest::new(next_buf, req_security_mode),
+        let request = OutgoingMessage::new(Content::SessionSetupRequest(SessionSetupRequest::new(
+            next_buf,
+            req_security_mode,
         )));
 
         // response hash is processed later, in the loop.
@@ -162,10 +160,9 @@ impl Session {
                 Some(next_buf) => {
                     // We'd like to update preauth hash with the last request before accept.
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
-                    let mut request =
-                        OutgoingMessage::new(PlainMessage::new(Content::SessionSetupRequest(
-                            SessionSetupRequest::new(next_buf, req_security_mode),
-                        )));
+                    let mut request = OutgoingMessage::new(Content::SessionSetupRequest(
+                        SessionSetupRequest::new(next_buf, req_security_mode),
+                    ));
                     let is_about_to_finish = authenticator.keys_exchanged();
                     request.finalize_preauth_hash = is_about_to_finish;
                     let result = handler.sendo(request).await?;
@@ -216,10 +213,28 @@ impl Session {
         ))
     }
 
+    /// *Internal:* Connects to the specified tree using the current session.
+    #[maybe_async]
+    async fn do_tree_connect(&self, name: &str, dfs: bool) -> crate::Result<Tree> {
+        Tree::connect(name, &self.handler, &self.conn_info, dfs).await
+    }
+
     /// Connects to the specified tree using the current session.
+    /// # Arguments
+    /// * `name` - The name of the tree to connect to. This should be a UNC path, with only server and share,
+    ///     for example, `\\server\share`.
+    /// # Notes
+    /// See [`Session::dfs_tree_connect`] for connecting to a share as a DFS referral.
     #[maybe_async]
     pub async fn tree_connect(&self, name: &str) -> crate::Result<Tree> {
-        Tree::connect(name, &self.handler, &self.conn_info).await
+        self.do_tree_connect(name, false).await
+    }
+
+    /// Connects to the specified tree using the current session as a DFS referral.
+    ///
+    #[maybe_async]
+    pub async fn dfs_tree_connect(&self, name: &str) -> crate::Result<Tree> {
+        self.do_tree_connect(name, true).await
     }
 }
 

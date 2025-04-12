@@ -21,9 +21,9 @@ pub struct OutgoingMessage {
 }
 
 impl OutgoingMessage {
-    pub fn new(message: PlainMessage) -> OutgoingMessage {
+    pub fn new(content: Content) -> OutgoingMessage {
         OutgoingMessage {
-            message,
+            message: PlainMessage::new(content),
             finalize_preauth_hash: false,
             compress: true,
             encrypt: false,
@@ -157,8 +157,7 @@ pub trait MessageHandler {
     // -- Utility functions, accessible from references via Deref.
     #[maybe_async]
     async fn send(&self, msg: Content) -> crate::Result<SendMessageResult> {
-        self.sendo(OutgoingMessage::new(PlainMessage::new(msg)))
-            .await
+        self.sendo(OutgoingMessage::new(msg)).await
     }
 
     #[maybe_async]
@@ -184,15 +183,19 @@ pub trait MessageHandler {
         msg: Content,
         options: ReceiveOptions<'_>,
     ) -> crate::Result<IncomingMessage> {
-        self.sendo_recvo(OutgoingMessage::new(PlainMessage::new(msg)), options)
-            .await
+        self.sendo_recvo(OutgoingMessage::new(msg), options).await
+    }
+
+    #[maybe_async]
+    async fn sendo_recv(&self, msg: OutgoingMessage) -> crate::Result<IncomingMessage> {
+        let cmd = msg.message.content.associated_cmd();
+        let options = ReceiveOptions::new().with_cmd(Some(cmd));
+        self.sendo_recvo(msg, options).await
     }
 
     #[maybe_async]
     async fn send_recv(&self, msg: Content) -> crate::Result<IncomingMessage> {
-        let cmd = msg.associated_cmd();
-        self.send_recvo(msg, ReceiveOptions::new().with_cmd(Some(cmd)))
-            .await
+        self.sendo_recv(OutgoingMessage::new(msg)).await
     }
 }
 

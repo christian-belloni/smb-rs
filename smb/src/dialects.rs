@@ -6,8 +6,8 @@ use crate::{
     connection::{connection_info::NegotiatedProperties, preauth_hash},
     crypto,
     packets::smb2::{
-        CompressionCaps, Dialect, GlobalCapabilities, NegotiateResponse, SigningAlgorithmId,
-        TreeCapabilities, TreeConnectShareFlagsCacheMode, TreeShareFlags,
+        CompressionCaps, Dialect, GlobalCapabilities, NegotiateResponse, ShareCacheMode,
+        ShareFlags, SigningAlgorithmId, TreeCapabilities,
     },
     ConnectionConfig, Error,
 };
@@ -40,9 +40,9 @@ impl DialectImpl {
         mask
     }
 
-    pub fn get_share_flags_mask(&self) -> TreeShareFlags {
-        let mut mask = TreeShareFlags::new()
-            .with_caching_mode(TreeConnectShareFlagsCacheMode::All)
+    pub fn get_share_flags_mask(&self) -> ShareFlags {
+        let mut mask = ShareFlags::new()
+            .with_caching_mode(ShareCacheMode::All)
             .with_dfs(true)
             .with_dfs_root(true)
             .with_restrict_exclusive_opens(true)

@@ -92,7 +92,7 @@ impl NetBiosClient {
 
         select! {
             res = TcpStream::connect(&address) => res.map_err(Into::into),
-            _ = tokio::time::sleep(self.timeout) => Err(crate::Error::OperationTimeout("Tcp connect".to_string(), self.timeout)),
+            _ = tokio::time::sleep(self.timeout) => Err(crate::Error::OperationTimeout(format!("Tcp connect to {}", address), self.timeout)),
         }
     }
     /// Disconnects the client, if not already disconnected.
