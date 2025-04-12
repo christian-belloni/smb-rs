@@ -42,7 +42,7 @@ impl UncPath {
 
             // DFS: Handle Status::PathNotCovered by resolving and opening the target DFS path.
             const STATUS_PATH_NOT_COVERED: u32 = Status::PathNotCovered as u32;
-            let next_unc = match open_result {
+            let ref_unc_paths = match open_result {
                 Ok(f) => {
                     return Ok((conn, session, tree, Some(f)));
                 }
@@ -55,17 +55,28 @@ impl UncPath {
                 },
             };
 
-            // Open the next DFS referral.
-            let (dfs_conn, dfs_session, dfs_tree) = next_unc.open_share(cli).await?;
-            let dfs_file = dfs_tree
-                .open_existing(
-                    next_unc.path.as_ref().unwrap(),
-                    FileAccessMask::new()
-                        .with_generic_read(true)
-                        .with_generic_write(false),
-                )
-                .await?;
-            Ok((dfs_conn, dfs_session, dfs_tree, Some(dfs_file)))
+            // Open the next DFS referral. Try each referral path, since some may be down.
+            for unc_path in ref_unc_paths {
+                // Try opening the share. Log failure, and try next ref.
+                let (dfs_conn, dfs_session, dfs_tree) = match unc_path.open_share(cli).await {
+                    Ok(x) => x,
+                    Err(e) => {
+                        log::error!("Failed to open DFS referral: {}", e);
+                        continue;
+                    }
+                };
+                // Share connection OK. Any error from here should fail the entire operation.
+                let dfs_file = dfs_tree
+                    .open_existing(
+                        unc_path.path.as_ref().unwrap(),
+                        FileAccessMask::new()
+                            .with_generic_read(true)
+                            .with_generic_write(false),
+                    )
+                    .await?;
+                return Ok((dfs_conn, dfs_session, dfs_tree, Some(dfs_file)));
+            }
+            Err("All DFS referral connection attempts failed!".into())
         } else {
             Ok((conn, session, tree, None))
         }
@@ -103,7 +114,7 @@ impl UncPath {
     async fn resolve_next_dfs_ref(
         &self,
         dfs_root: &DfsRootTree,
-    ) -> Result<UncPath, Box<dyn Error>> {
+    ) -> Result<Vec<UncPath>, Box<dyn Error>> {
         log::debug!("Resolving DFS referral for {}", self.to_string());
         let this_as_string = self.to_string();
         let dfs_refs = dfs_root.dfs_get_referrals(&this_as_string).await?;
@@ -113,55 +124,60 @@ impl UncPath {
             )
             .into());
         }
-        let main_node_ref = &dfs_refs.referral_entries[0];
-        match &main_node_ref.value {
-            ReferralEntryValue::V4(v4) => {
-                if v4.referral_entry_flags == 0 {
+        let mut paths = vec![];
+        // Resolve the DFS referral entries.
+        for (indx, curr_referral) in dfs_refs.referral_entries.iter().enumerate() {
+            match &curr_referral.value {
+                ReferralEntryValue::V4(v4) => {
+                    // First? verify flags.
+                    if v4.referral_entry_flags == 0 && indx == 0 {
+                        return Err(smb::Error::InvalidState(
+                            "First DFS Referral is not primary one, invalid message!".to_string(),
+                        )
+                        .into());
+                    }
+                    // The path consumed is a wstring index.
+                    let index_end_of_match =
+                        dfs_refs.path_consumed as usize / std::mem::size_of::<u16>();
+
+                    if index_end_of_match > this_as_string.len() {
+                        return Err(smb::Error::InvalidState(
+                            "DFS path consumed is out of bounds".to_string(),
+                        )
+                        .into());
+                    }
+
+                    let suffix = if index_end_of_match < this_as_string.len() {
+                        this_as_string
+                            .char_indices()
+                            .nth(index_end_of_match)
+                            .ok_or_else(|| {
+                                smb::Error::InvalidState(
+                                    "DFS path consumed is out of bounds".to_string(),
+                                )
+                            })?
+                            .0
+                    } else {
+                        // Empty -- exact cover.
+                        this_as_string.len()
+                    };
+
+                    let unc_str_dest = "\\".to_string()
+                        + &v4.refs.network_address.to_string()
+                        + &this_as_string[suffix..];
+                    let unc_path = UncPath::from_str(&unc_str_dest)?;
+                    log::debug!("Resolved DFS referral to {}", unc_path.to_string());
+                    paths.push(unc_path);
+                }
+                _ => {
                     return Err(smb::Error::InvalidState(
-                        "First DFS Referral is not primary one, invalid message!".to_string(),
+                        "Unsupported DFS referral entry value".to_string(),
                     )
                     .into());
                 }
-                // The path consumed is a wstring index.
-                let index_end_of_match =
-                    dfs_refs.path_consumed as usize / std::mem::size_of::<u16>();
-
-                if index_end_of_match > this_as_string.len() {
-                    return Err(smb::Error::InvalidState(
-                        "DFS path consumed is out of bounds".to_string(),
-                    )
-                    .into());
-                }
-
-                let suffix = if index_end_of_match < this_as_string.len() {
-                    this_as_string
-                        .char_indices()
-                        .nth(index_end_of_match)
-                        .ok_or_else(|| {
-                            smb::Error::InvalidState(
-                                "DFS path consumed is out of bounds".to_string(),
-                            )
-                        })?
-                        .0
-                } else {
-                    // Empty -- exact cover.
-                    this_as_string.len()
-                };
-
-                let unc_str_dest = "\\".to_string()
-                    + &v4.refs.network_address.to_string()
-                    + &this_as_string[suffix..];
-                let unc_path = UncPath::from_str(&unc_str_dest)?;
-                log::debug!("Resolved DFS referral to {}", unc_path.to_string());
-                Ok(unc_path)
-            }
-            _ => {
-                return Err(smb::Error::InvalidState(
-                    "Unsupported DFS referral entry value".to_string(),
-                )
-                .into());
             }
         }
+        Ok(paths)
     }
 }
 

@@ -39,10 +39,7 @@ pub struct TreeConnectInfo {
 pub struct Tree {
     handler: HandlerReference<TreeMessageHandler>,
     conn_info: Arc<ConnectionInfo>,
-    tree_name: String,
-    /// If this share has been opened as a DFS referral share,
-    /// this contains the original dfs share name (e.g. `\\domain.com\dfs`)
-    dfs_share_name: Option<String>,
+    dfs: bool,
 }
 
 impl Tree {
@@ -51,14 +48,8 @@ impl Tree {
         name: &str,
         upstream: &Upstream,
         conn_info: &Arc<ConnectionInfo>,
-        dfs_share_name: Option<String>,
+        dfs: bool,
     ) -> crate::Result<Tree> {
-        if !conn_info.negotiation.caps.dfs() && dfs_share_name.is_some() {
-            return Err(Error::InvalidMessage(
-                "DFS referral share requested, but server does not support DFS!".to_string(),
-            ));
-        }
-
         // send and receive tree request & response.
         let response = upstream
             .send_recv(Content::TreeConnectRequest(TreeConnectRequest::new(name)))
@@ -107,8 +98,7 @@ impl Tree {
         let t = Tree {
             handler: TreeMessageHandler::new(upstream, name.to_string(), tree_connect_info),
             conn_info: conn_info.clone(),
-            tree_name: name.to_string(),
-            dfs_share_name,
+            dfs,
         };
 
         Ok(t)
@@ -134,20 +124,13 @@ impl Tree {
             .get()
             .ok_or(Error::InvalidState("Tree is closed".to_string()))?;
 
-        let file_name = if self.dfs_share_name.is_some() && !file_name.starts_with("\\") {
-            // Concat the share name to the file name if it is not already prefixed with "\\".
-            &format!("{}\\{}", self.dfs_share_name.as_ref().unwrap(), file_name)
-        } else {
-            file_name
-        };
-
         Ok(Resource::create(
             file_name,
             &self.handler,
             args,
             &self.conn_info,
             info.share_type,
-            self.dfs_share_name.is_some(),
+            self.dfs,
         )
         .await?)
     }

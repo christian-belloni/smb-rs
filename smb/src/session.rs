@@ -215,12 +215,8 @@ impl Session {
 
     /// *Internal:* Connects to the specified tree using the current session.
     #[maybe_async]
-    async fn do_tree_connect(
-        &self,
-        name: &str,
-        dfs_share_name: Option<String>,
-    ) -> crate::Result<Tree> {
-        Tree::connect(name, &self.handler, &self.conn_info, dfs_share_name).await
+    async fn do_tree_connect(&self, name: &str, dfs: bool) -> crate::Result<Tree> {
+        Tree::connect(name, &self.handler, &self.conn_info, dfs).await
     }
 
     /// Connects to the specified tree using the current session.
@@ -231,21 +227,14 @@ impl Session {
     /// See [`Session::dfs_tree_connect`] for connecting to a share as a DFS referral.
     #[maybe_async]
     pub async fn tree_connect(&self, name: &str) -> crate::Result<Tree> {
-        self.do_tree_connect(name, None).await
+        self.do_tree_connect(name, false).await
     }
 
     /// Connects to the specified tree using the current session as a DFS referral.
-    /// A DFS referral is found by performing DFS referral FSCTL on a DFS root's subdirectory.
-    /// See `DfsRootTree::dfs_get_referrals` for qurying the referrals.
     ///
-    /// # Arguments
-    /// * `name` - The name of the tree to connect to. This should be a UNC path, with only server and share,
-    ///     for example, `\\server\share`.
-    /// * `dfs_share` - The DFS share name that is being connected to. This is the name of the DFS share
-    ///    that this referral is for. The shape of the DFS share is usually `\domain\dfs_root`.
     #[maybe_async]
-    pub async fn dfs_tree_connect(&self, name: &str, dfs_share: String) -> crate::Result<Tree> {
-        self.do_tree_connect(name, dfs_share.into()).await
+    pub async fn dfs_tree_connect(&self, name: &str) -> crate::Result<Tree> {
+        self.do_tree_connect(name, true).await
     }
 }
 
