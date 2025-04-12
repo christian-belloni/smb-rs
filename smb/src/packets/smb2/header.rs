@@ -225,7 +225,7 @@ pub struct HeaderFlags {
     pub priority_mask: B3,
     #[skip]
     __: B21,
-    pub dfs_operations: bool,
+    pub dfs_operation: bool,
     pub replay_operation: bool,
     #[skip]
     __: B2,

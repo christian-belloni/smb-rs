@@ -5,7 +5,7 @@ use time::PrimitiveDateTime;
 
 use crate::{
     connection::connection_info::ConnectionInfo,
-    msg_handler::{HandlerReference, MessageHandler},
+    msg_handler::{HandlerReference, MessageHandler, OutgoingMessage},
     packets::{fscc::*, security::SecurityDescriptor, smb2::*},
     tree::TreeMessageHandler,
     Error,
@@ -19,6 +19,13 @@ pub use file::*;
 
 type Upstream = HandlerReference<TreeMessageHandler>;
 
+pub struct FileCreateArgs {
+    pub disposition: CreateDisposition,
+    pub attributes: FileAttributes,
+    pub options: CreateOptions,
+    pub desired_access: FileAccessMask,
+}
+
 /// A resource opened by a create request.
 pub enum Resource {
     File(File),
@@ -27,19 +34,14 @@ pub enum Resource {
 
 impl Resource {
     #[maybe_async]
-    pub async fn create(
+    pub(crate) async fn create(
         name: &str,
         upstream: &Upstream,
-        create_disposition: CreateDisposition,
-        attributes: FileAttributes,
-        options: CreateOptions,
-        desired_access: FileAccessMask,
+        create_args: &FileCreateArgs,
         conn_info: &Arc<ConnectionInfo>,
         share_type: ShareType,
+        is_dfs: bool,
     ) -> crate::Result<Resource> {
-        // Prevent invalid file names in a first place.
-        Self::check_file_name(name)?;
-
         let share_access = if share_type == ShareType::Disk {
             ShareAccessFlags::new()
                 .with_read(true)
@@ -49,28 +51,30 @@ impl Resource {
             ShareAccessFlags::new()
         };
 
-        if share_type == ShareType::Print && create_disposition != CreateDisposition::Create {
+        if share_type == ShareType::Print && create_args.disposition != CreateDisposition::Create {
             return Err(Error::InvalidArgument(
                 "Printer can only accept CreateDisposition::Create.".to_string(),
             ));
         }
 
-        let response = upstream
-            .send_recv(Content::CreateRequest(CreateRequest {
-                requested_oplock_level: OplockLevel::None,
-                impersonation_level: ImpersonationLevel::Impersonation,
-                desired_access,
-                file_attributes: attributes,
-                share_access,
-                create_disposition,
-                create_options: options,
-                name: name.into(),
-                contexts: vec![
-                    QueryMaximalAccessRequest::default().into(),
-                    QueryOnDiskIdReq.into(),
-                ],
-            }))
-            .await?;
+        let mut msg = OutgoingMessage::new(Content::CreateRequest(CreateRequest {
+            requested_oplock_level: OplockLevel::None,
+            impersonation_level: ImpersonationLevel::Impersonation,
+            desired_access: create_args.desired_access,
+            file_attributes: create_args.attributes,
+            share_access,
+            create_disposition: create_args.disposition,
+            create_options: create_args.options,
+            name: name.into(),
+            contexts: vec![
+                QueryMaximalAccessRequest::default().into(),
+                QueryOnDiskIdReq.into(),
+            ],
+        }));
+        // Make sure to set DFS if required.
+        msg.message.header.flags.set_dfs_operation(is_dfs);
+
+        let response = upstream.sendo_recv(msg).await?;
 
         let content = response.message.content.to_createresponse()?;
         log::info!("Created file '{}', ({:?})", name, content.file_id);
@@ -105,27 +109,6 @@ impl Resource {
                 content.endof_file,
             )))
         }
-    }
-
-    fn check_file_name(name: &str) -> crate::Result<()> {
-        if name.is_empty() {
-            return Ok(());
-        }
-
-        let chars = name.chars();
-
-        let first_char = chars
-            .clone()
-            .next()
-            .ok_or_else(|| Error::InvalidArgument("File name is empty".to_string()))?;
-
-        if first_char == '\\' {
-            return Err(Error::InvalidArgument(
-                "File name cannot start with a backslash".to_string(),
-            ));
-        }
-
-        Ok(())
     }
 
     pub fn as_file(&self) -> Option<&File> {

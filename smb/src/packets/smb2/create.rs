@@ -100,7 +100,7 @@ pub enum ImpersonationLevel {
 }
 
 #[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[brw(repr(u32))]
 pub enum CreateDisposition {
     Superseded = 0x0,
