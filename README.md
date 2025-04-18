@@ -18,23 +18,13 @@ Check out the `info` and the `copy` sub-commands for more information.
 For advanced usage, and crate usage, see the [Advanced Usage](#advanced-usage) section.
 ## Features
 ### General
-- ✅ SMB 2.X & 3.X support.
-- ✅ Full file operations support.
+- ✅ Full SMB 2.X & 3.X support.
 - ✅ Async + Multi-threaded + Single-threaded backends.
-- ✅ Support for all file operations.
 - ✅ Compression + Encryption support.
-- ✅ Windows, Linux & MacOS support.
-- ✅ CLI tool for basic operations.
+- ✅ SMB over QUIC support.
+- ✅ Cross-platform (Windows, Linux, MacOS).
 
 You are welcome to see the project's roadmap in the [GitHub Project](https://github.com/users/AvivNaaman/projects/2).
-### Dialect Support
-| Dialect | Supported | Notes |
-| ------- | --------- | ----- |
-| 3.1.1   | ✅         |       |
-| 3.0.2   | ✅         |       |
-| 3.0     | ✅         |       |
-| 2.1     | ✅         |       |
-| 2.0.2   | ✅         |       |
 
 ### Algorithm Support
 | Type            | Algorithm    |     | Feature Name           |

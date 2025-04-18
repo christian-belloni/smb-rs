@@ -20,7 +20,7 @@ macro_rules! basic_test {
         $(
             paste::paste! {
                 #[test_log::test(maybe_async::test(
-                    feature = "sync",
+                    not(feature = "async"),
                     async(feature = "async", tokio::test(flavor = "multi_thread"))
                 ))]
                 #[serial]

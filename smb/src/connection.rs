@@ -258,7 +258,7 @@ impl Connection {
 
         // Context list supported on SMB3.1.1+
         let ctx_list = if supported_dialects.contains(&Dialect::Smb0311) {
-            let ctx_list = vec![
+            let mut ctx_list = vec![
                 NegotiateContext {
                     context_type: NegotiateContextType::PreauthIntegrityCapabilities,
                     data: NegotiateContextValue::PreauthIntegrityCapabilities(
@@ -284,7 +284,7 @@ impl Connection {
                 },
                 NegotiateContext {
                     context_type: NegotiateContextType::CompressionCapabilities,
-                    data: NegotiateContextValue::CompressionCapabilities(CompressionCaps {
+                    data: NegotiateContextValue::CompressionCapabilities(CompressionCapabilities {
                         flags: CompressionCapsFlags::new()
                             .with_chained(!compression_algorithms.is_empty()),
                         compression_algorithms,
@@ -297,6 +297,15 @@ impl Connection {
                     }),
                 },
             ];
+            // QUIC
+            if matches!(self.config.transport, TransportConfig::Quic(_)) {
+                ctx_list.push(NegotiateContext {
+                    context_type: NegotiateContextType::TransportCapabilities,
+                    data: NegotiateContextValue::TransportCapabilities(
+                        TransportCapabilities::new().with_accept_transport_layer_security(true),
+                    ),
+                });
+            }
             Some(ctx_list)
         } else {
             None

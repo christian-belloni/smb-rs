@@ -1,9 +1,9 @@
-use std::io::Cursor;
-
 use binrw::{BinRead, BinWrite};
 #[cfg(feature = "async")]
 use futures_core::future::BoxFuture;
+#[cfg(feature = "async")]
 use futures_util::FutureExt;
+use std::io::Cursor;
 
 use crate::packets::transport::SmbTcpMessageHeader;
 
@@ -28,6 +28,7 @@ pub trait SmbTransportWrite: Send {
     #[cfg(not(feature = "async"))]
     fn send_raw(&mut self, buf: &[u8]) -> crate::Result<()>;
 
+    #[cfg(feature = "async")]
     fn send<'a>(&'a mut self, message: &'a [u8]) -> BoxFuture<'a, crate::Result<()>> {
         async {
             // Transport Header
@@ -39,26 +40,43 @@ pub trait SmbTransportWrite: Send {
             self.send_raw(&header_buf).await?;
 
             // Content - final response.
-            self.send_raw(message).await?;
-
-            Ok(())
+            self.send_raw(message).await
         }
         .boxed()
+    }
+    #[cfg(not(feature = "async"))]
+    fn send(&mut self, message: &[u8]) -> crate::Result<()> {
+        // Transport Header
+        let header = SmbTcpMessageHeader {
+            stream_protocol_length: (message.len() as u32).into(),
+        };
+        let mut header_buf = Vec::with_capacity(SmbTcpMessageHeader::SIZE);
+        header.write(&mut Cursor::new(&mut header_buf))?;
+        self.send_raw(&header_buf)?;
+
+        // Content - final response.
+        self.send_raw(message)
     }
 }
 
 pub trait SmbTransportWriteExt: SmbTransportWrite {
+    #[cfg(feature = "async")]
     /// Use this method to send a SMB message to the server.
     /// This sends the message itself, adding the transport header.
     fn send<'a>(&'a mut self, message: &'a [u8]) -> BoxFuture<'a, crate::Result<()>>;
+    #[cfg(not(feature = "async"))]
+    /// Use this method to send a SMB message to the server.
+    /// This sends the message itself, adding the transport header.
+    fn send(&mut self, message: &[u8]) -> crate::Result<()>;
 }
 
 pub trait SmbTransportRead: Send {
     #[cfg(feature = "async")]
     fn receive_exact<'a>(&'a mut self, out_buf: &'a mut [u8]) -> BoxFuture<'a, crate::Result<()>>;
     #[cfg(not(feature = "async"))]
-    fn receive_exact(&mut self, out_buf: &mut [u8]) -> crate::Result<Vec<u8>>;
+    fn receive_exact(&mut self, out_buf: &mut [u8]) -> crate::Result<()>;
 
+    #[cfg(feature = "async")]
     fn receive<'a>(&'a mut self) -> BoxFuture<'a, crate::Result<Vec<u8>>> {
         async {
             // Transport Header
@@ -81,24 +99,67 @@ pub trait SmbTransportRead: Send {
         }
         .boxed()
     }
+
+    #[cfg(not(feature = "async"))]
+    fn receive(&mut self) -> crate::Result<Vec<u8>> {
+        // Transport Header
+        let mut header_data = [0; SmbTcpMessageHeader::SIZE];
+        self.receive_exact(&mut header_data)?;
+        let header = SmbTcpMessageHeader::read(&mut Cursor::new(header_data))?;
+
+        // Content - final response.
+        let mut data = Vec::with_capacity(header.stream_protocol_length as usize);
+        data.resize(data.capacity(), 0);
+        self.receive_exact(&mut data)?;
+
+        log::trace!(
+            "Received SMB message of {} bytes from server: {:?}",
+            data.len(),
+            data
+        );
+
+        Ok(data)
+    }
+
+    /// For synchronous implementations, sets the read timeout for the connection.
+    /// This is useful when polling for messages.
+    #[cfg(not(feature = "async"))]
+    fn set_read_timeout(&self, timeout: std::time::Duration) -> crate::Result<()>;
 }
 
 pub trait SmbTransportReadExt: SmbTransportRead {
+    #[cfg(feature = "async")]
     /// Use this method to receive a SMB message from the server.
     /// This returns the message itself, dropping the transport header.
     fn receive<'a>(&'a mut self) -> BoxFuture<'a, crate::Result<Vec<u8>>>;
+    #[cfg(not(feature = "async"))]
+    /// Use this method to receive a SMB message from the server.
+    /// This returns the message itself, dropping the transport header.
+    fn receive(&mut self) -> crate::Result<Vec<u8>>;
 }
 
 impl SmbTransportReadExt for dyn SmbTransportRead + '_ {
+    #[cfg(feature = "async")]
     #[inline]
     fn receive<'a>(&'a mut self) -> BoxFuture<'a, crate::Result<Vec<u8>>> {
+        self.receive()
+    }
+    #[cfg(not(feature = "async"))]
+    #[inline]
+    fn receive(&mut self) -> crate::Result<Vec<u8>> {
         self.receive()
     }
 }
 
 impl SmbTransportReadExt for dyn SmbTransport + '_ {
+    #[cfg(feature = "async")]
     #[inline]
     fn receive<'a>(&'a mut self) -> BoxFuture<'a, crate::Result<Vec<u8>>> {
+        self.receive()
+    }
+    #[cfg(not(feature = "async"))]
+    #[inline]
+    fn receive(&mut self) -> crate::Result<Vec<u8>> {
         self.receive()
     }
 }

@@ -66,9 +66,8 @@ default = ["sign", "encrypt", "compress", "quic", "async"]
 
 # Threading models
 async = ["dep:tokio", "dep:futures-core", "dep:tokio-util", "dep:futures-util"]
-sync = ["maybe-async/is_sync"]                                                  # sync = not async: single/multi-threaded
-multi_threaded = ["sync"]
-single_threaded = ["sync"]
+multi_threaded = ["maybe-async/is_sync"]
+single_threaded = ["maybe-async/is_sync"]
 
 # Compression
 compress_pattern_v1 = []

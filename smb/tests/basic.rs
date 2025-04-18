@@ -6,7 +6,7 @@ use serial_test::serial;
 use smb::packets::fscc::FileDispositionInformation;
 
 #[test_log::test(maybe_async::test(
-    feature = "sync",
+    not(feature = "async"),
     async(feature = "async", tokio::test(flavor = "multi_thread"))
 ))]
 #[serial]

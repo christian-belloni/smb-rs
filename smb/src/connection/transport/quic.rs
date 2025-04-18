@@ -1,3 +1,8 @@
+//! QUIC transport implementation for SMB.
+//!
+//! This module uses the [quinn](https://docs.rs/quinn/latest/quinn/) crate to implement the QUIC transport protocol for SMB.
+//! Therefore, it should only be used when async features are enabled.
+
 use std::sync::Arc;
 
 use crate::connection::QuicConfig;
@@ -75,7 +80,6 @@ impl QuicTransport {
         self.send_stream.is_some()
     }
 
-    #[maybe_async::maybe_async]
     async fn send_raw(&mut self, buf: &[u8]) -> crate::Result<()> {
         let send_stream = self
             .send_stream
@@ -85,7 +89,6 @@ impl QuicTransport {
         Ok(())
     }
 
-    #[maybe_async::maybe_async]
     async fn receive_exact(&mut self, out_buf: &mut [u8]) -> crate::Result<()> {
         let recv_stream = self
             .recv_stream

@@ -1,14 +1,16 @@
 use super::traits::{SmbTransport, SmbTransportRead, SmbTransportWrite};
+
+#[cfg(feature = "async")]
 use futures_core::future::BoxFuture;
 use maybe_async::*;
 use std::time::Duration;
 
 #[cfg(feature = "async")]
 use futures_util::FutureExt;
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 use std::{
     io::{self, Read, Write},
-    net::{TcpStream, ToSocketAddrs},
+    net::TcpStream,
 };
 #[cfg(feature = "async")]
 use tokio::{
@@ -24,9 +26,9 @@ type TcpRead = tcp::OwnedReadHalf;
 #[cfg(feature = "async")]
 type TcpWrite = tcp::OwnedWriteHalf;
 
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 type TcpRead = TcpStream;
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 type TcpWrite = TcpStream;
 pub struct TcpTransport {
     reader: Option<TcpRead>,
@@ -46,7 +48,7 @@ impl TcpTransport {
     /// Connects to a NetBios server in the specified address with a timeout.
     /// This is the threaded version of [connect](NetBiosClient::connect) -
     /// using the [std::net::TcpStream] as the underlying socket provider.
-    #[cfg(feature = "sync")]
+    #[cfg(not(feature = "async"))]
     fn connect_timeout(&mut self, address: &str) -> crate::Result<TcpStream> {
         use super::utils::TransportUtils;
 
@@ -85,7 +87,7 @@ impl TcpTransport {
     }
 
     /// Sync implementation of split socket to read and write halves.
-    #[cfg(feature = "sync")]
+    #[cfg(not(feature = "async"))]
     fn split_socket(socket: TcpStream) -> (TcpRead, TcpWrite) {
         let rsocket = socket.try_clone().unwrap();
         let wsocket = socket;
@@ -93,43 +95,14 @@ impl TcpTransport {
         (rsocket, wsocket)
     }
 
-    /// For synchronous implementations, sets the read timeout for the connection.
-    /// This is useful when polling for messages.
-    #[cfg(feature = "sync")]
-    pub fn set_read_timeout(&self, timeout: std::time::Duration) -> crate::Result<()> {
-        if !self.can_read() {
-            return Err(crate::Error::NotConnected);
-        }
-        self.reader
-            .as_ref()
-            .ok_or(crate::Error::NotConnected)?
-            .set_read_timeout(Some(timeout))
-            .map_err(|e| e.into())
-    }
-
     /// For synchronous implementations, gets the read timeout for the connection.
-    #[cfg(feature = "sync")]
+    #[cfg(not(feature = "async"))]
     pub fn read_timeout(&self) -> crate::Result<Option<std::time::Duration>> {
-        if !self.can_read() {
-            return Err(crate::Error::NotConnected);
-        }
         self.reader
             .as_ref()
             .ok_or(crate::Error::NotConnected)?
             .read_timeout()
             .map_err(|e| e.into())
-    }
-
-    #[maybe_async]
-    async fn receive_exact(&mut self, out_buf: &mut [u8]) -> crate::Result<()> {
-        let reader = self.reader.as_mut().ok_or(crate::Error::NotConnected)?;
-        log::trace!("Reading {} bytes.", out_buf.len());
-        reader
-            .read_exact(out_buf)
-            .await
-            .map_err(Self::map_tcp_error)?;
-        log::trace!("Read {} bytes OK.", out_buf.len());
-        Ok(())
     }
 
     /// Maps a TCP error to a crate error.
@@ -152,17 +125,21 @@ impl TcpTransport {
         e.into()
     }
 
+    #[maybe_async]
     #[inline]
-    pub fn can_read(&self) -> bool {
-        self.reader.is_some()
-    }
-
-    #[inline]
-    pub fn can_write(&self) -> bool {
-        self.writer.is_some()
+    async fn receive_exact(&mut self, out_buf: &mut [u8]) -> crate::Result<()> {
+        let reader = self.reader.as_mut().ok_or(crate::Error::NotConnected)?;
+        log::trace!("Reading {} bytes.", out_buf.len());
+        reader
+            .read_exact(out_buf)
+            .await
+            .map_err(Self::map_tcp_error)?;
+        log::trace!("Read {} bytes OK.", out_buf.len());
+        Ok(())
     }
 
     #[maybe_async::maybe_async]
+    #[inline]
     async fn send_raw(&mut self, message: &[u8]) -> crate::Result<()> {
         let writer = self.writer.as_mut().ok_or(crate::Error::NotConnected)?;
         writer
@@ -171,28 +148,31 @@ impl TcpTransport {
             .map_err(Self::map_tcp_error)?;
         Ok(())
     }
+
+    #[maybe_async::maybe_async]
+    #[inline]
+    async fn do_connect(&mut self, address: &str) -> crate::Result<()> {
+        let socket = self.connect_timeout(address).await?;
+        let (r, w) = Self::split_socket(socket);
+        self.reader = Some(r);
+        self.writer = Some(w);
+        Ok(())
+    }
 }
 
 impl SmbTransport for TcpTransport {
+    #[cfg(feature = "async")]
     fn connect<'a>(&'a mut self, address: &'a str) -> BoxFuture<'a, crate::Result<()>> {
-        async {
-            let socket = self.connect_timeout(address).await?;
-            let (r, w) = Self::split_socket(socket);
-            self.reader = Some(r);
-            self.writer = Some(w);
-            Ok(())
-        }
-        .boxed()
+        self.do_connect(address).boxed()
+    }
+    #[cfg(not(feature = "async"))]
+    fn connect(&mut self, address: &str) -> crate::Result<()> {
+        self.do_connect(address)
     }
 
     fn split(
         self: Box<Self>,
     ) -> crate::Result<(Box<dyn SmbTransportRead>, Box<dyn SmbTransportWrite>)> {
-        if !self.can_read() || !self.can_write() {
-            return Err(crate::Error::InvalidState(
-                "Cannot split a non-connected client.".into(),
-            ));
-        }
         Ok((
             Box::new(Self {
                 reader: self.reader,
@@ -214,7 +194,7 @@ impl SmbTransportWrite for TcpTransport {
         self.send_raw(buf).boxed()
     }
     #[cfg(not(feature = "async"))]
-    fn send_raw(&mut self, buf: &mut [u8]) -> crate::Result<()> {
+    fn send_raw(&mut self, buf: &[u8]) -> crate::Result<()> {
         self.send_raw(buf)
     }
 }
@@ -225,7 +205,16 @@ impl SmbTransportRead for TcpTransport {
         self.receive_exact(out_buf).boxed()
     }
     #[cfg(not(feature = "async"))]
-    fn receive_exact(&mut self, out_buf: &'a mut [u8]) -> crate::Result<Vec<u8>> {
+    fn receive_exact(&mut self, out_buf: &mut [u8]) -> crate::Result<()> {
         self.receive_exact(out_buf)
+    }
+
+    #[cfg(not(feature = "async"))]
+    fn set_read_timeout(&self, timeout: std::time::Duration) -> crate::Result<()> {
+        self.reader
+            .as_ref()
+            .ok_or(crate::Error::NotConnected)?
+            .set_read_timeout(Some(timeout))
+            .map_err(|e| e.into())
     }
 }

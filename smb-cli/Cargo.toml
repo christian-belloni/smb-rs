@@ -18,9 +18,8 @@ log = "0.4.22"
 default = ["async", "smb/default"]
 
 async = ["smb/async", "dep:tokio", "dep:futures-util"]
-sync = ["smb/sync", "maybe-async/is_sync"]
-single_threaded = ["smb/single_threaded", "sync"]
-multi_threaded = ["smb/multi_threaded", "sync"]
+single_threaded = ["smb/single_threaded", "maybe-async/is_sync"]
+multi_threaded = ["smb/multi_threaded", "maybe-async/is_sync"]
 
 sign = ["smb/sign"]
 encrypt = ["smb/encrypt"]

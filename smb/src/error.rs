@@ -64,10 +64,10 @@ pub enum Error {
     JoinError(#[from] tokio::task::JoinError),
     #[error("Acquire Error: {0}")]
     AcquireError(#[from] AcquireError),
-    #[cfg(feature = "sync")]
+    #[cfg(not(feature = "async"))]
     #[error("Thread join error: {0}")]
     JoinError(String),
-    #[cfg(feature = "sync")]
+    #[cfg(not(feature = "async"))]
     #[error("Channel recv error.")]
     ChannelRecvError(#[from] std::sync::mpsc::RecvError),
     #[error("Unexpected message with ID {0} (exp {1}).")]

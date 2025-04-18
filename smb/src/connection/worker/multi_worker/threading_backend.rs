@@ -1,4 +1,7 @@
-use crate::sync_helpers::*;
+use crate::{
+    connection::transport::{SmbTransport, SmbTransportRead, SmbTransportWrite},
+    sync_helpers::*,
+};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,7 +29,6 @@ impl ThreadingBackend {
     const READ_POLL_TIMEOUT: Duration = Duration::from_millis(100);
 
     fn loop_receive(&self, mut rtransport: Box<dyn SmbTransportRead>) {
-        debug_assert!(rtransport.read_timeout().unwrap().is_some());
         while !self.is_cancelled() {
             let next = rtransport.receive();
             // Handle polling fail
@@ -56,10 +58,10 @@ impl ThreadingBackend {
     fn loop_send(
         &self,
         mut wtransport: Box<dyn SmbTransportWrite>,
-        send_channel: mpsc::Receiver<Option<NetBiosTcpMessage>>,
+        send_channel: mpsc::Receiver<Option<Vec<u8>>>,
     ) {
         loop {
-            match self.loop_send_next(send_channel.recv(), &mut wtransport) {
+            match self.loop_send_next(send_channel.recv(), wtransport.as_mut()) {
                 Ok(_) => {}
                 Err(Error::NotConnected) => {
                     if self.is_cancelled() {
@@ -80,16 +82,16 @@ impl ThreadingBackend {
     #[inline]
     fn loop_send_next(
         &self,
-        message: Result<Option<NetBiosTcpMessage>, mpsc::RecvError>,
+        message: Result<Option<Vec<u8>>, mpsc::RecvError>,
         wtransport: &mut dyn SmbTransportWrite,
     ) -> crate::Result<()> {
         self.worker.outgoing_data_callback(message?, wtransport)
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 impl MultiWorkerBackend for ThreadingBackend {
-    type SendMessage = Option<NetBiosTcpMessage>;
+    type SendMessage = Option<Vec<u8>>;
 
     type AwaitingNotifier = std::sync::mpsc::Sender<crate::Result<IncomingMessage>>;
     type AwaitingWaiter = std::sync::mpsc::Receiver<crate::Result<IncomingMessage>>;
