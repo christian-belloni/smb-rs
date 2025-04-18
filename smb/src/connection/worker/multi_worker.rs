@@ -10,12 +10,12 @@
 pub mod async_backend;
 pub mod backend_trait;
 pub mod base;
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 pub mod threading_backend;
 #[cfg(feature = "async")]
 pub use async_backend::AsyncBackend;
 use base::*;
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 pub use threading_backend::ThreadingBackend as AsyncBackend;
 
 pub type AsyncWorker = MultiWorkerBase<AsyncBackend>;

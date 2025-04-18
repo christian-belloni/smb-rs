@@ -21,7 +21,7 @@ const NUM_ITEMS: usize = 1000;
 /// This test is to check if we can iterate over a long directory
 /// To make sure it works properly, since dealing with streams can be tricky.
 #[test_log::test(maybe_async::test(
-    feature = "sync",
+    not(feature = "async"),
     async(feature = "async", tokio::test(flavor = "multi_thread"))
 ))]
 #[serial] // Run only in a full-feature test, because it takes a while

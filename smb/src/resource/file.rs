@@ -1,5 +1,5 @@
 use super::*;
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 
@@ -21,9 +21,9 @@ use std::ops::{Deref, DerefMut};
 pub struct File {
     handle: ResourceHandle,
 
-    #[cfg(feature = "sync")]
+    #[cfg(not(feature = "async"))]
     pos: u64,
-    #[cfg(feature = "sync")]
+    #[cfg(not(feature = "async"))]
     dirty: bool,
 
     access: FileAccessMask,
@@ -36,9 +36,9 @@ impl File {
             handle,
             access,
             end_of_file,
-            #[cfg(feature = "sync")]
+            #[cfg(not(feature = "async"))]
             pos: 0,
-            #[cfg(feature = "sync")]
+            #[cfg(not(feature = "async"))]
             dirty: false,
         }
     }
@@ -201,7 +201,7 @@ impl File {
 
 // Despite being available, seeking means nothing here,
 // since it may only be used when calling read/write from the std::io traits.
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 impl Seek for File {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         let next_pos = match pos {
@@ -241,7 +241,7 @@ impl Seek for File {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let read_length = File::read_block(self, buf, self.pos, false)
@@ -251,7 +251,7 @@ impl Read for File {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let written_length = File::write_block(self, buf, self.pos)?;

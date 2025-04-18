@@ -133,7 +133,7 @@ impl NegotiateResponse {
         })
     }
 
-    pub fn get_ctx_compression(&self) -> Option<&CompressionCaps> {
+    pub fn get_ctx_compression(&self) -> Option<&CompressionCapabilities> {
         self.negotiate_context_list.as_ref().and_then(|contexts| {
             contexts
                 .iter()
@@ -236,9 +236,40 @@ pub struct NegotiateContext {
     pub data: NegotiateContextValue,
 }
 
+macro_rules! negotiate_context_type {
+    ($($name:ident = $id:literal,)+) => {
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[brw(repr(u16))]
 pub enum NegotiateContextType {
+    $(
+        $name = $id,
+    )+
+}
+
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[br(import(context_type: &NegotiateContextType))]
+pub enum NegotiateContextValue {
+    $(
+        #[br(pre_assert(context_type == &NegotiateContextType::$name))]
+        $name($name),
+    )+
+}
+
+impl NegotiateContextValue {
+    pub fn get_matching_type(&self) -> NegotiateContextType {
+        match self {
+            $(
+                NegotiateContextValue::$name(_) => {
+                    NegotiateContextType::$name
+                }
+            )+
+        }
+    }
+}
+    };
+}
+
+negotiate_context_type!(
     PreauthIntegrityCapabilities = 0x0001,
     EncryptionCapabilities = 0x0002,
     CompressionCapabilities = 0x0003,
@@ -246,61 +277,13 @@ pub enum NegotiateContextType {
     TransportCapabilities = 0x0006,
     RdmaTransformCapabilities = 0x0007,
     SigningCapabilities = 0x0008,
-    ContextTypeReserved = 0x0100,
-}
-
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
-#[br(import(context_type: &NegotiateContextType))]
-pub enum NegotiateContextValue {
-    #[br(pre_assert(context_type == &NegotiateContextType::PreauthIntegrityCapabilities))]
-    PreauthIntegrityCapabilities(PreauthIntegrityCapabilities),
-    #[br(pre_assert(context_type == &NegotiateContextType::EncryptionCapabilities))]
-    EncryptionCapabilities(EncryptionCapabilities),
-    #[br(pre_assert(context_type == &NegotiateContextType::CompressionCapabilities))]
-    CompressionCapabilities(CompressionCaps),
-    #[br(pre_assert(context_type == &NegotiateContextType::NetnameNegotiateContextId))]
-    NetnameNegotiateContextId(NetnameNegotiateContextId),
-    #[br(pre_assert(context_type == &NegotiateContextType::TransportCapabilities))]
-    TransportCapabilities(TransportCapabilities),
-    #[br(pre_assert(context_type == &NegotiateContextType::RdmaTransformCapabilities))]
-    RdmaTransformCapabilities(RdmaTransformCapabilities),
-    #[br(pre_assert(context_type == &NegotiateContextType::SigningCapabilities))]
-    SigningCapabilities(SigningCapabilities),
-}
+);
 
 impl Into<NegotiateContext> for NegotiateContextValue {
     fn into(self) -> NegotiateContext {
         NegotiateContext {
             context_type: self.get_matching_type(),
             data: self,
-        }
-    }
-}
-
-impl NegotiateContextValue {
-    pub fn get_matching_type(&self) -> NegotiateContextType {
-        match self {
-            NegotiateContextValue::PreauthIntegrityCapabilities(_) => {
-                NegotiateContextType::PreauthIntegrityCapabilities
-            }
-            NegotiateContextValue::EncryptionCapabilities(_) => {
-                NegotiateContextType::EncryptionCapabilities
-            }
-            NegotiateContextValue::CompressionCapabilities(_) => {
-                NegotiateContextType::CompressionCapabilities
-            }
-            NegotiateContextValue::NetnameNegotiateContextId(_) => {
-                NegotiateContextType::NetnameNegotiateContextId
-            }
-            NegotiateContextValue::TransportCapabilities(_) => {
-                NegotiateContextType::TransportCapabilities
-            }
-            NegotiateContextValue::RdmaTransformCapabilities(_) => {
-                NegotiateContextType::RdmaTransformCapabilities
-            }
-            NegotiateContextValue::SigningCapabilities(_) => {
-                NegotiateContextType::SigningCapabilities
-            }
         }
     }
 }
@@ -345,7 +328,7 @@ pub enum EncryptionCipher {
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct CompressionCaps {
+pub struct CompressionCapabilities {
     #[bw(try_calc(u16::try_from(compression_algorithms.len())))]
     compression_algorithm_count: u16,
     #[bw(calc = 0)]
@@ -538,7 +521,7 @@ mod tests {
                         transforms: vec![0x0001, 0x0002]
                     })
                     .into(),
-                    NegotiateContextValue::CompressionCapabilities(CompressionCaps {
+                    NegotiateContextValue::CompressionCapabilities(CompressionCapabilities {
                         flags: CompressionCapsFlags::new().with_chained(true),
                         compression_algorithms: vec![
                             CompressionAlgorithm::LZ77,

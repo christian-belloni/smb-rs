@@ -39,7 +39,7 @@ pub struct NegotiatedProperties {
     pub encryption_cipher: Option<EncryptionCipher>,
     /// Compression capabilities used for the connection, and specified by the server
     /// using negotiation context.
-    pub compression: Option<CompressionCaps>,
+    pub compression: Option<CompressionCapabilities>,
 
     /// The selected dialect revision for the connection.
     /// Use [ConnectionInfo::dialect] to get the implementation of the selected dialect.

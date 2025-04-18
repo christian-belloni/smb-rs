@@ -6,7 +6,7 @@ use crate::{
     connection::{connection_info::NegotiatedProperties, preauth_hash},
     crypto,
     packets::smb2::{
-        CompressionCaps, Dialect, GlobalCapabilities, NegotiateResponse, ShareCacheMode,
+        CompressionCapabilities, Dialect, GlobalCapabilities, NegotiateResponse, ShareCacheMode,
         ShareFlags, SigningAlgorithmId, TreeCapabilities,
     },
     ConnectionConfig, Error,
@@ -214,7 +214,7 @@ impl DialectMethods for Smb311 {
             ));
         }
 
-        let compression: Option<CompressionCaps> = match response.get_ctx_compression() {
+        let compression: Option<CompressionCapabilities> = match response.get_ctx_compression() {
             Some(compression) => Some(compression.clone()),
             None => None,
         };

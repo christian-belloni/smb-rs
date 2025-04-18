@@ -1,9 +1,8 @@
-use crate::connection::netbios_client::NetBiosClient;
-use crate::sync_helpers::*;
+use crate::{connection::transport::SmbTransport, sync_helpers::*};
 use maybe_async::*;
 use std::{sync::Arc, time::Duration};
 
-use crate::{msg_handler::IncomingMessage, packets::netbios::NetBiosTcpMessage};
+use crate::msg_handler::IncomingMessage;
 
 use super::base::MultiWorkerBase;
 
@@ -15,7 +14,7 @@ pub trait MultiWorkerBackend {
     type AwaitingWaiter;
 
     async fn start(
-        netbios_client: NetBiosClient,
+        transport: Box<dyn SmbTransport>,
         worker: Arc<MultiWorkerBase<Self>>,
         send_channel_recv: mpsc::Receiver<Self::SendMessage>,
     ) -> crate::Result<Arc<Self>>
@@ -24,7 +23,7 @@ pub trait MultiWorkerBackend {
         Self::AwaitingNotifier: std::fmt::Debug;
     async fn stop(&self) -> crate::Result<()>;
 
-    fn wrap_msg_to_send(msg: NetBiosTcpMessage) -> Self::SendMessage;
+    fn wrap_msg_to_send(msg: Vec<u8>) -> Self::SendMessage;
     fn make_notifier_awaiter_pair() -> (Self::AwaitingNotifier, Self::AwaitingWaiter);
     // TODO: Consider typing the tx/rx in the trait, like the notifier/awaiter.
     fn make_send_channel_pair() -> (

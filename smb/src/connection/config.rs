@@ -17,6 +17,34 @@ pub enum EncryptionMode {
     Disabled,
 }
 
+/// Specifies the transport protocol to be used for the connection.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub enum TransportConfig {
+    /// Use TCP transport protocol.
+    #[default]
+    Tcp,
+    /// Use SMB over QUIC transport protocol.
+    /// Note that this is only suported in dialects 3.1.1 and above.
+    Quic(QuicConfig),
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct QuicConfig {
+    pub local_address: Option<String>,
+    pub cert_validation: QuicCertValidationOptions,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub enum QuicCertValidationOptions {
+    /// Use the default platform verifier for the certificate.
+    /// See [quinn::ClientConfig::with_platform_verifier].
+    /// This is the default option.
+    #[default]
+    PlatformVerifier,
+    /// Use a store with the provided root certificates.
+    CustomRootCerts(Vec<String>),
+}
+
 impl EncryptionMode {
     /// Returns true if encryption is required.
     pub fn is_required(&self) -> bool {
@@ -74,6 +102,9 @@ pub struct ConnectionConfig {
     /// faster negotiation process, but may not be compatible
     /// with all servers properly.
     pub smb2_only_negotiate: bool,
+
+    /// Specifies the transport protocol to be used for the connection.
+    pub transport: TransportConfig,
 }
 
 impl ConnectionConfig {
@@ -86,6 +117,14 @@ impl ConnectionConfig {
             if min > max {
                 return Err(crate::Error::InvalidConfiguration(
                     "Minimum dialect is greater than maximum dialect".to_string(),
+                ));
+            }
+        }
+        // Make sure transport is supported by the dialects.
+        if let Some(min) = self.min_dialect {
+            if min < Dialect::Smb0311 && matches!(self.transport, TransportConfig::Quic(_)) {
+                return Err(crate::Error::InvalidConfiguration(
+                    "SMB over QUIC is not supported by the selected dialect".to_string(),
                 ));
             }
         }

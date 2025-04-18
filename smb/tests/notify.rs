@@ -17,7 +17,7 @@ use common::make_server_connection;
 const NEW_FILE_NAME_UNDER_WORKDIR: &str = "test_file.txt";
 
 #[test_log::test(maybe_async::test(
-    feature = "sync",
+    not(feature = "async"),
     async(feature = "async", tokio::test(flavor = "multi_thread"))
 ))]
 #[serial]

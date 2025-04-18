@@ -1,7 +1,9 @@
 use crate::cli::Cli;
 use maybe_async::*;
 use smb::{
-    connection::{Connection, EncryptionMode},
+    connection::{
+        Connection, EncryptionMode, QuicCertValidationOptions, QuicConfig, TransportConfig,
+    },
     packets::{dfsc::ReferralEntryValue, fscc::*, smb2::*},
     resource::Resource,
     session::Session,
@@ -95,9 +97,27 @@ impl UncPath {
                 .timeout
                 .map(|t| std::time::Duration::from_secs(t.into())),
             smb2_only_negotiate: cli.negotiate_smb2_only,
+            transport: if cli.quic_transport {
+                TransportConfig::Quic(QuicConfig {
+                    local_address: None,
+                    cert_validation: QuicCertValidationOptions::PlatformVerifier,
+                })
+            } else {
+                TransportConfig::Tcp
+            },
             ..Default::default()
         })?;
-        smb.connect(format!("{}:{}", self.server, cli.port).as_str())
+        let port = match cli.port {
+            Some(p) => p,
+            None => {
+                if cli.quic_transport {
+                    443
+                } else {
+                    445
+                }
+            }
+        };
+        smb.connect(format!("{}:{}", self.server, port).as_str())
             .await?;
         let session = smb
             .authenticate(&cli.username, cli.password.clone())

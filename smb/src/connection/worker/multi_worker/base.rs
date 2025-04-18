@@ -1,5 +1,5 @@
-use crate::connection::netbios_client::NetBiosClient;
 use crate::connection::transformer::Transformer;
+use crate::connection::transport::{SmbTransport, SmbTransportWrite};
 use crate::connection::worker::Worker;
 use crate::msg_handler::ReceiveOptions;
 use crate::packets::smb2::Command;
@@ -11,18 +11,17 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     msg_handler::{IncomingMessage, OutgoingMessage, SendMessageResult},
-    packets::netbios::NetBiosTcpMessage,
     Error,
 };
 
 use super::backend_trait::MultiWorkerBackend;
 
-/// SMB2 base parallel connection worker (multi-threaded or async).
+/// SMB2 base parallel transport worker (multi-threaded or async).
 ///
-/// This struct is responsible for handling the connection to the server,
-/// sending netbios messages from SMB2 messages, and redirecting correct messages when received,
+/// This struct is responsible for handling the transport to the server,
+/// sending messages from SMB2 messages, and redirecting correct messages when received,
 /// if using async, to the correct pending task.
-/// One-per connection, hence takes ownership of [NetBiosClient] on [MultiWorkerBase::start].
+/// One-per transport connection, hence takes ownership of the [SmbTransport] on [MultiWorkerBase::start].
 pub struct MultiWorkerBase<BackendImplT>
 where
     BackendImplT: MultiWorkerBackend + std::fmt::Debug,
@@ -92,18 +91,18 @@ where
     }
 
     /// This is a function that should be used by multi worker implementations (async/mtd),
-    /// after gettting a netbios messages from the server, this function processes it and
+    /// after gettting a messages from the server, this function processes it and
     /// notifies the awaiting tasks.
     #[maybe_async]
     pub(crate) async fn incoming_data_callback(
         self: &Arc<Self>,
-        netbios: crate::Result<NetBiosTcpMessage>,
+        message: crate::Result<Vec<u8>>,
     ) -> crate::Result<()> {
         log::trace!("Received message from server.");
-        let netbios = { netbios? };
+        let message = message?;
 
         // Tranform the message and verify it.
-        let msg = self.transformer.transform_incoming(netbios).await;
+        let msg = self.transformer.transform_incoming(message).await;
         let (msg, msg_id) = match msg {
             // Good flow, message is OK.
             Ok(msg) => {
@@ -178,12 +177,12 @@ where
     }
 
     /// This is a function that should be used by multi worker implementations (async/mtd),
-    /// to send a netbios message to the server.
+    /// to send a message to the server.
     #[maybe_async]
     pub async fn outgoing_data_callback(
         self: &Arc<Self>,
-        message: Option<NetBiosTcpMessage>,
-        netbios_client: &mut NetBiosClient,
+        message: Option<Vec<u8>>,
+        wtransport: &mut dyn SmbTransportWrite,
     ) -> crate::Result<()> {
         let message = match message {
             Some(m) => m,
@@ -197,7 +196,7 @@ where
                 }
             }
         };
-        netbios_client.send_raw(message).await?;
+        wtransport.send(message.as_ref()).await?;
 
         Ok(())
     }
@@ -209,7 +208,10 @@ where
     T::AwaitingNotifier: std::fmt::Debug,
 {
     #[maybe_async]
-    async fn start(netbios_client: NetBiosClient, timeout: Duration) -> crate::Result<Arc<Self>> {
+    async fn start(
+        transport: Box<dyn SmbTransport>,
+        timeout: Duration,
+    ) -> crate::Result<Arc<Self>> {
         // Build the worker
         let (tx, rx) = T::make_send_channel_pair();
         let worker = Arc::new(MultiWorkerBase::<T> {
@@ -226,7 +228,7 @@ where
             .backend_impl
             .lock()
             .await?
-            .replace(T::start(netbios_client, worker.clone(), rx).await?);
+            .replace(T::start(transport, worker.clone(), rx).await?);
 
         Ok(worker)
     }
@@ -249,7 +251,7 @@ where
     }
 
     #[maybe_async]
-    async fn send(self: &Self, msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
+    async fn send(&self, msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         let finalize_preauth_hash = msg.finalize_preauth_hash;
         let id = msg.message.header.message_id;
         let message = { self.transformer.transform_outgoing(msg).await? };
@@ -274,10 +276,7 @@ where
     }
 
     #[maybe_async]
-    async fn receive_next(
-        self: &Self,
-        options: &ReceiveOptions<'_>,
-    ) -> crate::Result<IncomingMessage> {
+    async fn receive_next(&self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
         let wait_for_receive = {
             let mut state = self.state.lock().await?;
             if self.stopped() {

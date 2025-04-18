@@ -10,11 +10,11 @@ use thiserror::Error;
 /// Use this struct to decompress a compressed, received message.
 #[derive(Debug)]
 pub struct Decompressor {
-    caps: CompressionCaps,
+    caps: CompressionCapabilities,
 }
 
 impl<'a> Decompressor {
-    pub fn new(caps: &CompressionCaps) -> Decompressor {
+    pub fn new(caps: &CompressionCapabilities) -> Decompressor {
         Decompressor { caps: caps.clone() }
     }
 
@@ -43,11 +43,11 @@ impl<'a> Decompressor {
 
 #[derive(Debug)]
 pub struct Compressor {
-    caps: CompressionCaps,
+    caps: CompressionCapabilities,
 }
 
 impl Compressor {
-    pub fn new(caps: &CompressionCaps) -> Compressor {
+    pub fn new(caps: &CompressionCapabilities) -> Compressor {
         Compressor { caps: caps.clone() }
     }
 
@@ -386,7 +386,7 @@ mod tests {
             ],
         });
 
-        let decompressor = Decompressor::new(&CompressionCaps {
+        let decompressor = Decompressor::new(&CompressionCapabilities {
             flags: CompressionCapsFlags::new().with_chained(true),
             compression_algorithms: vec![
                 CompressionAlgorithm::None,

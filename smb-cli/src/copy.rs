@@ -5,7 +5,7 @@ use smb::resource::*;
 #[cfg(not(feature = "single_threaded"))]
 use smb::sync_helpers::*;
 use std::error::Error;
-#[cfg(feature = "sync")]
+#[cfg(not(feature = "async"))]
 use std::fs;
 #[cfg(feature = "multi_threaded")]
 use std::io::Write;
