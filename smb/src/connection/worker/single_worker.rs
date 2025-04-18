@@ -1,7 +1,7 @@
 use std::{cell::RefCell, sync::Arc, time::Duration};
 
 use crate::{
-    connection::{netbios_client::NetBiosClient, transformer::Transformer},
+    connection::transformer::Transformer,
     msg_handler::{IncomingMessage, OutgoingMessage, ReceiveOptions, SendMessageResult},
 };
 
@@ -35,12 +35,12 @@ impl Worker for SingleWorker {
         Ok(())
     }
 
-    fn send(self: &Self, msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
+    fn send(&self, msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         let msg_id = msg.message.header.message_id;
         let finalize_preauth_hash = msg.finalize_preauth_hash;
 
         let t = self.transformer.transform_outgoing(msg)?;
-        self.netbios_client.borrow_mut().send_raw(t)?;
+        self.netbios_client.borrow_mut().send(t)?;
 
         let hash = match finalize_preauth_hash {
             true => self.transformer.finalize_preauth_hash()?,
@@ -50,7 +50,7 @@ impl Worker for SingleWorker {
         Ok(SendMessageResult::new(msg_id, hash))
     }
 
-    fn receive_next(self: &Self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
+    fn receive_next(&self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
         // Receive next message
         let msg = self
             .netbios_client

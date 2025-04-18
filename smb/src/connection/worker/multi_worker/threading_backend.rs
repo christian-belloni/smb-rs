@@ -1,10 +1,9 @@
-use crate::connection::netbios_client::NetBiosClient;
 use crate::sync_helpers::*;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{msg_handler::IncomingMessage, packets::netbios::NetBiosTcpMessage, Error};
+use crate::{msg_handler::IncomingMessage, Error};
 
 use super::{backend_trait::MultiWorkerBackend, base::MultiWorkerBase};
 
@@ -26,12 +25,10 @@ impl ThreadingBackend {
 impl ThreadingBackend {
     const READ_POLL_TIMEOUT: Duration = Duration::from_millis(100);
 
-    fn loop_receive(&self, mut netbios_client: NetBiosClient) {
-        debug_assert!(
-            netbios_client.can_read() && netbios_client.read_timeout().unwrap().is_some()
-        );
+    fn loop_receive(&self, mut rtransport: Box<dyn SmbTransportRead>) {
+        debug_assert!(rtransport.read_timeout().unwrap().is_some());
         while !self.is_cancelled() {
-            let next = netbios_client.receive_bytes();
+            let next = rtransport.receive();
             // Handle polling fail
             if let Err(Error::IoError(ref e)) = next {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -58,12 +55,11 @@ impl ThreadingBackend {
 
     fn loop_send(
         &self,
-        mut netbios_client: NetBiosClient,
+        mut wtransport: Box<dyn SmbTransportWrite>,
         send_channel: mpsc::Receiver<Option<NetBiosTcpMessage>>,
     ) {
-        debug_assert!(netbios_client.can_write());
         loop {
-            match self.loop_send_next(send_channel.recv(), &mut netbios_client) {
+            match self.loop_send_next(send_channel.recv(), &mut wtransport) {
                 Ok(_) => {}
                 Err(Error::NotConnected) => {
                     if self.is_cancelled() {
@@ -85,9 +81,9 @@ impl ThreadingBackend {
     fn loop_send_next(
         &self,
         message: Result<Option<NetBiosTcpMessage>, mpsc::RecvError>,
-        netbios_client: &mut NetBiosClient,
+        wtransport: &mut dyn SmbTransportWrite,
     ) -> crate::Result<()> {
-        self.worker.outgoing_data_callback(message?, netbios_client)
+        self.worker.outgoing_data_callback(message?, wtransport)
     }
 }
 
@@ -99,7 +95,7 @@ impl MultiWorkerBackend for ThreadingBackend {
     type AwaitingWaiter = std::sync::mpsc::Receiver<crate::Result<IncomingMessage>>;
 
     fn start(
-        netbios_client: NetBiosClient,
+        transport: Box<dyn SmbTransport>,
         worker: Arc<MultiWorkerBase<Self>>,
         send_channel_recv: mpsc::Receiver<Self::SendMessage>,
     ) -> crate::Result<Arc<Self>>
@@ -115,14 +111,14 @@ impl MultiWorkerBackend for ThreadingBackend {
 
         // Start the worker loops - send and receive.
         let backend_receive = backend.clone();
-        let (netbios_receive, netbios_send) = netbios_client.split()?;
+        let (rtransport, wtransport) = transport.split()?;
         let backend_send = backend.clone();
 
-        netbios_receive.set_read_timeout(Self::READ_POLL_TIMEOUT)?;
+        rtransport.set_read_timeout(Self::READ_POLL_TIMEOUT)?;
 
-        let handle1 = std::thread::spawn(move || backend_receive.loop_receive(netbios_receive));
+        let handle1 = std::thread::spawn(move || backend_receive.loop_receive(rtransport));
         let handle2 =
-            std::thread::spawn(move || backend_send.loop_send(netbios_send, send_channel_recv));
+            std::thread::spawn(move || backend_send.loop_send(wtransport, send_channel_recv));
 
         backend
             .loop_handles
@@ -163,7 +159,7 @@ impl MultiWorkerBackend for ThreadingBackend {
         Ok(())
     }
 
-    fn wrap_msg_to_send(msg: NetBiosTcpMessage) -> Self::SendMessage {
+    fn wrap_msg_to_send(msg: Vec<u8>) -> Self::SendMessage {
         Some(msg)
     }
 

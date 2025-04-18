@@ -1,35 +1,38 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    connection::connection_info::ConnectionInfo, msg_handler::ReceiveOptions, sync_helpers::*,
+    connection::{connection_info::ConnectionInfo, transport::traits::SmbTransport},
+    msg_handler::ReceiveOptions,
+    sync_helpers::*,
     Error,
 };
 
 use maybe_async::*;
 
 use crate::{
-    connection::{netbios_client::NetBiosClient, transformer::Transformer},
+    connection::transformer::Transformer,
     msg_handler::{IncomingMessage, OutgoingMessage, SendMessageResult},
     session::SessionInfo,
 };
 
 /// SMB2 connection worker.
 ///
-/// Implementations of this trait are responsible for handling the connection to the server,
-/// sending netbios messages from SMB2 messages, and redirecting correct messages when received,
+/// Each Implementation of this trait is responsible for handling the connection to the server,
+/// sending messages, and redirecting correct messages when received,
 /// if using async, to the correct pending task.
 #[maybe_async(AFIT)]
 #[allow(async_fn_in_trait)]
 pub trait Worker: Sized + std::fmt::Debug {
     /// Instantiates a new connection worker.
-    async fn start(netbios_client: NetBiosClient, timeout: Duration) -> crate::Result<Arc<Self>>;
+    async fn start(transport: Box<dyn SmbTransport>, timeout: Duration)
+        -> crate::Result<Arc<Self>>;
     /// Stops the worker, shutting down the connection.
     async fn stop(&self) -> crate::Result<()>;
 
     /// Sets the timeout for the worker.
     async fn set_timeout(&self, timeout: Duration) -> crate::Result<()>;
 
-    async fn send(self: &Self, msg: OutgoingMessage) -> crate::Result<SendMessageResult>;
+    async fn send(&self, msg: OutgoingMessage) -> crate::Result<SendMessageResult>;
 
     /// Internal: This function is implemented to receive a single message from the server,
     /// with the specified filters.
@@ -39,14 +42,11 @@ pub trait Worker: Sized + std::fmt::Debug {
     /// is received.
     /// # Returns
     /// * The message received from the server, matching the filters.
-    async fn receive_next(
-        self: &Self,
-        options: &ReceiveOptions<'_>,
-    ) -> crate::Result<IncomingMessage>;
+    async fn receive_next(&self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage>;
 
     /// Receive a message from the server.
     /// This is a user function that will wait for the message to be received.
-    async fn receive(self: &Self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
+    async fn receive(&self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
         if options.msg_id == u64::MAX {
             return Err(Error::InvalidArgument(
                 "Message ID -1 is not valid for receive()".to_string(),

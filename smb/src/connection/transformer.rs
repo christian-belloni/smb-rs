@@ -2,7 +2,7 @@ use crate::sync_helpers::*;
 use crate::{
     compression::*,
     msg_handler::*,
-    packets::{netbios::*, smb2::*},
+    packets::{smb2::*, transport::*},
     session::SessionInfo,
 };
 use binrw::prelude::*;
@@ -151,12 +151,9 @@ impl Transformer {
         }
     }
 
-    /// Transforms an outgoing message to a [`NetBiosTcpMessage`].
+    /// Transforms an outgoing message to a raw SMB message.
     #[maybe_async]
-    pub async fn transform_outgoing(
-        &self,
-        msg: OutgoingMessage,
-    ) -> crate::Result<NetBiosTcpMessage> {
+    pub async fn transform_outgoing(&self, msg: OutgoingMessage) -> crate::Result<Vec<u8>> {
         let should_encrypt = msg.encrypt;
         let should_sign = msg.message.header.flags.signed();
         let set_session_id = msg.message.header.session_id;
@@ -229,17 +226,14 @@ impl Transformer {
             }
         };
 
-        Ok(NetBiosTcpMessage::from_content_bytes(data))
+        Ok(data)
     }
 
-    /// Transforms an incoming [`NetBiosTcpMessage`] to an [`IncomingMessage`].
+    /// Transforms an incoming message buffer to an [`IncomingMessage`].
     #[maybe_async]
-    pub async fn transform_incoming(
-        &self,
-        netbios: NetBiosTcpMessage,
-    ) -> crate::Result<IncomingMessage> {
-        let message = match netbios.parse_content()? {
-            NetBiosMessageContent::SMB2Message(message) => Some(message),
+    pub async fn transform_incoming(&self, data: Vec<u8>) -> crate::Result<IncomingMessage> {
+        let message = match SMBMessage::try_from(data.as_ref())? {
+            SMBMessage::SMB2Message(message) => Some(message),
             _ => None,
         }
         .ok_or(crate::Error::TranformFailed(TransformError {
@@ -272,7 +266,8 @@ impl Transformer {
                 }
             }
         } else {
-            (message, netbios.content)
+            // TODO: Decrypt in-place?
+            (message, data.to_vec())
         };
 
         // 2. Decompress

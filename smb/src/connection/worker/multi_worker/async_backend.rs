@@ -1,11 +1,9 @@
-use crate::sync_helpers::*;
+use crate::connection::transport::traits::{SmbTransport, SmbTransportRead, SmbTransportWrite};
+use crate::msg_handler::IncomingMessage;
+use crate::{sync_helpers::*, Error};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{select, sync::oneshot};
-
-use crate::{msg_handler::IncomingMessage, packets::netbios::NetBiosTcpMessage, Error};
-
-use crate::connection::netbios_client::NetBiosClient;
 
 use super::backend_trait::MultiWorkerBackend;
 use super::base::MultiWorkerBase;
@@ -27,14 +25,14 @@ impl AsyncBackend {
     /// Internal message loop handler.
     async fn loop_receive(
         self: Arc<Self>,
-        mut netbios_client: NetBiosClient,
+        mut rtransport: Box<dyn SmbTransportRead>,
         worker: Arc<MultiWorkerBase<Self>>,
     ) {
         log::debug!("Starting worker loop.");
         let self_ref = self.as_ref();
         loop {
             match self_ref
-                .handle_next_recv(&mut netbios_client, &worker)
+                .handle_next_recv(rtransport.as_mut(), &worker)
                 .await
             {
                 Ok(_) => {}
@@ -63,15 +61,15 @@ impl AsyncBackend {
 
     async fn loop_send(
         self: Arc<Self>,
-        mut netbios_client: NetBiosClient,
-        mut send_channel: mpsc::Receiver<NetBiosTcpMessage>,
+        mut wtransport: Box<dyn SmbTransportWrite>,
+        mut send_channel: mpsc::Receiver<Vec<u8>>,
         worker: Arc<MultiWorkerBase<Self>>,
     ) {
         log::debug!("Starting worker loop.");
         let self_ref = self.as_ref();
         loop {
             match self_ref
-                .handle_next_send(&mut netbios_client, &mut send_channel, &worker)
+                .handle_next_send(wtransport.as_mut(), &mut send_channel, &worker)
                 .await
             {
                 Ok(_) => {}
@@ -95,15 +93,14 @@ impl AsyncBackend {
     /// Handles the next message in the receive loop:
     /// receives a message, transforms it, and sends it to the correct awaiting task.
     async fn handle_next_recv(
-        self: &Self,
-        netbios_client: &mut NetBiosClient,
+        &self,
+        rtransport: &mut dyn SmbTransportRead,
         worker: &Arc<MultiWorkerBase<Self>>,
     ) -> crate::Result<()> {
-        debug_assert!(netbios_client.can_read());
         select! {
             // Receive a message from the server.
-            message = netbios_client.receive_bytes() => {
-                worker.incoming_data_callback(message).await
+            message_from_server = rtransport.receive() => {
+                worker.incoming_data_callback(message_from_server).await
             }
             // Cancel the loop.
             _ = self.token.cancelled() => {
@@ -115,16 +112,15 @@ impl AsyncBackend {
     /// Handles the next message in the send loop:
     /// sends a message to the server.
     async fn handle_next_send(
-        self: &Self,
-        netbios_client: &mut NetBiosClient,
-        send_channel: &mut mpsc::Receiver<NetBiosTcpMessage>,
+        &self,
+        wtransport: &mut dyn SmbTransportWrite,
+        send_channel: &mut mpsc::Receiver<Vec<u8>>,
         worker: &Arc<MultiWorkerBase<Self>>,
     ) -> crate::Result<()> {
-        debug_assert!(netbios_client.can_write());
         select! {
             // Send a message to the server.
-            message = send_channel.recv() => {
-                worker.outgoing_data_callback(message, netbios_client).await
+            message_to_send = send_channel.recv() => {
+                worker.outgoing_data_callback(message_to_send, wtransport).await
             },
             // Cancel the loop.
             _ = self.token.cancelled() => {
@@ -136,29 +132,29 @@ impl AsyncBackend {
 
 #[cfg(feature = "async")]
 impl MultiWorkerBackend for AsyncBackend {
-    type SendMessage = NetBiosTcpMessage;
+    type SendMessage = Vec<u8>;
 
     type AwaitingNotifier = oneshot::Sender<crate::Result<IncomingMessage>>;
     type AwaitingWaiter = oneshot::Receiver<crate::Result<IncomingMessage>>;
 
     async fn start(
-        netbios_client: NetBiosClient,
+        transport: Box<dyn SmbTransport>,
         worker: Arc<MultiWorkerBase<Self>>,
         send_channel_recv: mpsc::Receiver<Self::SendMessage>,
     ) -> crate::Result<Arc<Self>> {
         let backend: Arc<Self> = Default::default();
         let backend_clone = backend.clone();
-        let (netbios_recv, netbios_send) = netbios_client.split()?;
+        let (rtransport, wtransport) = transport.split()?;
 
         let recv_task = {
             let backend_clone = backend_clone.clone();
             let worker = worker.clone();
-            tokio::spawn(async move { backend_clone.loop_receive(netbios_recv, worker).await })
+            tokio::spawn(async move { backend_clone.loop_receive(rtransport, worker).await })
         };
 
         let send_task = tokio::spawn(async move {
             backend_clone
-                .loop_send(netbios_send, send_channel_recv, worker)
+                .loop_send(wtransport, send_channel_recv, worker)
                 .await
         });
         backend
@@ -183,7 +179,7 @@ impl MultiWorkerBackend for AsyncBackend {
         loop_handles.1.await?;
         Ok(())
     }
-    fn wrap_msg_to_send(msg: NetBiosTcpMessage) -> Self::SendMessage {
+    fn wrap_msg_to_send(msg: Vec<u8>) -> Self::SendMessage {
         msg
     }
 

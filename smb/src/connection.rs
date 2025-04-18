@@ -1,10 +1,10 @@
 pub mod config;
 pub mod connection_info;
-pub mod netbios_client;
 #[cfg(not(feature = "single_threaded"))]
 pub mod notification_handler;
 pub mod preauth_hash;
 pub mod transformer;
+pub mod transport;
 pub mod worker;
 
 use crate::dialects::DialectImpl;
@@ -16,9 +16,9 @@ use crate::{
     crypto,
     msg_handler::*,
     packets::{
-        netbios::NetBiosMessageContent,
         smb1::SMB1NegotiateMessage,
         smb2::{negotiate::*, plain::*},
+        transport::SMBMessage,
     },
     session::Session,
 };
@@ -26,7 +26,6 @@ use binrw::prelude::*;
 pub use config::*;
 use connection_info::{ConnectionInfo, NegotiatedProperties};
 use maybe_async::*;
-use netbios_client::NetBiosClient;
 #[cfg(not(feature = "single_threaded"))]
 use notification_handler::NotificationHandler;
 use rand::rngs::OsRng;
@@ -36,6 +35,7 @@ use std::sync::atomic::{AtomicU16, AtomicU64};
 use std::sync::Arc;
 use std::time::Duration;
 pub use transformer::TransformError;
+use transport::{make_transport, SmbTransport};
 use worker::{Worker, WorkerImpl};
 
 pub struct Connection {
@@ -72,13 +72,13 @@ impl Connection {
             return Err(Error::InvalidState("Already connected".into()));
         }
 
-        let mut netbios_client = NetBiosClient::new(self.config.timeout());
+        let mut transport = make_transport(&self.config.transport, self.config.timeout())?;
 
         log::debug!("Connecting to {}...", address);
-        netbios_client.connect(address).await?;
+        transport.connect(address).await?;
 
         log::info!("Connected to {}. Negotiating.", address);
-        self.negotiate(netbios_client, self.config.smb2_only_negotiate)
+        self.negotiate(transport, self.config.smb2_only_negotiate)
             .await?;
 
         Ok(())
@@ -92,27 +92,28 @@ impl Connection {
         }
     }
 
-    /// This method switches the netbios client to SMB2 and starts the worker.
+    /// Switches the protocol to SMB2 against the server if required,
+    /// and wraps the transport in a SMB2 worker.
     #[maybe_async]
     async fn negotiate_switch_to_smb2(
         &mut self,
-        mut netbios_client: NetBiosClient,
+        mut transport: Box<dyn SmbTransport>,
         smb2_only_neg: bool,
     ) -> crate::Result<Arc<WorkerImpl>> {
         // Multi-protocol negotiation: Begin with SMB1, expect SMB2.
         if !smb2_only_neg {
-            log::debug!("Negotiating multi-protocol");
+            log::debug!("Negotiating multi-protocol: Sending SMB1");
             // 1. Send SMB1 negotiate request
-            netbios_client
-                .send(NetBiosMessageContent::SMB1Message(
-                    SMB1NegotiateMessage::new(),
-                ))
-                .await?;
+            let msg_bytes: Vec<u8> =
+                SMBMessage::SMB1Message(SMB1NegotiateMessage::new()).try_into()?;
+            transport.send(&msg_bytes).await?;
 
+            log::debug!("Sent SMB1 negotiate request, Receieving SMB2 response");
             // 2. Expect SMB2 negotiate response
-            let response = netbios_client.receive_bytes().await?.parse_content()?;
+            let recieved_bytes = transport.receive().await?;
+            let response = SMBMessage::try_from(recieved_bytes.as_ref())?;
             let message = match response {
-                NetBiosMessageContent::SMB2Message(Message::Plain(m)) => m,
+                SMBMessage::SMB2Message(Message::Plain(m)) => m,
                 _ => {
                     return Err(Error::InvalidMessage(
                         "Expected SMB2 negotiate response, got SMB1".to_string(),
@@ -142,7 +143,7 @@ impl Connection {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
 
-        Ok(WorkerImpl::start(netbios_client, self.config.timeout()).await?)
+        Ok(WorkerImpl::start(transport, self.config.timeout()).await?)
     }
 
     /// This method perofrms the SMB2 negotiation.
@@ -342,7 +343,7 @@ impl Connection {
     #[maybe_async]
     async fn negotiate(
         &mut self,
-        netbios_client: NetBiosClient,
+        transport: Box<dyn SmbTransport>,
         smb2_only_neg: bool,
     ) -> crate::Result<()> {
         if self.handler.conn_info.get().is_some() {
@@ -351,7 +352,7 @@ impl Connection {
 
         // Negotiate SMB1, Switch to SMB2
         let worker = self
-            .negotiate_switch_to_smb2(netbios_client, smb2_only_neg)
+            .negotiate_switch_to_smb2(transport, smb2_only_neg)
             .await?;
 
         self.handler.worker.set(worker).unwrap();

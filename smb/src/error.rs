@@ -82,6 +82,26 @@ pub enum Error {
     InvalidArgument(String),
     #[error("SMB Operation Cancelled: {0}")]
     Cancelled(String),
+
+    // -- QUIC --
+    #[cfg(feature = "quic")]
+    #[error("QUIC start connect error: {0}")]
+    QuicConnectError(#[from] quinn::ConnectError),
+    #[cfg(feature = "quic")]
+    #[error("QUIC connection error: {0}")]
+    QuicConnectionError(#[from] quinn::ConnectionError),
+    #[cfg(feature = "quic")]
+    #[error("QUIC write error: {0}")]
+    QuicWriteError(#[from] quinn::WriteError),
+    #[cfg(feature = "quic")]
+    #[error("QUIC read error: {0}")]
+    QuicReadError(#[from] quinn::ReadExactError),
+    #[cfg(feature = "quic")]
+    #[error("TLS error: {0}")]
+    TlsError(#[from] rustls::Error),
+    #[cfg(feature = "quic")]
+    #[error("No cipher suites found")]
+    NoCipherSuitesFound(#[from] quinn::crypto::rustls::NoInitialCipherSuite),
 }
 
 impl<T> From<PoisonError<T>> for Error {
