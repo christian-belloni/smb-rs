@@ -14,7 +14,6 @@ readme.workspace = true
 # Encoding/Decoding
 binrw = "0.14.1"
 modular-bitfield = "0.11.2"
-der = { version = "0.7.9", features = ["std", "alloc"] }
 
 # Async
 tokio = { version = "1.43", optional = true, features = ["full"] }
@@ -35,7 +34,6 @@ url = "*"
 sspi = { path = "../../sspi-rs", features = ["network_client"] }
 # sspi = "0.15.2"
 picky-krb = "0.9.4"
-gss-api = { version = "0.1.0", features = [] }
 
 # Crypto
 hmac = "0.12.1"

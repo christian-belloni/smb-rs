@@ -49,8 +49,6 @@ pub enum Error {
     SspiError(#[from] sspi::Error),
     #[error("Url parse error: {0}")]
     UrlParseError(#[from] url::ParseError),
-    #[error("DER error: {0}")]
-    DerError(#[from] der::Error),
     #[error("Unsupported authentication mechanism: {0}")]
     UnsupportedAuthenticationMechanism(String),
     #[error("Compression error: {0}")]

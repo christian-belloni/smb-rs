@@ -163,13 +163,14 @@ impl Session {
                     let mut request = OutgoingMessage::new(Content::SessionSetupRequest(
                         SessionSetupRequest::new(next_buf, req_security_mode),
                     ));
+                    // TODO: Stop the preauth hash on successful authentication.
                     request.return_preauth_hash = true;
                     let result = handler.sendo(request).await?;
 
                     let is_about_to_finish = authenticator.is_authenticated()?;
                     // If keys are exchanged, set them up, to enable validation of next response!
-                    dbg!(&authenticator);
-                    if dbg!(is_about_to_finish) {
+
+                    if is_about_to_finish {
                         let session_key: KeyToDerive = authenticator.session_key()?;
 
                         session_state.lock().await?.setup(

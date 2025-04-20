@@ -23,7 +23,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 #[maybe_async]
 async fn _main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+    // Use env_logger, and set default log level to info.
+    // This can be overridden by setting the RUST_LOG environment variable.
+    env_logger::Builder::new()
+        .filter(None, log::LevelFilter::Info)
+        .format_timestamp(None)
+        .init();
+    log::info!("Starting smb-cli");
+    log::info!("Version: {}", env!("CARGO_PKG_VERSION"));
 
     let cli = Cli::parse();
 
