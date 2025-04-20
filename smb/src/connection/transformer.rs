@@ -134,20 +134,15 @@ impl Transformer {
     /// Finalizes the preauth hash. if it's not already finalized, and returns the value.
     /// If the hash is not supported, returns None.
     #[maybe_async]
-    pub async fn finalize_preauth_hash(&self) -> crate::Result<Option<PreauthHashValue>> {
-        let mut pa_hash = self.preauth_hash.lock().await?;
+    pub async fn return_preauth_hash(&self) -> crate::Result<Option<PreauthHashValue>> {
+        let pa_hash = self.preauth_hash.lock().await?;
         if let Some(PreauthHashState::Finished(hash)) = &*pa_hash {
             return Ok(Some(hash.clone()));
         }
 
-        *pa_hash = match pa_hash.take() {
-            Some(pah) => pah.finish().into(),
-            _ => return Ok(None),
-        };
-
-        match &*pa_hash {
-            Some(PreauthHashState::Finished(hash)) => Ok(Some(hash.clone())),
-            _ => panic!("Preauth hash not finished!"),
+        match pa_hash.as_ref() {
+            Some(x) => Ok(x.current_hash().into()),
+            None => Ok(None),
         }
     }
 

@@ -163,16 +163,17 @@ impl Session {
                     let mut request = OutgoingMessage::new(Content::SessionSetupRequest(
                         SessionSetupRequest::new(next_buf, req_security_mode),
                     ));
-                    let is_about_to_finish = authenticator.keys_exchanged();
-                    request.finalize_preauth_hash = is_about_to_finish;
+                    request.return_preauth_hash = true;
                     let result = handler.sendo(request).await?;
 
+                    let is_about_to_finish = authenticator.is_authenticated()?;
                     // If keys are exchanged, set them up, to enable validation of next response!
-                    if is_about_to_finish {
-                        let ntlm_key: KeyToDerive = authenticator.session_key()?;
+                    dbg!(&authenticator);
+                    if dbg!(is_about_to_finish) {
+                        let session_key: KeyToDerive = authenticator.session_key()?;
 
                         session_state.lock().await?.setup(
-                            &ntlm_key,
+                            &session_key,
                             &result.preauth_hash,
                             conn_info,
                         )?;

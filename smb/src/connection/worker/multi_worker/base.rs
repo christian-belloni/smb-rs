@@ -252,12 +252,12 @@ where
 
     #[maybe_async]
     async fn send(&self, msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
-        let finalize_preauth_hash = msg.finalize_preauth_hash;
+        let return_preauth_hash = msg.return_preauth_hash;
         let id = msg.message.header.message_id;
         let message = { self.transformer.transform_outgoing(msg).await? };
 
-        let hash = match finalize_preauth_hash {
-            true => self.transformer.finalize_preauth_hash().await?,
+        let hash = match return_preauth_hash {
+            true => self.transformer.return_preauth_hash().await?,
             false => None,
         };
 

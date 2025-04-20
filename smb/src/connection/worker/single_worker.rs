@@ -41,7 +41,7 @@ impl Worker for SingleWorker {
 
     fn send(&self, msg: OutgoingMessage) -> crate::Result<SendMessageResult> {
         let msg_id = msg.message.header.message_id;
-        let finalize_preauth_hash = msg.finalize_preauth_hash;
+        let return_preauth_hash = msg.return_preauth_hash;
 
         let msg_to_send = self.transformer.transform_outgoing(msg)?;
 
@@ -49,9 +49,10 @@ impl Worker for SingleWorker {
         t.get_mut()
             .ok_or(crate::Error::NotConnected)?
             .send(msg_to_send.as_ref())?;
-
-        let hash = match finalize_preauth_hash {
-            true => self.transformer.finalize_preauth_hash()?,
+        
+        // TODO: This might be an isseu when supporting multiple sessions.
+        let hash = match return_preauth_hash {
+            true => self.transformer.return_preauth_hash()?,
             false => None,
         };
 

@@ -8,7 +8,7 @@ pub struct OutgoingMessage {
 
     /// Whether to finalize the preauth hash after sending this message.
     /// If this is set to true twice per connection, an error will be thrown.
-    pub finalize_preauth_hash: bool,
+    pub return_preauth_hash: bool,
 
     /// Ask the sender to compress the message before sending, if possible.
     pub compress: bool,
@@ -24,7 +24,7 @@ impl OutgoingMessage {
     pub fn new(content: Content) -> OutgoingMessage {
         OutgoingMessage {
             message: PlainMessage::new(content),
-            finalize_preauth_hash: false,
+            return_preauth_hash: false,
             compress: true,
             encrypt: false,
             has_response: true,

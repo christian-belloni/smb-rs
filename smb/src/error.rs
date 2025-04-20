@@ -47,6 +47,8 @@ pub enum Error {
     MissingPermissions(String),
     #[error("Sspi error: {0}")]
     SspiError(#[from] sspi::Error),
+    #[error("Url parse error: {0}")]
+    UrlParseError(#[from] url::ParseError),
     #[error("DER error: {0}")]
     DerError(#[from] der::Error),
     #[error("Unsupported authentication mechanism: {0}")]

@@ -5,19 +5,26 @@ use gss_api::InitialContextToken;
 use sspi::{
     ntlm::NtlmConfig, AcquireCredentialsHandleResult, AuthIdentity, AuthIdentityBuffers,
     BufferType, ClientRequestFlags, CredentialUse, DataRepresentation,
-    InitializeSecurityContextResult, Ntlm, SecurityBuffer, SecurityBufferRef, Sspi, SspiImpl,
+    InitializeSecurityContextResult, Kerberos, Ntlm, SecurityBuffer, SecurityBufferRef, Sspi,
+    SspiImpl,
 };
+use sspi::{CredentialsBuffers, KerberosConfig};
+use url::Url;
 
 use crate::Error;
 
+#[derive(Debug)]
 pub struct GssAuthenticator {
-    mech_types_data_sent: Vec<u8>,
+    // mech_types_data_sent: Vec<u8>,
     server_accepted_auth_valid: bool,
     auth_session: Box<dyn GssAuthTokenHandler>,
 }
 
 const SPENGO_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.2");
 const NTLM_MECH_TYPE_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.311.2.2.10");
+const MS_KRB5_MECH_TYPE_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.48018.1.2.2");
+// const KRB5_MECH_TYPE_OID: ObjectIdentifier =
+//     ObjectIdentifier::new_unwrap("1.2.840.113554.1.2.2");
 
 impl GssAuthenticator {
     pub fn build(
@@ -25,31 +32,31 @@ impl GssAuthenticator {
         identity: AuthIdentity,
     ) -> crate::Result<(GssAuthenticator, Vec<u8>)> {
         let mut auth_session = Self::parse_inital_context_token(token, identity)?;
-        let next_buffer = auth_session.next(None)?;
+        let next_buffer = auth_session.next(Some(token.to_vec()))?;
 
-        // It is negTokenInit2 -- the first response.
-        let token = NegTokenInit2 {
-            mech_types: Some(vec![NTLM_MECH_TYPE_OID]),
-            req_flags: None,
-            neg_hints: None,
-            mech_token: Some(OctetStringRef::new(&next_buffer)?),
-            mech_list_mic: None,
-        };
-        let mech_types_data_sent = token.mech_types.to_der()?;
-        let res_mech = NegotiationToken::NegTokenInit2(token);
-        let inner_as_bytes = res_mech.to_der()?;
-        let res = InitialContextToken {
-            this_mech: SPENGO_OID,
-            inner_context_token: AnyRef::from_der(&inner_as_bytes)?,
-        };
+        // // It is negTokenInit2 -- the first response.
+        // let token = NegTokenInit2 {
+        //     mech_types: Some(vec![MS_KRB5_MECH_TYPE_OID]),
+        //     req_flags: None,
+        //     neg_hints: None,
+        //     mech_token: Some(OctetStringRef::new(&next_buffer)?),
+        //     mech_list_mic: None,
+        // };
+        // let mech_types_data_sent = token.mech_types.to_der()?;
+        // let res_mech = NegotiationToken::NegTokenInit2(token);
+        // let inner_as_bytes = res_mech.to_der()?;
+        // let res = InitialContextToken {
+        //     this_mech: SPENGO_OID,
+        //     inner_context_token: AnyRef::from_der(&inner_as_bytes)?,
+        // };
 
         Ok((
             GssAuthenticator {
-                mech_types_data_sent,
+                // mech_types_data_sent,
                 server_accepted_auth_valid: false,
                 auth_session,
             },
-            res.to_der()?,
+            next_buffer,
         ))
     }
 
@@ -75,7 +82,7 @@ impl GssAuthenticator {
                 "No mech types in negotiation token!".into(),
             ))?
             .iter()
-            .all(|oid| oid != &NTLM_MECH_TYPE_OID)
+            .all(|oid| oid != &MS_KRB5_MECH_TYPE_OID)
         {
             return Err(Error::UnsupportedAuthenticationMechanism(
                 "No NTLM mech type in negotiation token!".into(),
@@ -92,32 +99,32 @@ impl GssAuthenticator {
         match self.auth_session.is_complete()? {
             true => {
                 let mut mic_to_validate = Self::get_mic_from_complete(next_token)?;
-                self.auth_session
-                    .gss_validatemic(&mut self.mech_types_data_sent, &mut mic_to_validate)?;
+                // self.auth_session
+                //     .gss_validatemic(&mut self.mech_types_data_sent, &mut mic_to_validate)?;
                 self.server_accepted_auth_valid = true;
                 Ok(None)
             }
             false => {
-                let ntlm_token = Self::get_token_from_incomplete(next_token)?;
-                let out_token = self.auth_session.next(Some(ntlm_token))?;
+                // let ntlm_token = Self::get_token_from_incomplete(next_token)?;
+                let out_token = self.auth_session.next(Some(next_token.clone()))?;
 
-                let mech_list_mic = self
-                    .auth_session
-                    .gss_getmic(&mut self.mech_types_data_sent)?;
+                // let mech_list_mic = self
+                //     .auth_session
+                //     .gss_getmic(&mut self.mech_types_data_sent)?;
 
-                let res = NegotiationToken::NegTokenResp(NegTokenResp {
-                    mech_list_mic: Some(OctetStringRef::new(&mech_list_mic)?),
-                    neg_state: None,
-                    response_token: Some(OctetStringRef::new(&out_token)?),
-                    supported_mech: Some(NTLM_MECH_TYPE_OID),
-                });
-                Ok(Some(res.to_der()?))
+                // let res = NegotiationToken::NegTokenResp(NegTokenResp {
+                //     mech_list_mic: Some(OctetStringRef::new(&mech_list_mic)?),
+                //     neg_state: None,
+                //     response_token: Some(OctetStringRef::new(&out_token)?),
+                //     supported_mech: Some(MS_KRB5_MECH_TYPE_OID),
+                // });
+                Ok(Some(out_token))
             }
         }
     }
 
     pub fn is_authenticated(&self) -> crate::Result<bool> {
-        return Ok(self.auth_session.is_complete()? && self.server_accepted_auth_valid);
+        return Ok(self.auth_session.is_complete()?);
     }
 
     fn parse_response(token: &[u8]) -> crate::Result<NegTokenResp> {
@@ -173,7 +180,7 @@ impl GssAuthenticator {
     }
 }
 
-pub trait GssAuthTokenHandler: Send + Sync {
+pub trait GssAuthTokenHandler: Send + Sync + std::fmt::Debug {
     fn next(&mut self, ntlm_token: Option<Vec<u8>>) -> crate::Result<Vec<u8>>;
     fn gss_getmic(&mut self, buffer: &mut [u8]) -> crate::Result<Vec<u8>>;
     fn gss_validatemic(&mut self, buffer: &mut [u8], signature: &mut [u8]) -> crate::Result<()>;
@@ -181,25 +188,31 @@ pub trait GssAuthTokenHandler: Send + Sync {
     fn session_key(&self) -> crate::Result<[u8; 16]>;
 }
 
+#[derive(Debug)]
 struct NtlmGssAuthSession {
-    ntlm: Ntlm,
-    identity: AuthIdentity,
-    acq_cred_result: AcquireCredentialsHandleResult<Option<AuthIdentityBuffers>>,
+    ntlm: Kerberos,
+    account_name: String,
+    acq_cred_result: AcquireCredentialsHandleResult<Option<CredentialsBuffers>>,
     current_state: Option<InitializeSecurityContextResult>,
     seq_num: u32,
 }
 
 impl NtlmGssAuthSession {
     pub fn new(ntlm_config: NtlmConfig, identity: AuthIdentity) -> crate::Result<Self> {
-        let mut ntlm = Ntlm::with_config(ntlm_config);
-        let acq_cred_result = ntlm
+        let mut kerberos = Kerberos::new_client_from_config(KerberosConfig {
+            kdc_url: Some(Url::parse("tcp://adc.aviv.local:88")?),
+            client_computer_name: Some("aviv".to_string()),
+        })?;
+        let account_name = identity.username.account_name().to_string();
+        let acq_cred_result = kerberos
             .acquire_credentials_handle()
             .with_credential_use(CredentialUse::Outbound)
-            .with_auth_data(&identity)
-            .execute(&mut ntlm)?;
+            .with_auth_data(&sspi::Credentials::AuthIdentity(identity))
+            .execute(&mut kerberos)
+            .expect("Failed to acquire credentials handle");
         Ok(Self {
-            ntlm,
-            identity,
+            ntlm: kerberos,
+            account_name,
             acq_cred_result,
             current_state: None,
             seq_num: 0,
@@ -224,13 +237,16 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
             .ntlm
             .initialize_security_context()
             .with_credentials_handle(&mut self.acq_cred_result.credentials_handle)
+            // Those are exactly the flags provided to InitializeSecurityContextW in mrxsmb20.sys - The windows
+            // kernel driver for SMB2/3.
             .with_context_requirements(
-                ClientRequestFlags::CONFIDENTIALITY
-                    | ClientRequestFlags::ALLOCATE_MEMORY
-                    | ClientRequestFlags::INTEGRITY,
+                ClientRequestFlags::DELEGATE
+                    | ClientRequestFlags::MUTUAL_AUTH
+                    | ClientRequestFlags::INTEGRITY
+                    | ClientRequestFlags::FRAGMENT_TO_FIT,
             )
             .with_target_data_representation(DataRepresentation::Native)
-            .with_target_name(self.identity.username.account_name())
+            .with_target_name("cifs/adc.aviv.local")
             .with_output(&mut output_buffer);
 
         let mut input_buffers = vec![];
@@ -243,7 +259,7 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
         self.current_state = Some(
             self.ntlm
                 .initialize_security_context_impl(&mut builder)?
-                .resolve_to_result()?,
+                .resolve_with_default_network_client()?,
         );
 
         return Ok(output_buffer.pop().unwrap().buffer);
@@ -279,8 +295,8 @@ impl GssAuthTokenHandler for NtlmGssAuthSession {
     }
 
     fn session_key(&self) -> crate::Result<[u8; 16]> {
-        self.ntlm
-            .session_key()
-            .ok_or(Error::InvalidState("No session key is set!".into()))
+        // Use the first 16 bytes of the session key.
+        let k = &dbg!(self.ntlm.query_context_session_key()?.session_key)[..16];
+        Ok(k.try_into().unwrap())
     }
 }

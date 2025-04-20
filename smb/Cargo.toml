@@ -29,9 +29,11 @@ log = "0.4.22"
 time = { version = "0.3.37", features = ["macros"] }
 thiserror = "2.0"
 paste = "1.0"
+url = "*"
 
 # APIs
-sspi = "0.15.2"
+sspi = { path = "../../sspi-rs", features = ["network_client"] }
+# sspi = "0.15.2"
 picky-krb = "0.9.4"
 gss-api = { version = "0.1.0", features = [] }
 
