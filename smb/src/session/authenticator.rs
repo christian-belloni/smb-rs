@@ -5,10 +5,10 @@ use gss_api::InitialContextToken;
 use sspi::{
     ntlm::NtlmConfig, AcquireCredentialsHandleResult, AuthIdentity, AuthIdentityBuffers,
     BufferType, ClientRequestFlags, CredentialUse, DataRepresentation,
-    InitializeSecurityContextResult, Kerberos, Ntlm, SecurityBuffer, SecurityBufferRef, Sspi,
-    SspiImpl,
+    InitializeSecurityContextResult, Kerberos, Negotiate, Ntlm, SecurityBuffer, SecurityBufferRef,
+    Sspi, SspiImpl,
 };
-use sspi::{CredentialsBuffers, KerberosConfig};
+use sspi::{CredentialsBuffers, KerberosConfig, NegotiateConfig};
 use url::Url;
 
 use crate::Error;
@@ -190,7 +190,7 @@ pub trait GssAuthTokenHandler: Send + Sync + std::fmt::Debug {
 
 #[derive(Debug)]
 struct NtlmGssAuthSession {
-    ntlm: Kerberos,
+    ntlm: Negotiate,
     account_name: String,
     acq_cred_result: AcquireCredentialsHandleResult<Option<CredentialsBuffers>>,
     current_state: Option<InitializeSecurityContextResult>,
@@ -199,19 +199,23 @@ struct NtlmGssAuthSession {
 
 impl NtlmGssAuthSession {
     pub fn new(ntlm_config: NtlmConfig, identity: AuthIdentity) -> crate::Result<Self> {
-        let mut kerberos = Kerberos::new_client_from_config(KerberosConfig {
-            kdc_url: Some(Url::parse("tcp://adc.aviv.local:88")?),
-            client_computer_name: Some("aviv".to_string()),
+        let mut negotiate = Negotiate::new(NegotiateConfig {
+            protocol_config: Box::new(KerberosConfig {
+                kdc_url: Some(Url::parse("tcp://adc.aviv.local:88")?),
+                client_computer_name: Some("aviv".to_string()),
+            }),
+            package_list: Some(String::from("kerberos,ntlm")),
+            client_computer_name: "aviv".to_string(),
         })?;
         let account_name = identity.username.account_name().to_string();
-        let acq_cred_result = kerberos
+        let acq_cred_result = negotiate
             .acquire_credentials_handle()
             .with_credential_use(CredentialUse::Outbound)
             .with_auth_data(&sspi::Credentials::AuthIdentity(identity))
-            .execute(&mut kerberos)
+            .execute(&mut negotiate)
             .expect("Failed to acquire credentials handle");
         Ok(Self {
-            ntlm: kerberos,
+            ntlm: negotiate,
             account_name,
             acq_cred_result,
             current_state: None,
