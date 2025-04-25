@@ -45,8 +45,7 @@ impl Authenticator {
             .acquire_credentials_handle()
             .with_credential_use(CredentialUse::Outbound)
             .with_auth_data(&sspi::Credentials::AuthIdentity(identity))
-            .execute(&mut negotiate_ssp)
-            .expect("Failed to acquire credentials handle");
+            .execute(&mut negotiate_ssp)?;
 
         Ok(Authenticator {
             server_hostname: conn_info.server.clone(),
@@ -133,7 +132,12 @@ impl Authenticator {
         self.current_state = Some(result);
 
         return Ok(AuthenticationStep::NextToken(
-            output_buffer.pop().unwrap().buffer,
+            output_buffer
+                .pop()
+                .ok_or(Error::InvalidState(
+                    "SSPI output buffer is empty.".to_string(),
+                ))?
+                .buffer,
         ));
     }
 

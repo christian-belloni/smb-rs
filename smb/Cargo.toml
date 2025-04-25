@@ -31,9 +31,7 @@ paste = "1.0"
 url = "*"
 
 # APIs
-sspi = { path = "../../sspi-rs" }
-# sspi = "0.15.2"
-picky-krb = "0.9.4"
+sspi = "0.15.5"
 
 # Crypto
 hmac = "0.12.1"
