@@ -12,6 +12,14 @@ pub struct Cli {
     #[arg(long)]
     pub negotiate_smb2_only: bool,
 
+    /// Disables NTLM authentication.
+    #[arg(long)]
+    pub no_ntlm: bool,
+
+    /// Disables Kerberos authentication.
+    #[arg(long)]
+    pub no_kerberos: bool,
+
     #[arg(long)]
     pub quic_transport: bool,
 

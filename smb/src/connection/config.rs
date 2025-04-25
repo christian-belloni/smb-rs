@@ -57,9 +57,37 @@ impl EncryptionMode {
     }
 }
 
+/// Specifies the authentication methods (SSPs) to be used for the connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthMethodsConfig {
+    /// Whether to try using NTLM authentication.
+    /// This is enabled by default.
+    pub ntlm: bool,
+
+    /// Whether to try using Kerberos authentication.
+    /// This is supported only if the `kerberos` feature is enabled,
+    /// and if so, enabled by default.
+    pub kerberos: bool,
+}
+
+impl Default for AuthMethodsConfig {
+    fn default() -> Self {
+        Self {
+            ntlm: true,
+            kerberos: cfg!(feature = "kerberos"),
+        }
+    }
+}
+
 /// Specifies the configuration for a connection.
 #[derive(Debug, Default, Clone)]
 pub struct ConnectionConfig {
+    /// Specifies the server port to connect to.
+    /// If unset, defaults to the default port for the selected transport protocol.
+    /// For Direct TCP, this is 445.
+    /// For SMB over QUIC, this is 443.
+    pub port: Option<u16>,
+
     /// Specifies the timeout for the connection.
     /// If unset, defaults to [`ConnectionConfig::DEFAULT_TIMEOUT`].
     /// 0 means wait forever.
@@ -86,7 +114,7 @@ pub struct ConnectionConfig {
     /// would not be available. *The compression feature is enabled by default.*
     pub compression_enabled: bool,
 
-    /// Specifies the client name to be used in the SMB2 negotiate request.
+    /// Specifies the client host name to be used in the SMB2 negotiation & session setup.
     pub client_name: Option<String>,
 
     /// Specifies the GUID of the client to be used in the SMB2 negotiate request.
@@ -105,6 +133,8 @@ pub struct ConnectionConfig {
 
     /// Specifies the transport protocol to be used for the connection.
     pub transport: TransportConfig,
+
+    pub auth_methods: AuthMethodsConfig,
 }
 
 impl ConnectionConfig {

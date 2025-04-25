@@ -10,9 +10,11 @@ use crate::packets::transport::SmbTcpMessageHeader;
 #[allow(async_fn_in_trait)]
 pub trait SmbTransport: Send + SmbTransportRead + SmbTransportWrite {
     #[cfg(feature = "async")]
-    fn connect<'a>(&'a mut self, address: &'a str) -> BoxFuture<'a, crate::Result<()>>;
+    fn connect<'a>(&'a mut self, endpoint: &'a str) -> BoxFuture<'a, crate::Result<()>>;
     #[cfg(not(feature = "async"))]
-    fn connect(&mut self, address: &str) -> crate::Result<()>;
+    fn connect(&mut self, endpoint: &str) -> crate::Result<()>;
+
+    fn default_port(&self) -> u16;
 
     /// Splits the transport into two separate transports:
     /// One for reading, and one for writing,

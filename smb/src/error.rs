@@ -74,7 +74,7 @@ pub enum Error {
     UnexpectedMessageId(u64, u64),
     #[error("Expected info of type {0} but got {1}")]
     UnexpectedInformationType(u8, u8),
-    #[error("Invalid address {0}")]
+    #[error("Invalid endpoint {0}")]
     InvalidAddress(String),
     #[error("Invalid configuration: {0}")]
     InvalidConfiguration(String),

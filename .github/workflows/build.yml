@@ -39,11 +39,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build/${{ matrix.compile_features }}
-      run: cargo build --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress"
+      run: cargo build --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress,kerberos"
     - name: Tests/${{ matrix.compile_features }}
       run: |
         export SMB_RUST_TESTS_SERVER=samba:445
-        cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress" -- --nocapture
+        cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress,kerberos" -- --nocapture
         # Test without encryption and compression
         cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign" -- --nocapture
         # Test signing with specific algorithms

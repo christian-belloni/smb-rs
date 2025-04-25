@@ -1,4 +1,9 @@
-use super::traits::{SmbTransport, SmbTransportRead, SmbTransportWrite};
+use super::{
+    traits::{SmbTransport, SmbTransportRead, SmbTransportWrite},
+    utils::TransportUtils,
+};
+
+use std::net::SocketAddr;
 
 #[cfg(feature = "async")]
 use futures_core::future::BoxFuture;
@@ -45,37 +50,37 @@ impl TcpTransport {
         }
     }
 
-    /// Connects to a NetBios server in the specified address with a timeout.
+    /// Connects to a NetBios server in the specified endpoint with a timeout.
     /// This is the threaded version of [connect](NetBiosClient::connect) -
     /// using the [std::net::TcpStream] as the underlying socket provider.
     #[cfg(not(feature = "async"))]
-    fn connect_timeout(&mut self, address: &str) -> crate::Result<TcpStream> {
-        use super::utils::TransportUtils;
-
+    fn connect_timeout(&mut self, endpoint: &SocketAddr) -> crate::Result<TcpStream> {
         if self.timeout == Duration::ZERO {
-            log::debug!("Connecting to {}.", address);
-            return TcpStream::connect(&address).map_err(Into::into);
+            log::debug!("Connecting to {}.", endpoint);
+            return TcpStream::connect(&endpoint).map_err(Into::into);
         }
 
-        log::debug!("Connecting to {} with timeout {:?}.", address, self.timeout);
-        // convert to SocketAddr:
-        let address = TransportUtils::parse_socket_address(address)?;
-        TcpStream::connect_timeout(&address, self.timeout).map_err(Into::into)
+        log::debug!(
+            "Connecting to {} with timeout {:?}.",
+            endpoint,
+            self.timeout
+        );
+        TcpStream::connect_timeout(&endpoint, self.timeout).map_err(Into::into)
     }
 
-    /// Connects to a NetBios server in the specified address with a timeout.
+    /// Connects to a NetBios server in the specified endpoint with a timeout.
     /// This is the async version of [connect](NetBiosClient::connect) -
     /// using the [tokio::net::TcpStream] as the underlying socket provider.
     #[cfg(feature = "async")]
-    async fn connect_timeout(&mut self, address: &str) -> crate::Result<TcpStream> {
+    async fn connect_timeout(&mut self, endpoint: &SocketAddr) -> crate::Result<TcpStream> {
         if self.timeout == Duration::ZERO {
-            log::debug!("Connecting to {}.", address);
-            return TcpStream::connect(&address).await.map_err(Into::into);
+            log::debug!("Connecting to {}.", endpoint);
+            return TcpStream::connect(&endpoint).await.map_err(Into::into);
         }
 
         select! {
-            res = TcpStream::connect(&address) => res.map_err(Into::into),
-            _ = tokio::time::sleep(self.timeout) => Err(crate::Error::OperationTimeout(format!("Tcp connect to {}", address), self.timeout)),
+            res = TcpStream::connect(&endpoint) => res.map_err(Into::into),
+            _ = tokio::time::sleep(self.timeout) => Err(crate::Error::OperationTimeout(format!("Tcp connect to {}", endpoint), self.timeout)),
         }
     }
 
@@ -151,8 +156,9 @@ impl TcpTransport {
 
     #[maybe_async::maybe_async]
     #[inline]
-    async fn do_connect(&mut self, address: &str) -> crate::Result<()> {
-        let socket = self.connect_timeout(address).await?;
+    async fn do_connect(&mut self, endpoint: &str) -> crate::Result<()> {
+        let endpoint = TransportUtils::parse_socket_address(endpoint)?;
+        let socket = self.connect_timeout(&endpoint).await?;
         let (r, w) = Self::split_socket(socket);
         self.reader = Some(r);
         self.writer = Some(w);
@@ -162,12 +168,12 @@ impl TcpTransport {
 
 impl SmbTransport for TcpTransport {
     #[cfg(feature = "async")]
-    fn connect<'a>(&'a mut self, address: &'a str) -> BoxFuture<'a, crate::Result<()>> {
-        self.do_connect(address).boxed()
+    fn connect<'a>(&'a mut self, endpoint: &'a str) -> BoxFuture<'a, crate::Result<()>> {
+        self.do_connect(endpoint).boxed()
     }
     #[cfg(not(feature = "async"))]
-    fn connect(&mut self, address: &str) -> crate::Result<()> {
-        self.do_connect(address)
+    fn connect(&mut self, endpoint: &str) -> crate::Result<()> {
+        self.do_connect(endpoint)
     }
 
     fn split(
@@ -185,6 +191,10 @@ impl SmbTransport for TcpTransport {
                 timeout: self.timeout,
             }),
         ))
+    }
+
+    fn default_port(&self) -> u16 {
+        445
     }
 }
 

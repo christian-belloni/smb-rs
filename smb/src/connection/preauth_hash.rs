@@ -39,7 +39,7 @@ impl PreauthHashState {
         }
     }
 
-    pub fn unwrap_final_hash(self) -> PreauthHashValue {
+    pub fn unwrap_final_hash(&self) -> &PreauthHashValue {
         match self {
             PreauthHashState::Finished(hash) => hash,
             _ => panic!("Preauth hash not finished"),

@@ -41,17 +41,20 @@ use worker::{Worker, WorkerImpl};
 pub struct Connection {
     handler: HandlerReference<ConnectionMessageHandler>,
     config: ConnectionConfig,
+
+    server: String,
 }
 
 impl Connection {
     /// Creates a new SMB connection, specifying a server configuration, without connecting to a server.
     /// Use the [`connect`](Connection::connect) method to establish a connection.
-    pub fn build(config: ConnectionConfig) -> crate::Result<Connection> {
+    pub fn build(server: String, config: ConnectionConfig) -> crate::Result<Connection> {
         config.validate()?;
         let client_guid = config.client_guid.unwrap_or_else(Guid::gen);
         Ok(Connection {
             handler: HandlerReference::new(ConnectionMessageHandler::new(client_guid)),
             config,
+            server,
         })
     }
 
@@ -67,17 +70,18 @@ impl Connection {
 
     /// Connects to the specified server, if it is not already connected, and negotiates the connection.
     #[maybe_async]
-    pub async fn connect(&mut self, address: &str) -> crate::Result<()> {
+    pub async fn connect(&mut self) -> crate::Result<()> {
         if self.handler.worker().is_some() {
             return Err(Error::InvalidState("Already connected".into()));
         }
 
         let mut transport = make_transport(&self.config.transport, self.config.timeout())?;
+        let port = self.config.port.unwrap_or_else(|| transport.default_port());
+        let endpoint = format!("{}:{}", self.server, port);
+        log::debug!("Connecting to {}...", &endpoint);
+        transport.connect(endpoint.as_str()).await?;
 
-        log::debug!("Connecting to {}...", address);
-        transport.connect(address).await?;
-
-        log::info!("Connected to {}. Negotiating.", address);
+        log::info!("Connected to {}. Negotiating.", &endpoint);
         self.negotiate(transport, self.config.smb2_only_negotiate)
             .await?;
 
@@ -236,6 +240,7 @@ impl Connection {
             negotiation,
             dialect: dialect_impl,
             config: self.config.clone(),
+            server: self.server.clone(),
         })
     }
 

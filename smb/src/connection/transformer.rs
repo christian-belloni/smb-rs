@@ -134,16 +134,28 @@ impl Transformer {
     /// Finalizes the preauth hash. if it's not already finalized, and returns the value.
     /// If the hash is not supported, returns None.
     #[maybe_async]
-    pub async fn return_preauth_hash(&self) -> crate::Result<Option<PreauthHashValue>> {
-        let pa_hash = self.preauth_hash.lock().await?;
+    pub async fn finalize_preauth_hash(&self) -> crate::Result<Option<PreauthHashValue>> {
+        let mut pa_hash = self.preauth_hash.lock().await?;
         if let Some(PreauthHashState::Finished(hash)) = &*pa_hash {
             return Ok(Some(hash.clone()));
         }
 
-        match pa_hash.as_ref() {
-            Some(x) => Ok(x.current_hash().into()),
-            None => Ok(None),
-        }
+        *pa_hash = match pa_hash.take() {
+            Some(x) => Some(x.finish()),
+            None => {
+                return Ok(None);
+            }
+        };
+
+        Ok(Some(
+            pa_hash
+                .as_ref()
+                .ok_or_else(|| {
+                    crate::Error::InvalidState("Preauth hash is not supported!".to_string())
+                })?
+                .unwrap_final_hash()
+                .clone(),
+        ))
     }
 
     /// Transforms an outgoing message to a raw SMB message.

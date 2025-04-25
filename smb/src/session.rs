@@ -28,7 +28,7 @@ mod encryptor_decryptor;
 mod signer;
 mod state;
 
-use authenticator::GssAuthenticator;
+use authenticator::{AuthenticationStep, Authenticator};
 pub use encryptor_decryptor::{MessageDecryptor, MessageEncryptor};
 pub use signer::MessageSigner;
 pub use state::SessionInfo;
@@ -52,15 +52,20 @@ impl Session {
         log::debug!("Setting up session for user {}.", user_name);
 
         let username = Username::parse(user_name).map_err(|e| Error::SspiError(e.into()))?;
-        // Build the authenticator.
-        let (mut authenticator, next_buf) = {
-            let identity = AuthIdentity {
-                username,
-                password: Secret::new(password),
-            };
-            GssAuthenticator::build(&conn_info.negotiation.auth_buffer, identity)?
+        let identity = AuthIdentity {
+            username,
+            password: Secret::new(password),
         };
-
+        // Build the authenticator.
+        let mut authenticator = Authenticator::build(identity, conn_info)?;
+        let next_buf = match authenticator.next(&conn_info.negotiation.auth_buffer)? {
+            AuthenticationStep::NextToken(buf) => buf,
+            AuthenticationStep::Complete => {
+                return Err(Error::InvalidState(
+                    "Authentication completed before session setup.".to_string(),
+                ))
+            }
+        };
         let request = OutgoingMessage::new(Content::SessionSetupRequest(SessionSetupRequest::new(
             next_buf,
             req_security_mode,
@@ -85,7 +90,7 @@ impl Session {
         } else {
             Self::setup_more_processing(
                 &mut authenticator,
-                init_response,
+                init_response.message.content.to_sessionsetupresponse()?,
                 &session_state,
                 req_security_mode,
                 &handler,
@@ -123,54 +128,37 @@ impl Session {
 
     #[maybe_async]
     pub async fn setup_more_processing(
-        authenticator: &mut GssAuthenticator,
-        init_response: IncomingMessage,
+        authenticator: &mut Authenticator,
+        init_response: SessionSetupResponse,
         session_state: &Arc<Mutex<SessionInfo>>,
         req_security_mode: SessionSecurityMode,
         handler: &HandlerReference<SessionMessageHandler>,
         conn_info: &Arc<ConnectionInfo>,
     ) -> crate::Result<SessionFlags> {
-        let mut response = Some(init_response);
+        let mut last_setup_response = Some(init_response);
         let mut flags = None;
 
         // While there's a response to process, do so.
         while !authenticator.is_authenticated()? {
-            let last_setup_response = match response.as_ref() {
-                Some(response) => Some(
-                    match &response.message.content {
-                        Content::SessionSetupResponse(response) => Some(response),
-                        _ => None,
-                    }
-                    .unwrap(),
-                ),
-                None => None,
-            };
-
-            flags = match last_setup_response {
-                Some(response) => Some(response.session_flags),
-                None => flags,
-            };
-
             let next_buf = match last_setup_response.as_ref() {
                 Some(response) => authenticator.next(&response.buffer)?,
                 None => authenticator.next(&vec![])?,
             };
+            let is_auth_done = authenticator.is_authenticated()?;
 
-            response = match next_buf {
-                Some(next_buf) => {
+            last_setup_response = match next_buf {
+                AuthenticationStep::NextToken(next_buf) => {
                     // We'd like to update preauth hash with the last request before accept.
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
                     let mut request = OutgoingMessage::new(Content::SessionSetupRequest(
                         SessionSetupRequest::new(next_buf, req_security_mode),
                     ));
-                    // TODO: Stop the preauth hash on successful authentication.
-                    request.return_preauth_hash = true;
+                    request.finalize_preauth_hash = is_auth_done;
                     let result = handler.sendo(request).await?;
 
-                    let is_about_to_finish = authenticator.is_authenticated()?;
                     // If keys are exchanged, set them up, to enable validation of next response!
 
-                    if is_about_to_finish {
+                    if is_auth_done {
                         let session_key: KeyToDerive = authenticator.session_key()?;
 
                         session_state.lock().await?.setup(
@@ -192,7 +180,7 @@ impl Session {
                         log::trace!("Session inserted into worker.");
                     }
 
-                    let expected_status = if is_about_to_finish {
+                    let expected_status = if is_auth_done {
                         Status::Success
                     } else {
                         Status::MoreProcessingRequired
@@ -204,9 +192,12 @@ impl Session {
                                 .with_msg_id_filter(result.msg_id),
                         )
                         .await?;
-                    Some(response)
+                    let session_setup_response =
+                        response.message.content.to_sessionsetupresponse()?;
+                    flags = Some(session_setup_response.session_flags);
+                    Some(session_setup_response)
                 }
-                None => None,
+                AuthenticationStep::Complete => None,
             };
         }
 

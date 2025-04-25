@@ -49,8 +49,7 @@ impl Worker for SingleWorker {
         t.get_mut()
             .ok_or(crate::Error::NotConnected)?
             .send(msg_to_send.as_ref())?;
-        
-        // TODO: This might be an isseu when supporting multiple sessions.
+
         let hash = match return_preauth_hash {
             true => self.transformer.return_preauth_hash()?,
             false => None,
