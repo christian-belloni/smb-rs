@@ -102,6 +102,13 @@ impl From<FileAccessMask> for DirAccessMask {
     }
 }
 
+impl Into<FileAccessMask> for DirAccessMask {
+    fn into(self) -> FileAccessMask {
+        // The bits are the same, just the names are different.
+        FileAccessMask::from_bytes(self.into_bytes())
+    }
+}
+
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[bw(import(has_next: bool))]

@@ -1,32 +1,36 @@
 use log::info;
-use smb::{session::Session, tree::Tree, Connection, ConnectionConfig};
+use smb::{Client, ClientConfig, ConnectionConfig, UncPath};
 use std::env::var;
 
+/// Creates a new SMB client and connects to the specified share on the server.
+/// Returns the client and the UNC path used for the connection's share.
 #[maybe_async::maybe_async]
 pub async fn make_server_connection(
     share: &str,
     config: Option<ConnectionConfig>,
-) -> Result<(Connection, Session, Tree), Box<dyn std::error::Error>> {
+) -> Result<(Client, UncPath), Box<dyn std::error::Error>> {
     let server = var("SMB_RUST_TESTS_SERVER").unwrap_or("127.0.0.1".to_string());
     let user = var("SMB_RUST_TESTS_USER_NAME").unwrap_or("LocalAdmin".to_string());
     let password = var("SMB_RUST_TESTS_PASSWORD").unwrap_or("123456".to_string());
 
-    let mut smb = Connection::build(server.clone(), config.unwrap_or(Default::default()))?;
-    smb.set_timeout(std::time::Duration::from_secs(10)).await?;
+    let mut conn_config = config.unwrap_or(ConnectionConfig::default());
+    conn_config.timeout = Some(std::time::Duration::from_secs(10));
+
+    let mut smb = Client::new(ClientConfig {
+        connection: conn_config,
+        ..Default::default()
+    });
     info!("Connecting to {}", server);
 
+    let unc_path = UncPath {
+        server: server.clone(),
+        share: Some(share.to_string()),
+        path: None,
+    };
     // Connect & Authenticate
-    smb.connect().await?;
-    info!("Connected, authenticating...");
-    let session = smb.authenticate(&user, password).await?;
-    info!("Authenticated!");
-
-    // String before ':', after is port:
-    let server_name = server.split(':').next().unwrap();
-    let tree = session
-        .tree_connect(format!("\\\\{}\\{}", server_name, share).as_str())
+    smb.share_connect(&unc_path, user.as_str(), password.clone())
         .await?;
-    info!("Connected to share, start test");
 
-    Ok((smb, session, tree))
+    info!("Connected to {}", unc_path);
+    Ok((smb, unc_path))
 }

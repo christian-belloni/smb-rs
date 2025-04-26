@@ -3,7 +3,7 @@
 mod common;
 use common::make_server_connection;
 use serial_test::serial;
-use smb::packets::fscc::FileDispositionInformation;
+use smb::{packets::fscc::FileDispositionInformation, FileCreateArgs};
 
 #[test_log::test(maybe_async::test(
     not(feature = "async"),
@@ -11,16 +11,13 @@ use smb::packets::fscc::FileDispositionInformation;
 ))]
 #[serial]
 async fn test_basic_integration() -> Result<(), Box<dyn std::error::Error>> {
-    use smb::packets::{fscc::FileAccessMask, smb2::CreateDisposition};
-
-    let (_smb, _session, tree) = make_server_connection("MyShare", None).await?;
+    let (mut client, share_path) = make_server_connection("MyShare", None).await?;
 
     // Create a file
-    let file = tree
+    let file = client
         .create_file(
-            "basic.txt",
-            CreateDisposition::Create,
-            FileAccessMask::new().with_generic_all(true),
+            &share_path.with_path("basic.txt".to_string()),
+            &FileCreateArgs::make_create_new(Default::default(), Default::default()),
         )
         .await?
         .unwrap_file();

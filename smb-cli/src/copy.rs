@@ -1,9 +1,9 @@
 use crate::{path::*, Cli};
 use clap::Parser;
 use maybe_async::*;
-use smb::resource::*;
 #[cfg(not(feature = "single_threaded"))]
 use smb::sync_helpers::*;
+use smb::{packets::fscc::FileAccessMask, resource::*, Client};
 use std::error::Error;
 #[cfg(not(feature = "async"))]
 use std::fs;
@@ -123,33 +123,34 @@ fn do_copy(from: File, to: fs::File) -> Result<(), smb::Error> {
 
 #[maybe_async]
 pub async fn copy(cmd: &CopyCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
-    {
-        let (from, client) = match &cmd.from {
-            Path::Local(_) => panic!("Local to local copy not supported"),
-            Path::Remote(unc_path) => {
-                let (client, _session, _tree, mut resource) =
-                    unc_path.connect_and_open(cli).await?;
-                (
-                    resource
-                        .take()
-                        .ok_or("Source file not found")?
-                        .unwrap_file(),
-                    client,
+    let mut client = Client::new(cli.make_smb_client_config());
+
+    let from: File = match &cmd.from {
+        Path::Local(_) => panic!("Local to local copy not supported"),
+        Path::Remote(unc_path) => {
+            client
+                .share_connect(unc_path, cli.username.as_str(), cli.password.clone())
+                .await?;
+            client
+                .create_file(
+                    unc_path,
+                    &FileCreateArgs::make_open_existing(
+                        FileAccessMask::new().with_generic_read(true),
+                    ),
                 )
-            }
-        };
+                .await?
+                .try_into()?
+        }
+    };
 
-        let to: fs::File = match &cmd.to {
-            Path::Local(path_buf) => fs::File::create(path_buf).await?,
-            Path::Remote(_) => panic!("Remote to remote copy not supported"),
-        };
+    let to: fs::File = match &cmd.to {
+        Path::Local(path_buf) => fs::File::create(path_buf).await?,
+        Path::Remote(_) => panic!("Remote to remote copy not supported"),
+    };
 
-        do_copy(from, to).await?;
+    do_copy(from, to).await?;
 
-        client
-    }
-    .close()
-    .await?;
+    client.close().await?;
 
     Ok(())
 }

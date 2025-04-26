@@ -1,4 +1,4 @@
-use crate::{path::*, Cli};
+use crate::Cli;
 use clap::Parser;
 #[cfg(feature = "async")]
 use futures_util::StreamExt;
@@ -6,6 +6,7 @@ use maybe_async::*;
 use smb::{
     packets::{fscc::*, smb2::AdditionalInfo},
     resource::{Directory, Resource},
+    Client, FileCreateArgs, UncPath,
 };
 use std::{error::Error, sync::Arc};
 #[derive(Parser, Debug)]
@@ -16,8 +17,16 @@ pub struct InfoCmd {
 #[maybe_async]
 pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
     {
-        let (client, _session, _tree, mut resource) = info.path.connect_and_open(cli).await?;
-        let resource = resource.take().ok_or("Resource not found")?;
+        let mut client = Client::new(cli.make_smb_client_config());
+        client
+            .share_connect(&info.path, cli.username.as_ref(), cli.password.clone())
+            .await?;
+        let resource = client
+            .create_file(
+                &info.path,
+                &FileCreateArgs::make_open_existing(FileAccessMask::new().with_generic_read(true)),
+            )
+            .await?;
         match resource {
             Resource::File(file) => {
                 let info: FileBasicInformation = file.query_info().await?;

@@ -183,18 +183,10 @@ impl Tree {
     pub async fn open_existing(
         &self,
         file_name: &str,
-        desired_access: FileAccessMask,
+        access: FileAccessMask,
     ) -> crate::Result<Resource> {
-        self.create(
-            file_name,
-            &FileCreateArgs {
-                disposition: CreateDisposition::Open,
-                options: CreateOptions::new(),
-                desired_access,
-                attributes: FileAttributes::new(),
-            },
-        )
-        .await
+        self.create(file_name, &FileCreateArgs::make_open_existing(access))
+            .await
     }
 
     pub fn is_dfs_root(&self) -> bool {
@@ -205,11 +197,11 @@ impl Tree {
             .unwrap_or(false)
     }
 
-    pub fn into_dfs_tree(self) -> crate::Result<DfsRootTree> {
+    pub fn as_dfs_tree(&self) -> crate::Result<DfsRootTreeRef> {
         if !self.is_dfs_root() {
             return Err(Error::InvalidState("Tree is not a DFS tree".to_string()));
         }
-        Ok(DfsRootTree::new(self))
+        Ok(DfsRootTreeRef::new(self))
     }
 }
 

@@ -6,6 +6,7 @@ use crate::{
     connection::TransformError,
     packets::smb2::{Command, ErrorResponse, NegotiateDialect, Status},
     sync_helpers::AcquireError,
+    UncPath,
 };
 
 #[derive(Error, Debug)]
@@ -34,6 +35,7 @@ pub enum Error {
     SignatureVerificationFailed,
     #[error("Unexpected message status: {}.", Status::try_display_as_status(*.0))]
     UnexpectedMessageStatus(u32),
+    // TODO: This vs UnexpectedMessageStatus?!
     #[error("Server returned an error message with status: {}.", Status::try_display_as_status(*.0))]
     ReceivedErrorMessage(u32, ErrorResponse),
     #[error("Unexpected command: {0}")]
@@ -82,6 +84,10 @@ pub enum Error {
     InvalidArgument(String),
     #[error("SMB Operation Cancelled: {0}")]
     Cancelled(String),
+    #[error("Unsupported operation: {0}")]
+    UnsupportedOperation(String),
+    #[error("Unable to connect to DFS referrals for: {0}")]
+    DfsReferralConnectionFail(UncPath),
 
     // -- QUIC --
     #[cfg(feature = "quic")]
