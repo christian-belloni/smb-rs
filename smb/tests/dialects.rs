@@ -8,9 +8,10 @@ use smb::{
     connection::EncryptionMode,
     packets::{
         fscc::*,
-        smb2::{AdditionalInfo, CreateDisposition, Dialect},
+        smb2::{AdditionalInfo, CreateOptions, Dialect},
     },
     resource::Directory,
+    FileCreateArgs,
 };
 use std::sync::Arc;
 mod common;
@@ -53,20 +54,22 @@ async fn test_smb_integration_dialect_encrpytion_mode(
         encryption_mode
     );
 
-    let (_smb, _session, tree) = make_server_connection("MyShare", None).await?;
+    let (mut client, share_path) = make_server_connection("MyShare", None).await?;
 
     const TEST_FILE: &str = "test.txt";
     const TEST_DATA: &[u8] = b"Hello, World!";
 
+    let test_file_path = share_path.clone().with_path(TEST_FILE.to_string());
+
     // Hello, World! > test.txt
     let security = {
-        let file = tree
+        let file = client
             .create_file(
-                TEST_FILE,
-                CreateDisposition::Create,
-                FileAccessMask::new()
-                    .with_generic_read(true)
-                    .with_generic_write(true),
+                &test_file_path,
+                &FileCreateArgs::make_create_new(
+                    FileAttributes::new().with_archive(true),
+                    CreateOptions::new(),
+                ),
             )
             .await?
             .unwrap_file();
@@ -84,8 +87,13 @@ async fn test_smb_integration_dialect_encrpytion_mode(
 
     // Query directory and make sure our file exists there:
     {
-        let directory = tree
-            .open_existing("", FileAccessMask::new().with_generic_read(true))
+        let directory = client
+            .create_file(
+                &share_path,
+                &FileCreateArgs::make_open_existing(
+                    DirAccessMask::new().with_list_directory(true).into(),
+                ),
+            )
             .await?
             .unwrap_dir();
         let directory = Arc::new(directory);
@@ -120,12 +128,16 @@ async fn test_smb_integration_dialect_encrpytion_mode(
     }
 
     {
-        let file = tree
-            .open_existing(
-                TEST_FILE,
-                FileAccessMask::new()
-                    .with_generic_read(true)
-                    .with_delete(true),
+        let file = client
+            .create_file(
+                &test_file_path,
+                &FileCreateArgs::make_open_existing(
+                    FileAccessMask::new()
+                        .with_delete(true)
+                        .with_file_read_data(true)
+                        .with_file_read_attributes(true)
+                        .into(),
+                ),
             )
             .await?
             .unwrap_file();

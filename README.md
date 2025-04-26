@@ -50,15 +50,24 @@ You are welcome to see the project's roadmap in the [GitHub Project](https://git
 
 ## Advanced Usage
 ### Using the library
-Check out the `Connection` struct, exported from the `smb` crate, to initiate a connection to an SMB server:
+Check out the `Client` struct, exported from the `smb` crate, to initiate a connection to an SMB server:
 ```rust
-use smb::Connection;
-let connection = Connection::build(Default::default());
-connection.connect("10.0.0.1:445").await?;
-let session = connection.authenticate(&"user", "password".to_string()).await?;
-let tree = session.tree_connect("share").await?;
-let file = tree.create("file.txt", ...).await?;
+let unc_path = smb::UncPath::from_str(r"\\server\share\\file.txt")?;
+let smb = smb::Client::new(smb::ClientConfig::default());
+smb.share_connect(&unc_path, "username", "password".to_string()).await?;
 ```
+
+Opening a file for reading:
+```rust
+let file: smb::File = smb.create_file(&unc_path, 
+    &FileCreateArgs::make_open_existing(
+        FileAccessMask::new().with_generic_read(true),
+)).try_into()?;
+// .. perform operations on the file
+```
+
+>[!tip]
+> Check out `smb-cli`'s commands implementation for more examples of how to use the library.
 
 ### Switch Threading model
 The project supports async, multi-threaded, and single-threaded backends. The `async` backend is the default one, but you can enable the other backends by using the following features:

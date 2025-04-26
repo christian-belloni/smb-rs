@@ -2,13 +2,10 @@
 use serial_test::serial;
 use smb::{
     connection::EncryptionMode,
-    packets::{
-        fscc::*,
-        smb2::{CreateDisposition, NotifyFilter},
-    },
+    packets::{fscc::*, smb2::NotifyFilter},
     resource::Resource,
     sync_helpers::*,
-    ConnectionConfig,
+    ConnectionConfig, FileCreateArgs,
 };
 use std::sync::Arc;
 mod common;
@@ -22,7 +19,7 @@ const NEW_FILE_NAME_UNDER_WORKDIR: &str = "test_file.txt";
 ))]
 #[serial]
 async fn test_smb_notify() -> Result<(), Box<dyn std::error::Error>> {
-    let (_connection, _session, tree) = make_server_connection(
+    let (mut client, share_path) = make_server_connection(
         "MyShare",
         ConnectionConfig {
             encryption_mode: EncryptionMode::Disabled,
@@ -34,18 +31,23 @@ async fn test_smb_notify() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the file
     {
-        tree.create_file(
-            NEW_FILE_NAME_UNDER_WORKDIR,
-            CreateDisposition::Create,
-            FileAccessMask::new()
-                .with_generic_read(true)
-                .with_generic_write(true),
-        )
-        .await?;
+        client
+            .create_file(
+                &share_path
+                    .clone()
+                    .with_path(NEW_FILE_NAME_UNDER_WORKDIR.to_string()),
+                &FileCreateArgs::make_create_new(Default::default(), Default::default()),
+            )
+            .await?;
     }
 
-    let dir = tree
-        .open_existing("", FileAccessMask::new().with_generic_read(true))
+    let dir = client
+        .create_file(
+            &share_path,
+            &FileCreateArgs::make_open_existing(
+                DirAccessMask::new().with_list_directory(true).into(),
+            ),
+        )
         .await?;
 
     let notified_sem = Arc::new(Semaphore::new(0));
@@ -96,7 +98,7 @@ fn start_notify_task(sem: Arc<Semaphore>, r: Resource) {
 async fn delete_file_from_another_connection(
     share_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (_connection, _session, tree) = make_server_connection(
+    let (mut client, share_path) = make_server_connection(
         share_name,
         ConnectionConfig {
             encryption_mode: EncryptionMode::Disabled,
@@ -106,12 +108,14 @@ async fn delete_file_from_another_connection(
     )
     .await?;
 
-    let file = tree
-        .open_existing(
-            NEW_FILE_NAME_UNDER_WORKDIR,
-            FileAccessMask::new()
-                .with_generic_all(true)
-                .with_delete(true),
+    let file = client
+        .create_file(
+            &share_path.with_path(NEW_FILE_NAME_UNDER_WORKDIR.to_string()),
+            &FileCreateArgs::make_open_existing(
+                FileAccessMask::new()
+                    .with_delete(true)
+                    .with_generic_read(true),
+            ),
         )
         .await?
         .unwrap_file();

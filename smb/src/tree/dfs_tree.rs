@@ -3,7 +3,7 @@ use std::ops::Deref;
 use maybe_async::*;
 
 use crate::{
-    msg_handler::MessageHandler,
+    msg_handler::{MessageHandler, ReceiveOptions},
     packets::{
         dfsc::{ReferralLevel, ReqGetDfsReferral, RespGetDfsReferral},
         smb2::{Content, FileId, FsctlCodes, IoctlReqData, IoctlRequest, IoctlRequestFlags},
@@ -15,14 +15,14 @@ use super::Tree;
 /// A wrapper around the [`Tree`] struct that provides a DFS root functions.
 ///
 /// The struct implements `Deref` to allow access to the underlying [`Tree`] methods.
-pub struct DfsRootTree {
-    tree: Tree,
+pub struct DfsRootTreeRef<'a> {
+    tree: &'a Tree,
 }
 
-impl DfsRootTree {
+impl<'a> DfsRootTreeRef<'a> {
     /// Creates a new [`DfsRootTree`] instance,
     /// wrapping the provided [`Tree`].
-    pub(crate) fn new(tree: Tree) -> Self {
+    pub(crate) fn new(tree: &'a Tree) -> Self {
         Self { tree }
     }
 
@@ -34,17 +34,20 @@ impl DfsRootTree {
     pub async fn dfs_get_referrals(&self, path: &str) -> crate::Result<RespGetDfsReferral> {
         let res = self
             .handler
-            .send_recv(Content::IoctlRequest(IoctlRequest {
-                ctl_code: FsctlCodes::DfsGetReferrals as u32,
-                file_id: FileId::FULL,
-                max_input_response: 1024,
-                max_output_response: 1024,
-                flags: IoctlRequestFlags::new().with_is_fsctl(true),
-                buffer: IoctlReqData::FsctlDfsGetReferrals(ReqGetDfsReferral {
-                    max_referral_level: ReferralLevel::V4,
-                    request_file_name: path.into(),
+            .send_recvo(
+                Content::IoctlRequest(IoctlRequest {
+                    ctl_code: FsctlCodes::DfsGetReferrals as u32,
+                    file_id: FileId::FULL,
+                    max_input_response: 1024,
+                    max_output_response: 1024,
+                    flags: IoctlRequestFlags::new().with_is_fsctl(true),
+                    buffer: IoctlReqData::FsctlDfsGetReferrals(ReqGetDfsReferral {
+                        max_referral_level: ReferralLevel::V4,
+                        request_file_name: path.into(),
+                    }),
                 }),
-            }))
+                ReceiveOptions::new().with_allow_async(true),
+            )
             .await?;
         let res = res
             .message
@@ -55,7 +58,7 @@ impl DfsRootTree {
     }
 }
 
-impl Deref for DfsRootTree {
+impl<'a> Deref for DfsRootTreeRef<'a> {
     type Target = Tree;
 
     fn deref(&self) -> &Self::Target {

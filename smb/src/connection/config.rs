@@ -80,7 +80,7 @@ impl Default for AuthMethodsConfig {
 }
 
 /// Specifies the configuration for a connection.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ConnectionConfig {
     /// Specifies the server port to connect to.
     /// If unset, defaults to the default port for the selected transport protocol.
@@ -134,6 +134,8 @@ pub struct ConnectionConfig {
     /// Specifies the transport protocol to be used for the connection.
     pub transport: TransportConfig,
 
+    /// Configures valid authentication methods (SSPs) for the connection.
+    /// See [`AuthMethodsConfig`] for more information.
     pub auth_methods: AuthMethodsConfig,
 }
 

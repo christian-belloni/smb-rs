@@ -26,6 +26,28 @@ pub struct FileCreateArgs {
     pub desired_access: FileAccessMask,
 }
 
+impl FileCreateArgs {
+    pub fn make_open_existing(access: FileAccessMask) -> FileCreateArgs {
+        FileCreateArgs {
+            disposition: CreateDisposition::Open,
+            attributes: FileAttributes::new(),
+            options: CreateOptions::new(),
+            desired_access: access,
+        }
+    }
+
+    /// Returns arguments for creating a new file,
+    /// with the default access set to Generic All.
+    pub fn make_create_new(attributes: FileAttributes, options: CreateOptions) -> FileCreateArgs {
+        FileCreateArgs {
+            disposition: CreateDisposition::Create,
+            attributes: attributes,
+            options: options,
+            desired_access: FileAccessMask::new().with_generic_all(true),
+        }
+    }
+}
+
 /// A resource opened by a create request.
 pub enum Resource {
     File(File),
@@ -144,6 +166,28 @@ impl Resource {
         match self {
             Resource::Directory(d) => d,
             _ => panic!("Not a directory"),
+        }
+    }
+}
+
+impl TryInto<File> for Resource {
+    type Error = crate::Error;
+
+    fn try_into(self) -> Result<File, Self::Error> {
+        match self {
+            Resource::File(f) => Ok(f),
+            _ => Err(Error::InvalidArgument("Not a file".into())),
+        }
+    }
+}
+
+impl TryInto<Directory> for Resource {
+    type Error = crate::Error;
+
+    fn try_into(self) -> Result<Directory, Self::Error> {
+        match self {
+            Resource::Directory(d) => Ok(d),
+            _ => Err(Error::InvalidArgument("Not a directory".into())),
         }
     }
 }

@@ -3,8 +3,9 @@
 use serial_test::serial;
 use smb::{
     connection::EncryptionMode,
-    packets::{fscc::*, smb2::CreateDisposition},
+    packets::{fscc::*, smb2::CreateOptions},
     resource::Directory,
+    sync_helpers::*,
     tree::Tree,
     ConnectionConfig,
 };
@@ -26,7 +27,9 @@ const NUM_ITEMS: usize = 1000;
 ))]
 #[serial] // Run only in a full-feature test, because it takes a while
 async fn test_smb_iterating_long_directory() -> Result<(), Box<dyn std::error::Error>> {
-    let (_smb, _session, tree) = make_server_connection(
+    use smb::FileCreateArgs;
+
+    let (client, share_path) = make_server_connection(
         "MyShare",
         ConnectionConfig {
             encryption_mode: EncryptionMode::Disabled,
@@ -36,32 +39,53 @@ async fn test_smb_iterating_long_directory() -> Result<(), Box<dyn std::error::E
     )
     .await?;
 
-    let tree = Arc::new(tree);
+    let client = Arc::new(Mutex::new(client));
+    let long_dir_path = share_path.clone().with_path(LONG_DIR.to_string());
     // Mkdir
-    tree.create_directory(
-        LONG_DIR,
-        CreateDisposition::Create,
-        FileAccessMask::new().with_generic_read(true),
-    )
-    .await?
-    .unwrap_dir();
+    {
+        client
+            .lock()
+            .await
+            .unwrap()
+            .create_file(
+                &long_dir_path,
+                &FileCreateArgs::make_create_new(
+                    FileAttributes::new().with_directory(true),
+                    CreateOptions::new().with_directory_file(true),
+                ),
+            )
+            .await?;
+    }
 
     // Create NUM_ITEMS files
     for i in 0..NUM_ITEMS {
         let file_name = format!("{}\\file_{}", LONG_DIR, i);
-        tree.create_file(&file_name, CreateDisposition::Create, FileAccessMask::new())
+        client
+            .lock()
+            .await
+            .unwrap()
+            .create_file(
+                &share_path.clone().with_path(file_name),
+                &FileCreateArgs::make_create_new(Default::default(), Default::default()),
+            )
             .await?
             .unwrap_file();
     }
 
     // Query directory and make sure our files exist there, delete each file found.
     {
-        let directory = tree
-            .open_existing(
-                LONG_DIR,
-                FileAccessMask::new()
-                    .with_generic_read(true)
-                    .with_delete(true),
+        let directory = client
+            .lock()
+            .await
+            .unwrap()
+            .create_file(
+                &long_dir_path,
+                &FileCreateArgs::make_open_existing(
+                    DirAccessMask::new()
+                        .with_list_directory(true)
+                        .with_synchronize(true)
+                        .into(),
+                ),
             )
             .await?
             .unwrap_dir();
@@ -70,7 +94,8 @@ async fn test_smb_iterating_long_directory() -> Result<(), Box<dyn std::error::E
             Directory::query_directory::<FileFullDirectoryInformation>(&directory, "file_*")
                 .await?
                 .fold(0, |sum, entry| {
-                    let tree = tree.clone();
+                    let client = client.clone();
+                    let share_path = share_path.clone();
                     async move {
                         let entry = entry.unwrap();
                         let file_name = entry.file_name.to_string();
@@ -79,13 +104,19 @@ async fn test_smb_iterating_long_directory() -> Result<(), Box<dyn std::error::E
                         assert!(file_number < NUM_ITEMS);
 
                         // .. And delete the file!
-                        let full_file_name = format!("{}\\{}", LONG_DIR, file_name);
-                        let file = tree
-                            .open_existing(
-                                &full_file_name,
-                                FileAccessMask::new()
-                                    .with_generic_read(true)
-                                    .with_delete(true),
+                        let full_file_path =
+                            share_path.with_path(format!("{}\\{}", LONG_DIR, file_name));
+                        let file = client
+                            .lock()
+                            .await
+                            .unwrap()
+                            .create_file(
+                                &full_file_path,
+                                &FileCreateArgs::make_open_existing(
+                                    FileAccessMask::new()
+                                        .with_generic_read(true)
+                                        .with_delete(true),
+                                ),
                             )
                             .await
                             .unwrap()
@@ -105,7 +136,14 @@ async fn test_smb_iterating_long_directory() -> Result<(), Box<dyn std::error::E
     // Cleanup
     {
         let directory = Arc::new(
-            tree.open_existing(LONG_DIR, FileAccessMask::new().with_delete(true))
+            client
+                .lock()
+                .await
+                .unwrap()
+                .create_file(
+                    &long_dir_path,
+                    &FileCreateArgs::make_open_existing(FileAccessMask::new().with_delete(true)),
+                )
                 .await?
                 .unwrap_dir(),
         );

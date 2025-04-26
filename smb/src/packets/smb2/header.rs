@@ -56,96 +56,41 @@ impl std::fmt::Display for Command {
     }
 }
 
+macro_rules! make_status {
+    (
+        $($name:ident = $value:literal: $description:literal, )+
+    ) => {
+
 /// NT Status codes.
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u32))]
 pub enum Status {
-    Success = 0x00000000,
-    Pending = 0x00000103,
-    NotifyCleanup = 0x0000010B,
-    InvalidSmb = 0x00010002,
-    SmbBadTid = 0x00050002,
-    SmbBadCommand = 0x00160002,
-    SmbBadUid = 0x005B0002,
-    SmbUseStandard = 0x00FB0002,
-    BufferOverflow = 0x80000005,
-    NoMoreFiles = 0x80000006,
-    StoppedOnSymlink = 0x8000002D,
-    NotImplemented = 0xC0000002,
-    InvalidParameter = 0xC000000D,
-    NoSuchDevice = 0xC000000E,
-    InvalidDeviceRequest0 = 0xC0000010,
-    EndOfFile = 0xC0000011,
-    MoreProcessingRequired = 0xC0000016,
-    AccessDenied = 0xC0000022,
-    BufferTooSmall = 0xC0000023,
-    ObjectNameInvalid = 0xC0000033,
-    ObjectNameNotFound = 0xC0000034,
-    ObjectNameCollision = 0xC0000035,
-    ObjectPathNotFound = 0xC000003A,
-    LogonFailure = 0xC000006D,
-    BadImpersonationLevel = 0xC00000A5,
-    IoTimeout = 0xC00000B5,
-    FileIsADirectory = 0xC00000BA,
-    NotSupported = 0xC00000BB,
-    NetworkNameDeleted = 0xC00000C9,
-    BadNetworkName = 0xC00000CC,
-    DirectoryNotEmpty = 0xC0000101,
-    Cancelled = 0xC0000120,
-    UserSessionDeleted = 0xC0000203,
-    UserAccountLockedOut = 0xC0000234,
-    PathNotCovered = 0xC0000257,
-    NetworkSessionExpired = 0xC000035C,
-    SmbTooManyUids = 0xC000205A,
+    $(
+        $name = $value,
+    )+
 }
 
 impl std::fmt::Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let message_as_string = match self {
-            Status::Success => "Success",
-            Status::Pending => "Pending",
-            Status::NotifyCleanup => "Notify Cleanup",
-            Status::InvalidSmb => "Invalid SMB",
-            Status::SmbBadTid => "SMB Bad TID",
-            Status::SmbBadCommand => "SMB Bad Command",
-            Status::SmbBadUid => "SMB Bad UID",
-            Status::SmbUseStandard => "SMB Use Standard",
-            Status::BufferOverflow => "Buffer Overflow",
-            Status::NoMoreFiles => "No More Files",
-            Status::StoppedOnSymlink => "Stopped on Symlink",
-            Status::NotImplemented => "Not Implemented",
-            Status::InvalidParameter => "Invalid Parameter",
-            Status::NoSuchDevice => "No Such Device",
-            Status::InvalidDeviceRequest0 => "Invalid Device Request",
-            Status::EndOfFile => "End of File",
-            Status::MoreProcessingRequired => "More Processing Required",
-            Status::AccessDenied => "Access Denied",
-            Status::BufferTooSmall => "Buffer Too Small",
-            Status::ObjectNameInvalid => "Object Name Invalid",
-            Status::ObjectNameNotFound => "Object Name Not Found",
-            Status::ObjectNameCollision => "Object Name Collision",
-            Status::ObjectPathNotFound => "Object Path Not Found",
-            Status::LogonFailure => "Logon Failure",
-            Status::BadImpersonationLevel => "Bad Impersonation Level",
-            Status::IoTimeout => "I/O Timeout",
-            Status::FileIsADirectory => "File is a Directory",
-            Status::NotSupported => "Not Supported",
-            Status::NetworkNameDeleted => "Network Name Deleted",
-            Status::BadNetworkName => "Bad Network Name",
-            Status::DirectoryNotEmpty => "Directory Not Empty",
-            Status::Cancelled => "Cancelled",
-            Status::UserAccountLockedOut => "User Account Locked Out",
-            Status::UserSessionDeleted => "User Session Deleted",
-            Status::PathNotCovered => "Path Not Covered",
-            Status::NetworkSessionExpired => "Network Session Expired",
-            Status::SmbTooManyUids => "SMB Too Many UIDs",
+            $(
+                Status::$name => $description,
+            )+
         };
         write!(f, "{} ({:#x})", message_as_string, *self as u32)
     }
 }
 
 impl Status {
+    // Consts for easier status code as u32 access.
+    paste::paste! {
+        $(
+            #[doc = concat!("`", stringify!($name), "` as u32")]
+            pub const [<U32_ $name:snake:upper>]: u32 = $value;
+        )+
+    }
+
     /// A helper function that tries converting u32 to a [`Status`],
     /// and returns a string representation of the status. Otherwise,
     /// it returns the hex representation of the u32 value.
@@ -167,6 +112,48 @@ impl TryFrom<u32> for Status {
             crate::Error::InvalidMessage(format!("NT Status code variant not found: {:#x}", value))
         })
     }
+}
+    };
+}
+
+make_status! {
+    Success = 0x00000000: "Success",
+    Pending = 0x00000103: "Pending",
+    NotifyCleanup = 0x0000010B: "Notify Cleanup",
+    InvalidSmb = 0x00010002: "Invalid SMB",
+    SmbBadTid = 0x00050002: "SMB Bad TID",
+    SmbBadCommand = 0x00160002: "SMB Bad Command",
+    SmbBadUid = 0x005B0002: "SMB Bad UID",
+    SmbUseStandard = 0x00FB0002: "SMB Use Standard",
+    BufferOverflow = 0x80000005: "Buffer Overflow",
+    NoMoreFiles = 0x80000006: "No More Files",
+    StoppedOnSymlink = 0x8000002D: "Stopped on Symlink",
+    NotImplemented = 0xC0000002: "Not Implemented",
+    InvalidParameter = 0xC000000D: "Invalid Parameter",
+    NoSuchDevice = 0xC000000E: "No Such Device",
+    InvalidDeviceRequest0 = 0xC0000010: "Invalid Device Request",
+    EndOfFile = 0xC0000011: "End of File",
+    MoreProcessingRequired = 0xC0000016: "More Processing Required",
+    AccessDenied = 0xC0000022: "Access Denied",
+    BufferTooSmall = 0xC0000023: "Buffer Too Small",
+    ObjectNameInvalid = 0xC0000033: "Object Name Invalid",
+    ObjectNameNotFound = 0xC0000034: "Object Name Not Found",
+    ObjectNameCollision = 0xC0000035: "Object Name Collision",
+    ObjectPathNotFound = 0xC000003A: "Object Path Not Found",
+    LogonFailure = 0xC000006D: "Logon Failure",
+    BadImpersonationLevel = 0xC00000A5: "Bad Impersonation Level",
+    IoTimeout = 0xC00000B5: "I/O Timeout",
+    FileIsADirectory = 0xC00000BA: "File is a Directory",
+    NotSupported = 0xC00000BB: "Not Supported",
+    NetworkNameDeleted = 0xC00000C9: "Network Name Deleted",
+    BadNetworkName = 0xC00000CC: "Bad Network Name",
+    DirectoryNotEmpty = 0xC0000101: "Directory Not Empty",
+    Cancelled = 0xC0000120: "Cancelled",
+    UserSessionDeleted = 0xC0000203: "User Account Locked Out",
+    UserAccountLockedOut = 0xC0000234: "User Session Deleted",
+    PathNotCovered = 0xC0000257: "Path Not Covered",
+    NetworkSessionExpired = 0xC000035C: "Network Session Expired",
+    SmbTooManyUids = 0xC000205A: "SMB Too Many UIDs",
 }
 
 /// Sync and Async SMB2 Message header.

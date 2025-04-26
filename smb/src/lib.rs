@@ -15,6 +15,7 @@ compile_error!(
     "You must enable exactly one of the following features: async, single_threaded, multi_threaded"
 );
 
+pub mod client;
 pub mod compression;
 pub mod connection;
 pub mod crypto;
@@ -26,8 +27,12 @@ pub mod resource;
 pub mod session;
 pub mod tree;
 
+pub use client::{Client, ClientConfig, UncPath};
 pub use connection::{Connection, ConnectionConfig};
 pub use error::Error;
+pub use resource::{Directory, File, FileCreateArgs, Resource};
+pub use session::Session;
+pub use tree::{DfsRootTreeRef, Tree};
 
 pub type Result<T> = std::result::Result<T, crate::Error>;
 
