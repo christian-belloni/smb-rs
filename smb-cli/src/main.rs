@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use clap::Parser;
+use env_logger::Env;
 use maybe_async::*;
 use smb_cli::*;
 
@@ -23,7 +24,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 #[maybe_async]
 async fn _main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+    // Use env_logger, and set default log level to info.
+    // This can be overridden by setting the RUST_LOG environment variable.
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    log::info!("Starting smb-cli");
+    log::info!("Version: {}", env!("CARGO_PKG_VERSION"));
 
     let cli = Cli::parse();
 

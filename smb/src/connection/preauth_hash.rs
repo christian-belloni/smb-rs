@@ -25,6 +25,13 @@ impl PreauthHashState {
         }
     }
 
+    pub fn current_hash(&self) -> PreauthHashValue {
+        match self {
+            PreauthHashState::InProgress(hash) => hash.clone(),
+            _ => panic!("Preauth hash not started"),
+        }
+    }
+
     pub fn finish(self) -> PreauthHashState {
         match self {
             PreauthHashState::InProgress(hash) => PreauthHashState::Finished(hash),
@@ -32,7 +39,7 @@ impl PreauthHashState {
         }
     }
 
-    pub fn unwrap_final_hash(self) -> PreauthHashValue {
+    pub fn unwrap_final_hash(&self) -> &PreauthHashValue {
         match self {
             PreauthHashState::Finished(hash) => hash,
             _ => panic!("Preauth hash not finished"),

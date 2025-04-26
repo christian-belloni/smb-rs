@@ -142,6 +142,10 @@ impl SmbTransport for QuicTransport {
             }),
         ))
     }
+
+    fn default_port(&self) -> u16 {
+        443
+    }
 }
 
 impl SmbTransportWrite for QuicTransport {

@@ -50,6 +50,7 @@ pub struct NegotiatedProperties {
 /// It contains all the information about the connection.
 #[derive(Debug)]
 pub struct ConnectionInfo {
+    pub server: String,
     /// Contains negotiated properties of the connection.
     pub negotiation: NegotiatedProperties,
     /// Contains the implementation of the selected dialect.

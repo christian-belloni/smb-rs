@@ -141,14 +141,21 @@ impl Transformer {
         }
 
         *pa_hash = match pa_hash.take() {
-            Some(pah) => pah.finish().into(),
-            _ => return Ok(None),
+            Some(x) => Some(x.finish()),
+            None => {
+                return Ok(None);
+            }
         };
 
-        match &*pa_hash {
-            Some(PreauthHashState::Finished(hash)) => Ok(Some(hash.clone())),
-            _ => panic!("Preauth hash not finished!"),
-        }
+        Ok(Some(
+            pa_hash
+                .as_ref()
+                .ok_or_else(|| {
+                    crate::Error::InvalidState("Preauth hash is not supported!".to_string())
+                })?
+                .unwrap_final_hash()
+                .clone(),
+        ))
     }
 
     /// Transforms an outgoing message to a raw SMB message.

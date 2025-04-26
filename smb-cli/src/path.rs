@@ -2,7 +2,8 @@ use crate::cli::Cli;
 use maybe_async::*;
 use smb::{
     connection::{
-        Connection, EncryptionMode, QuicCertValidationOptions, QuicConfig, TransportConfig,
+        AuthMethodsConfig, Connection, EncryptionMode, QuicCertValidationOptions, QuicConfig,
+        TransportConfig,
     },
     packets::{dfsc::ReferralEntryValue, fscc::*, smb2::*},
     resource::Resource,
@@ -90,35 +91,32 @@ impl UncPath {
     async fn open_share(&self, cli: &Cli) -> Result<(Connection, Session, Tree), Box<dyn Error>> {
         log::debug!("Opening the share \\\\{}\\{}", self.server, self.tree);
         // Create a new connection to the server. Use the provided CLI arguments to configure the connection.
-        let mut smb = Connection::build(ConnectionConfig {
-            max_dialect: Some(Dialect::MAX),
-            encryption_mode: EncryptionMode::Allowed,
-            timeout: cli
-                .timeout
-                .map(|t| std::time::Duration::from_secs(t.into())),
-            smb2_only_negotiate: cli.negotiate_smb2_only,
-            transport: if cli.quic_transport {
-                TransportConfig::Quic(QuicConfig {
-                    local_address: None,
-                    cert_validation: QuicCertValidationOptions::PlatformVerifier,
-                })
-            } else {
-                TransportConfig::Tcp
-            },
-            ..Default::default()
-        })?;
-        let port = match cli.port {
-            Some(p) => p,
-            None => {
-                if cli.quic_transport {
-                    443
+        let mut smb = Connection::build(
+            self.server.clone(),
+            ConnectionConfig {
+                max_dialect: Some(Dialect::MAX),
+                encryption_mode: EncryptionMode::Allowed,
+                timeout: cli
+                    .timeout
+                    .map(|t| std::time::Duration::from_secs(t.into())),
+                smb2_only_negotiate: cli.negotiate_smb2_only,
+                transport: if cli.quic_transport {
+                    TransportConfig::Quic(QuicConfig {
+                        local_address: None,
+                        cert_validation: QuicCertValidationOptions::PlatformVerifier,
+                    })
                 } else {
-                    445
-                }
-            }
-        };
-        smb.connect(format!("{}:{}", self.server, port).as_str())
-            .await?;
+                    TransportConfig::Tcp
+                },
+                port: cli.port,
+                auth_methods: AuthMethodsConfig {
+                    ntlm: !cli.no_ntlm,
+                    kerberos: !cli.no_kerberos,
+                },
+                ..Default::default()
+            },
+        )?;
+        smb.connect().await?;
         let session = smb
             .authenticate(&cli.username, cli.password.clone())
             .await?;

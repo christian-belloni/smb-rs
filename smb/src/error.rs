@@ -47,8 +47,8 @@ pub enum Error {
     MissingPermissions(String),
     #[error("Sspi error: {0}")]
     SspiError(#[from] sspi::Error),
-    #[error("DER error: {0}")]
-    DerError(#[from] der::Error),
+    #[error("Url parse error: {0}")]
+    UrlParseError(#[from] url::ParseError),
     #[error("Unsupported authentication mechanism: {0}")]
     UnsupportedAuthenticationMechanism(String),
     #[error("Compression error: {0}")]
@@ -74,7 +74,7 @@ pub enum Error {
     UnexpectedMessageId(u64, u64),
     #[error("Expected info of type {0} but got {1}")]
     UnexpectedInformationType(u8, u8),
-    #[error("Invalid address {0}")]
+    #[error("Invalid endpoint {0}")]
     InvalidAddress(String),
     #[error("Invalid configuration: {0}")]
     InvalidConfiguration(String),

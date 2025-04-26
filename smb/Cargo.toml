@@ -14,7 +14,6 @@ readme.workspace = true
 # Encoding/Decoding
 binrw = "0.14.1"
 modular-bitfield = "0.11.2"
-der = { version = "0.7.9", features = ["std", "alloc"] }
 
 # Async
 tokio = { version = "1.43", optional = true, features = ["full"] }
@@ -29,11 +28,10 @@ log = "0.4.22"
 time = { version = "0.3.37", features = ["macros"] }
 thiserror = "2.0"
 paste = "1.0"
+url = "*"
 
 # APIs
-sspi = "0.15.2"
-picky-krb = "0.9.4"
-gss-api = { version = "0.1.0", features = [] }
+sspi = "0.15.5"
 
 # Crypto
 hmac = "0.12.1"
@@ -62,7 +60,7 @@ test-log = "0.2"
 serial_test = "3.2"
 
 [features]
-default = ["sign", "encrypt", "compress", "quic", "async"]
+default = ["sign", "encrypt", "compress", "quic", "async", "kerberos"]
 
 # Threading models
 async = ["dep:tokio", "dep:futures-core", "dep:tokio-util", "dep:futures-util"]
@@ -91,6 +89,9 @@ sign = ["sign_gmac", "sign_cmac", "sign_hmac"]
 
 # Transport
 quic = ["dep:quinn", "dep:rustls", "dep:rustls-platform-verifier"]
+
+# Kerberos
+kerberos = ["sspi/network_client"]
 
 [package.metadata.docs.rs]
 features = ["async", "sign", "encrypt", "compress"]
