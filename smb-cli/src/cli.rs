@@ -1,5 +1,5 @@
 use crate::{copy::CopyCmd, info::InfoCmd};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use smb::{
     connection::{
         AuthMethodsConfig, EncryptionMode, QuicCertValidationOptions, QuicConfig, TransportConfig,
@@ -18,6 +18,7 @@ pub struct Cli {
 
     #[arg(long)]
     pub negotiate_smb2_only: bool,
+    /// Disables DFS referral resolution.
     #[arg(long)]
     pub no_dfs: bool,
 
@@ -28,8 +29,9 @@ pub struct Cli {
     #[arg(long)]
     pub no_kerberos: bool,
 
+    /// Selects a transport protocol to use.
     #[arg(long)]
-    pub quic_transport: bool,
+    pub use_transport: CliUseTransport,
 
     #[arg(short, long)]
     pub username: String,
@@ -38,6 +40,13 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Commands,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+pub enum CliUseTransport {
+    Default,
+    Netbios,
+    Quic,
 }
 
 impl Cli {
@@ -51,13 +60,13 @@ impl Cli {
                     .timeout
                     .map(|t| std::time::Duration::from_secs(t.into())),
                 smb2_only_negotiate: self.negotiate_smb2_only,
-                transport: if self.quic_transport {
-                    TransportConfig::Quic(QuicConfig {
+                transport: match self.use_transport {
+                    CliUseTransport::Quic => TransportConfig::Quic(QuicConfig {
                         local_address: None,
                         cert_validation: QuicCertValidationOptions::PlatformVerifier,
-                    })
-                } else {
-                    TransportConfig::Tcp
+                    }),
+                    CliUseTransport::Default => TransportConfig::Tcp,
+                    CliUseTransport::Netbios => TransportConfig::NetBios,
                 },
                 port: self.port,
                 auth_methods: AuthMethodsConfig {
@@ -72,6 +81,8 @@ impl Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Copies files to/from a share.
     Copy(CopyCmd),
+    /// Retrieves information about a share or a path.
     Info(InfoCmd),
 }

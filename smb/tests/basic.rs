@@ -3,15 +3,13 @@
 mod common;
 use common::make_server_connection;
 use serial_test::serial;
-use smb::{packets::fscc::FileDispositionInformation, FileCreateArgs};
+use smb::{packets::fscc::FileDispositionInformation, ConnectionConfig, FileCreateArgs};
 
-#[test_log::test(maybe_async::test(
-    not(feature = "async"),
-    async(feature = "async", tokio::test(flavor = "multi_thread"))
-))]
-#[serial]
-async fn test_basic_integration() -> Result<(), Box<dyn std::error::Error>> {
-    let (mut client, share_path) = make_server_connection("MyShare", None).await?;
+#[maybe_async::maybe_async]
+async fn do_test_basic_integration(
+    conn_config: Option<ConnectionConfig>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (mut client, share_path) = make_server_connection("MyShare", conn_config).await?;
 
     // Create a file
     let file = client
@@ -26,4 +24,28 @@ async fn test_basic_integration() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     Ok(())
+}
+
+#[test_log::test(maybe_async::test(
+    not(feature = "async"),
+    async(feature = "async", tokio::test(flavor = "multi_thread"))
+))]
+#[serial]
+async fn test_basic_integration() -> Result<(), Box<dyn std::error::Error>> {
+    do_test_basic_integration(None).await
+}
+
+#[test_log::test(maybe_async::test(
+    not(feature = "async"),
+    async(feature = "async", tokio::test(flavor = "multi_thread"))
+))]
+#[serial]
+async fn test_basic_netbios() -> Result<(), Box<dyn std::error::Error>> {
+    use smb::connection::TransportConfig;
+
+    let conn_config = ConnectionConfig {
+        transport: TransportConfig::NetBios,
+        ..Default::default()
+    };
+    do_test_basic_integration(Some(conn_config)).await
 }

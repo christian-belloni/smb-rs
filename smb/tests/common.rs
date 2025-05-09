@@ -1,4 +1,3 @@
-use log::info;
 use smb::{Client, ClientConfig, ConnectionConfig, UncPath};
 use std::env::var;
 
@@ -15,12 +14,14 @@ pub async fn make_server_connection(
 
     let mut conn_config = config.unwrap_or(ConnectionConfig::default());
     conn_config.timeout = Some(std::time::Duration::from_secs(10));
+    conn_config.auth_methods.kerberos = false;
+    conn_config.auth_methods.ntlm = true;
 
     let mut smb = Client::new(ClientConfig {
         connection: conn_config,
         ..Default::default()
     });
-    info!("Connecting to {}", server);
+    log::info!("Connecting to {}", server);
 
     let unc_path = UncPath {
         server: server.clone(),
@@ -31,6 +32,6 @@ pub async fn make_server_connection(
     smb.share_connect(&unc_path, user.as_str(), password.clone())
         .await?;
 
-    info!("Connected to {}", unc_path);
+    log::info!("Connected to {}", unc_path);
     Ok((smb, unc_path))
 }

@@ -146,6 +146,7 @@ impl TcpTransport {
     #[maybe_async::maybe_async]
     #[inline]
     async fn send_raw(&mut self, message: &[u8]) -> crate::Result<()> {
+        log::trace!("Sending {} bytes.", message.len());
         let writer = self.writer.as_mut().ok_or(crate::Error::NotConnected)?;
         writer
             .write_all(message)
