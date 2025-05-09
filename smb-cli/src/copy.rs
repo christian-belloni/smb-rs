@@ -17,7 +17,9 @@ use tokio::{fs, io::AsyncWriteExt};
 
 #[derive(Parser, Debug)]
 pub struct CopyCmd {
+    /// Source path
     pub from: Path,
+    /// Destination path
     pub to: Path,
 }
 

@@ -11,6 +11,7 @@ use smb::{
 use std::{error::Error, sync::Arc};
 #[derive(Parser, Debug)]
 pub struct InfoCmd {
+    /// The UNC path to the share, file, or directory to query.
     pub path: UncPath,
 }
 

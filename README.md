@@ -18,15 +18,15 @@ For advanced usage, and crate usage, see the [Advanced Usage](#advanced-usage) s
 ## Features
 ### General
 - ✅ SMB 2.X & 3.X support.
-- ✅ Async (`tokio`)/Multi-threaded/Single-threaded client.
+- ✅ Async (`tokio`), Multi-threaded, or Single-threaded client.
 - ✅ Compression & Encryption support.
-- ✅ Supports SMB over TCP (445) & SMB over QUIC.
+- ✅ Transport using SMB over TCP (445), over NetBIOS (139), and over QUIC (443).
 - ✅ NTLM & Kerberos authentication (using the [`sspi`](https://crates.io/crates/sspi) crate).
 - ✅ Cross-platform (Windows, Linux, MacOS).
 
 You are welcome to see the project's roadmap in the [GitHub Project](https://github.com/users/AvivNaaman/projects/2).
 
-### Features
+### Feature Flags
 | Type            | Algorithm           |     | Feature Name           |
 | --------------- | ------------------- | --- | ---------------------- |
 | Authentication  | Kerberos            | ✅   | `kerberos`             |
@@ -82,5 +82,5 @@ cargo run --no-default-feature --features "multi_threaded,sign,encrypt,compress"
 If you're using the crate, you can enable the features in your `Cargo.toml` file:
 ```toml
 [dependencies]
-smb = { version = "0.1", features = ["multi_threaded", "sign", ...], no-default-features = true }
+smb = { version = "0.1", features = ["multi_threaded", "sign", "..."], no-default-features = true }
 ```

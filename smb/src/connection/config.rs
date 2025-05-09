@@ -23,6 +23,8 @@ pub enum TransportConfig {
     /// Use TCP transport protocol.
     #[default]
     Tcp,
+    /// Use NetBIOS over TCP transport protocol.
+    NetBios,
     /// Use SMB over QUIC transport protocol.
     /// Note that this is only suported in dialects 3.1.1 and above.
     Quic(QuicConfig),
@@ -85,6 +87,7 @@ pub struct ConnectionConfig {
     /// Specifies the server port to connect to.
     /// If unset, defaults to the default port for the selected transport protocol.
     /// For Direct TCP, this is 445.
+    /// For NetBIOS, this is 139.
     /// For SMB over QUIC, this is 443.
     pub port: Option<u16>,
 
