@@ -66,6 +66,12 @@ pub struct MessageForm {
     pub signed: bool,
 }
 
+impl MessageForm {
+    pub fn signed_or_encrypted(&self) -> bool {
+        self.signed || self.encrypted
+    }
+}
+
 /// Options for receiving a message.
 ///
 /// Use a builder pattern to set the options:

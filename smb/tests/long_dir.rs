@@ -15,6 +15,8 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 mod common;
 use common::make_server_connection;
+use common::TestConstants;
+use smb::FileCreateArgs;
 
 const LONG_DIR: &str = "longdir";
 const NUM_ITEMS: usize = 1000;
@@ -27,10 +29,8 @@ const NUM_ITEMS: usize = 1000;
 ))]
 #[serial] // Run only in a full-feature test, because it takes a while
 async fn test_smb_iterating_long_directory() -> Result<(), Box<dyn std::error::Error>> {
-    use smb::FileCreateArgs;
-
     let (client, share_path) = make_server_connection(
-        "MyShare",
+        TestConstants::DEFAULT_SHARE,
         ConnectionConfig {
             encryption_mode: EncryptionMode::Disabled,
             ..Default::default()

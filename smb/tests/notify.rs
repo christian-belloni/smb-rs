@@ -11,6 +11,7 @@ use std::sync::Arc;
 mod common;
 
 use common::make_server_connection;
+use common::TestConstants;
 const NEW_FILE_NAME_UNDER_WORKDIR: &str = "test_file.txt";
 
 #[test_log::test(maybe_async::test(
@@ -20,7 +21,7 @@ const NEW_FILE_NAME_UNDER_WORKDIR: &str = "test_file.txt";
 #[serial]
 async fn test_smb_notify() -> Result<(), Box<dyn std::error::Error>> {
     let (mut client, share_path) = make_server_connection(
-        "MyShare",
+        TestConstants::DEFAULT_SHARE,
         ConnectionConfig {
             encryption_mode: EncryptionMode::Disabled,
             ..Default::default()
@@ -54,7 +55,7 @@ async fn test_smb_notify() -> Result<(), Box<dyn std::error::Error>> {
     start_notify_task(notified_sem.clone(), dir);
     // Launch tasks to wait for notifications.
     // Another connection now modifying the file...
-    delete_file_from_another_connection("MyShare").await?;
+    delete_file_from_another_connection(TestConstants::DEFAULT_SHARE).await?;
     // Wait for notifiactions to arrive.
     let _p = notified_sem.acquire().await?;
     Ok(())

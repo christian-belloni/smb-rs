@@ -111,6 +111,9 @@ pub struct ConnectionConfig {
     /// See [EncryptionMode] for more information.
     pub encryption_mode: EncryptionMode,
 
+    /// Sets whether signing may be skipped for guest or anonymous access.
+    pub allow_unsigned_guest_access: bool,
+
     /// Whether to enable compression, if supported by the server and specified connection dialects.
     ///
     /// Note: you must also have compression features enabled when building the crate, otherwise compression

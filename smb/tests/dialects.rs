@@ -1,6 +1,6 @@
 #![cfg(all(feature = "sign", feature = "encrypt"))]
 
-use common::make_server_connection;
+use common::{make_server_connection, TestConstants};
 #[cfg(feature = "async")]
 use futures_util::StreamExt;
 use serial_test::serial;
@@ -54,7 +54,8 @@ async fn test_smb_integration_dialect_encrpytion_mode(
         encryption_mode
     );
 
-    let (mut client, share_path) = make_server_connection("MyShare", None).await?;
+    let (mut client, share_path) =
+        make_server_connection(TestConstants::DEFAULT_SHARE, None).await?;
 
     const TEST_FILE: &str = "test.txt";
     const TEST_DATA: &[u8] = b"Hello, World!";

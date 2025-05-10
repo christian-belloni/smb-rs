@@ -233,19 +233,29 @@ impl SessionInfo {
         Ok(())
     }
 
+    /// Verifies the session flags against the connection config, and sets them in the session info.
     pub fn set_flags(
         &mut self,
         flags: SessionFlags,
         conn_info: &ConnectionInfo,
     ) -> crate::Result<()> {
         // When session flags are finally set, make sure the server accepts encryption,
-        // if it is required for us.
-        if conn_info.config.encryption_mode.is_required() && !flags.encrypt_data() {
+        // if it is required for us. Also, make sure it is not a null/guest session.
+        if conn_info.config.encryption_mode.is_required()
+            && flags != SessionFlags::new().with_encrypt_data(true)
+        {
             return Err(crate::Error::InvalidMessage(
                 "Encryption is required, but not enabled for this session by the server."
                     .to_string(),
             ));
         }
+
+        if !conn_info.config.allow_unsigned_guest_access && flags.is_guest_or_null_session() {
+            return Err(crate::Error::InvalidMessage(
+                "Signing may be disabled to allow guest or anonymus logins.".to_string(),
+            ));
+        }
+
         self.flags
             .set(flags)
             .map_err(|_| crate::Error::InvalidMessage("Session flags already set.".to_string()))?;
@@ -269,7 +279,14 @@ impl SessionInfo {
         }
     }
 
-    /// Returns whether the session is set up.
+    /// Returns whether the session is a guest or anonymous session.
+    pub fn is_guest_or_anonymous(&self) -> bool {
+        self.flags
+            .get()
+            .map_or(false, |f| f.is_guest_or_null_session())
+    }
+
+    /// Returns whether the session is set up - can be used for signing and encryption.
     pub fn is_set_up(&self) -> bool {
         return matches!(self.state, Some(SessionInfoState::SetUp { .. }));
     }

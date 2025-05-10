@@ -106,6 +106,10 @@ impl NotificationHandler {
                         notify_session_closed,
                     ) => {
                         log::info!("Session closed notification: {:?}", notify_session_closed);
+                        if !msg.form.signed_or_encrypted() {
+                            log::warn!("Session closed notification is not signed or encrypted - ignoring.");
+                            return Ok(());
+                        }
                         worker.session_ended(msg.message.header.session_id).await?;
                     }
                 }

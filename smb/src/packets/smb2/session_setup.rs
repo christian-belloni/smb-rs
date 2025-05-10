@@ -91,6 +91,12 @@ pub struct SessionFlags {
     __: B13,
 }
 
+impl SessionFlags {
+    pub fn is_guest_or_null_session(&self) -> bool {
+        self.is_guest() || self.is_null_session()
+    }
+}
+
 #[binrw::binrw]
 #[derive(Debug, Default)]
 pub struct LogoffRequest {

@@ -31,12 +31,17 @@ pub struct Cli {
 
     /// Selects a transport protocol to use.
     #[arg(long)]
-    pub use_transport: CliUseTransport,
+    pub use_transport: Option<CliUseTransport>,
 
     #[arg(short, long)]
     pub username: String,
     #[arg(short, long)]
     pub password: String,
+
+    /// [DANGEROUS] Disables message signing.
+    /// This may should only be used when logging in with a guest user.
+    #[arg(long)]
+    pub disable_message_signing: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -60,7 +65,11 @@ impl Cli {
                     .timeout
                     .map(|t| std::time::Duration::from_secs(t.into())),
                 smb2_only_negotiate: self.negotiate_smb2_only,
-                transport: match self.use_transport {
+                transport: match self
+                    .use_transport
+                    .as_ref()
+                    .unwrap_or(&CliUseTransport::Default)
+                {
                     CliUseTransport::Quic => TransportConfig::Quic(QuicConfig {
                         local_address: None,
                         cert_validation: QuicCertValidationOptions::PlatformVerifier,
@@ -73,6 +82,7 @@ impl Cli {
                     ntlm: !self.no_ntlm,
                     kerberos: !self.no_kerberos,
                 },
+                allow_unsigned_guest_access: self.disable_message_signing,
                 ..Default::default()
             },
         }
