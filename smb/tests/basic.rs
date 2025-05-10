@@ -58,19 +58,21 @@ async fn test_basic_netbios() -> Result<(), Box<dyn std::error::Error>> {
     async(feature = "async", tokio::test(flavor = "multi_thread"))
 ))]
 #[serial]
-async fn test_basic_guest() -> Result<(), Box<dyn std::error::Error>> {
-    std::env::set_var(TestEnv::USER, "\\GUEST");
-    std::env::set_var(TestEnv::PASSWORD, "");
-
-    Ok(do_test_basic_integration(
-        ConnectionConfig {
-            allow_unsigned_guest_access: true,
-            ..Default::default()
-        }
-        .into(),
-        Some(TestConstants::PUBLIC_GUEST_SHARE),
+async fn test_basic_guest() -> smb::Result<()> {
+    with_temp_env!(
+        [
+            (TestEnv::USER, Some(TestEnv::GUEST_USER.to_string())),
+            (TestEnv::PASSWORD, Some(TestEnv::GUEST_PASSWORD.to_string())),
+        ],
+        do_test_basic_integration(
+            ConnectionConfig {
+                allow_unsigned_guest_access: true,
+                ..Default::default()
+            }
+            .into(),
+            Some(TestConstants::PUBLIC_GUEST_SHARE)
+        )
     )
-    .await?)
 }
 
 #[test_log::test(maybe_async::test(
@@ -78,18 +80,24 @@ async fn test_basic_guest() -> Result<(), Box<dyn std::error::Error>> {
     async(feature = "async", tokio::test(flavor = "multi_thread"))
 ))]
 #[serial]
-async fn test_basic_auth_fail() -> Result<(), Box<dyn std::error::Error>> {
-    std::env::set_var(
-        TestEnv::PASSWORD,
-        TestEnv::DEFAULT_PASSWORD.to_string() + "1",
-    );
-    let res = do_test_basic_integration(None, None).await.unwrap_err();
+async fn test_basic_auth_fail() -> smb::Result<()> {
+    with_temp_env!(
+        [(
+            TestEnv::PASSWORD,
+            Some(TestEnv::DEFAULT_PASSWORD.to_string() + "1")
+        ),],
+        do_test_basic_auth_fail()
+    )
+}
 
+#[maybe_async::maybe_async]
+async fn do_test_basic_auth_fail() -> smb::Result<()> {
+    let res = do_test_basic_integration(None, None).await.unwrap_err();
     match res {
         smb::Error::UnexpectedMessageStatus(status) => {
             assert_eq!(status, Status::LogonFailure as u32);
         }
         _ => panic!("Expected LogonFailure error"),
     }
-    Ok(())
+    smb::Result::Ok(())
 }

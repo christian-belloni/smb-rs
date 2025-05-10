@@ -115,12 +115,12 @@ impl Session {
             }
         };
 
+        session_state.lock().await?.set_flags(flags, &conn_info)?;
+
         log::info!("Session setup complete.");
         if flags.is_guest_or_null_session() {
             log::info!("Session is guest/anonymous.");
         }
-
-        session_state.lock().await?.set_flags(flags, &conn_info)?;
 
         let session = Session {
             handler,

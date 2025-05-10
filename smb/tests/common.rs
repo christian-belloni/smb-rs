@@ -9,6 +9,9 @@ impl TestEnv {
     pub const DEFAULT_USER: &'static str = "LocalAdmin";
     pub const PASSWORD: &'static str = "SMB_RUST_TESTS_PASSWORD";
     pub const DEFAULT_PASSWORD: &'static str = "123456";
+
+    pub const GUEST_USER: &'static str = "/GUEST";
+    pub const GUEST_PASSWORD: &'static str = "";
 }
 
 pub struct TestConstants;
@@ -51,4 +54,45 @@ pub async fn make_server_connection(
 
     log::info!("Connected to {}", unc_path);
     Ok((smb, unc_path))
+}
+
+// Re-Export correct version for async or sync
+
+#[cfg(feature = "async")]
+#[macro_export]
+macro_rules! with_temp_env {
+    (
+        [
+            $(
+                ($name:expr, $value:expr),
+            )*
+        ],
+        $body:expr
+    ) => {
+        temp_env::async_with_vars(
+            [
+                $(($name, $value)),*
+            ],
+            $body
+        ).await
+    };
+}
+#[cfg(not(feature = "async"))]
+#[macro_export]
+macro_rules! with_temp_env {
+    (
+        [
+            $(
+                ($name:expr, $value:expr),
+            )*
+        ],
+        $body:expr
+    ) => {
+        temp_env::with_vars(
+            [
+                $(($name, $value)),*
+            ],
+            move || { $body }
+        )
+    };
 }

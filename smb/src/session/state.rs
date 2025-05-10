@@ -252,7 +252,7 @@ impl SessionInfo {
 
         if !conn_info.config.allow_unsigned_guest_access && flags.is_guest_or_null_session() {
             return Err(crate::Error::InvalidMessage(
-                "Signing may be disabled to allow guest or anonymus logins.".to_string(),
+                "Signing may be disabled to allow guest or anonymous logins.".to_string(),
             ));
         }
 
