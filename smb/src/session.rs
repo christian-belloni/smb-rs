@@ -115,8 +115,12 @@ impl Session {
             }
         };
 
-        log::info!("Session setup complete.");
         session_state.lock().await?.set_flags(flags, &conn_info)?;
+
+        log::info!("Session setup complete.");
+        if flags.is_guest_or_null_session() {
+            log::info!("Session is guest/anonymous.");
+        }
 
         let session = Session {
             handler,
@@ -186,14 +190,32 @@ impl Session {
                         Status::MoreProcessingRequired
                     };
                     let response = handler
-                        .recvo(
+                        .recvo_internal(
                             ReceiveOptions::new()
                                 .with_status(&[expected_status])
                                 .with_msg_id_filter(result.msg_id),
+                            is_auth_done,
                         )
                         .await?;
+
+                    let message_form = response.form;
                     let session_setup_response =
                         response.message.content.to_sessionsetupresponse()?;
+
+                    if is_auth_done {
+                        // Important: If we did NOT make sure the message's signature is valid,
+                        // we should do it now, as long as the session is not anonymous or guest.
+                        if !session_setup_response
+                            .session_flags
+                            .is_guest_or_null_session()
+                            && !message_form.signed_or_encrypted()
+                        {
+                            return Err(Error::InvalidMessage(
+                                "Expected a signed message!".to_string(),
+                            ));
+                        }
+                    }
+
                     flags = Some(session_setup_response.session_flags);
                     Some(session_setup_response)
                 }
@@ -287,6 +309,46 @@ impl SessionMessageHandler {
             log::error!("Failed to logoff: {}", e);
         });
     }
+
+    /// **UNSECURE METHOD: Only use within the session setup process.**
+    ///
+    /// INTERNAL: Sends a message and receives a response.
+    #[maybe_async]
+    async fn recvo_internal(
+        &self,
+        options: ReceiveOptions<'_>,
+        skip_security_checks: bool,
+    ) -> crate::Result<IncomingMessage> {
+        // allow unsigned messages only if the session is anonymous or guest.
+        // this is enforced against configuration when setting up the session.
+        let unsigned_allowed = {
+            let session = self.session_state.lock().await?;
+            if session.is_invalid() {
+                return Err(Error::InvalidState("Session is invalid".to_string()).into());
+            }
+            session.is_guest_or_anonymous() || skip_security_checks
+        };
+
+        let incoming = self.upstream.recvo(options).await?;
+        // Make sure that it's our session.
+        if incoming.message.header.session_id == 0 {
+            return Err(Error::InvalidMessage(
+                "No session ID in message that got to session!".to_string(),
+            ));
+        } else if incoming.message.header.session_id != self.session_id {
+            return Err(Error::InvalidMessage(
+                "Message not for this session!".to_string(),
+            ));
+        // And that it's an authenticated message.
+        } else if !incoming.form.signed_or_encrypted() && !unsigned_allowed {
+            return Err(Error::InvalidMessage(
+                "Message not signed or encrypted, but signing is required for the session!"
+                    .to_string(),
+            ));
+        }
+
+        Ok(incoming)
+    }
 }
 
 impl MessageHandler for SessionMessageHandler {
@@ -304,9 +366,10 @@ impl MessageHandler for SessionMessageHandler {
                     msg.encrypt = true;
                 }
                 // Sign instead?
-                else {
+                else if !session.is_guest_or_anonymous() {
                     msg.message.header.flags.set_signed(true);
                 }
+                // TODO: Re-check against config whether it's allowed to send/receive unsigned messages?
             }
         }
         msg.message.header.session_id = self.session_id;
@@ -318,26 +381,7 @@ impl MessageHandler for SessionMessageHandler {
         &self,
         options: crate::msg_handler::ReceiveOptions<'_>,
     ) -> crate::Result<IncomingMessage> {
-        {
-            let session = self.session_state.lock().await?;
-            if session.is_invalid() {
-                return Err(Error::InvalidState("Session is invalid".to_string()).into());
-            }
-        }
-
-        let incoming = self.upstream.recvo(options).await?;
-        // Make sure that it's our session.
-        if incoming.message.header.session_id == 0 {
-            return Err(Error::InvalidMessage(
-                "No session ID in message that got to session!".to_string(),
-            ));
-        } else if incoming.message.header.session_id != self.session_id {
-            return Err(Error::InvalidMessage(
-                "Message not for this session!".to_string(),
-            ));
-        }
-
-        Ok(incoming)
+        self.recvo_internal(options, false).await
     }
 }
 

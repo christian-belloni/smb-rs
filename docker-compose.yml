@@ -18,8 +18,10 @@ services:
     environment:
       ACCOUNT_LocalAdmin: 123456
       SAMBA_CONF_LOG_LEVEL: 10
-      SAMBA_VOLUME_CONFIG_MyShare: "[MyShare]; path=/shares/MyShare; read only = no; browseable = yes; create mask = 0777; directory mask = 0777"
+      SAMBA_VOLUME_CONFIG_MyShare: "[MyShare]; path=/shares/MyShare; read only = no; browseable = yes; create mask = 0777; directory mask = 0777; smb encrypt = desired"
+      SAMBA_VOLUME_CONFIG_PublicShare: "[PublicShare]; path=/shares/PublicShare; read only = no; browseable = yes; guest ok = yes; smb encrypt = disabled"
       SAMBA_GLOBAL_CONFIG_smb_SPACE_ports: "139 445"
+      SAMBA_GLOBAL_CONFIG_smb_SPACE_encrypt: "auto"
   dev:
     image: rust:latest
     environment:
