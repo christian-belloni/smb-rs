@@ -122,7 +122,7 @@ mod tests {
                 .into(),
             AdditionalInfo::new(),
         );
-        let req_data = encode_content(Content::SetInfoRequest(req));
+        let req_data = encode_content(RequestContent::SetInfo(req));
         assert_eq!(
             req_data,
             [

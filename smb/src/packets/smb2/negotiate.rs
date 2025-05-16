@@ -465,10 +465,7 @@ mod tests {
             0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x2, 0x0, 0x4, 0x0,
         ];
 
-        let response = decode_content(&data)
-            .content
-            .to_negotiateresponse()
-            .unwrap();
+        let response = decode_content(&data).content.to_negotiate().unwrap();
 
         assert_eq!(
             response,

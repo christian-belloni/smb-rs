@@ -6,7 +6,7 @@ use crate::{
     msg_handler::{MessageHandler, ReceiveOptions},
     packets::{
         dfsc::{ReferralLevel, ReqGetDfsReferral, RespGetDfsReferral},
-        smb2::{Content, FileId, FsctlCodes, IoctlReqData, IoctlRequest, IoctlRequestFlags},
+        smb2::{FileId, FsctlCodes, IoctlReqData, IoctlRequest, IoctlRequestFlags, RequestContent},
     },
 };
 
@@ -35,7 +35,7 @@ impl<'a> DfsRootTreeRef<'a> {
         let res = self
             .handler
             .send_recvo(
-                Content::IoctlRequest(IoctlRequest {
+                RequestContent::Ioctl(IoctlRequest {
                     ctl_code: FsctlCodes::DfsGetReferrals as u32,
                     file_id: FileId::FULL,
                     max_input_response: 1024,
@@ -52,7 +52,7 @@ impl<'a> DfsRootTreeRef<'a> {
         let res = res
             .message
             .content
-            .to_ioctlresponse()?
+            .to_ioctl()?
             .parse_fsctl::<RespGetDfsReferral>()?;
         Ok(res)
     }

@@ -7,7 +7,7 @@ use std::io::Cursor;
 
 use crate::{
     crypto,
-    packets::smb2::{encrypted::*, message::Message},
+    packets::smb2::{encrypted::*, Response},
 };
 
 #[derive(Debug)]
@@ -79,7 +79,7 @@ impl MessageDecryptor {
     pub fn decrypt_message(
         &mut self,
         msg_in: &EncryptedMessage,
-    ) -> crate::Result<(Message, Vec<u8>)> {
+    ) -> crate::Result<(Response, Vec<u8>)> {
         let mut serialized_message = msg_in.encrypted_message.clone();
         self.algo.decrypt(
             &mut serialized_message,
@@ -88,7 +88,7 @@ impl MessageDecryptor {
             msg_in.header.signature,
         )?;
 
-        let result = Message::read(&mut Cursor::new(&serialized_message))?;
+        let result = Response::read(&mut Cursor::new(&serialized_message))?;
 
         log::debug!("Decrypted with signature {}", msg_in.header.signature);
         Ok((result, serialized_message))

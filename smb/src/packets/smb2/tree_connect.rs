@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     pub fn test_tree_connect_req_write() {
-        let result = encode_content(Content::TreeConnectRequest(TreeConnectRequest::new(
+        let result = encode_content(RequestContent::TreeConnect(TreeConnectRequest::new(
             &r"\\127.0.0.1\MyShare",
         )));
         assert_eq!(

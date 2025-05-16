@@ -64,7 +64,7 @@ mod tests {
         ]);
         assert_eq!(msg.header.status, Status::ObjectNameNotFound as u32);
         let msg = match msg.content {
-            Content::ErrorResponse(msg) => msg,
+            ResponseContent::Error(msg) => msg,
             _ => panic!("Unexpected response"),
         };
         assert_eq!(msg, ErrorResponse { error_data: vec![] })

@@ -21,7 +21,7 @@ impl<'a> Decompressor {
     pub fn decompress(
         &self,
         original: &CompressedMessage,
-    ) -> Result<(Message, Vec<u8>), CompressionError> {
+    ) -> Result<(Response, Vec<u8>), CompressionError> {
         let method: Box<dyn CompressionMethod> = match original {
             CompressedMessage::Unchained(_) => Box::new(UnchainedCompression),
             CompressedMessage::Chained(_) => {
@@ -35,7 +35,8 @@ impl<'a> Decompressor {
         let bytes = method.decompress(original)?;
         let mut cursor = std::io::Cursor::new(&bytes);
         Ok((
-            Message::read(&mut cursor).map_err(|_| CompressionError::InvalidDecompressedMessage)?,
+            Response::read(&mut cursor)
+                .map_err(|_| CompressionError::InvalidDecompressedMessage)?,
             bytes,
         ))
     }
@@ -406,7 +407,7 @@ mod tests {
         assert_eq!(draw[80..], vec![0x64; 0x400]);
         // This is a compressed read response, let's unwrap it.
         let plain_unwrapped = match dmsg {
-            Message::Plain(p) => p,
+            Response::Plain(p) => p,
             _ => panic!("Expected plain message"),
         };
         // Validate header
@@ -430,7 +431,7 @@ mod tests {
             }
         );
         // unwrap & validate read response.
-        let read_response = plain_unwrapped.content.to_readresponse().unwrap();
+        let read_response = plain_unwrapped.content.to_read().unwrap();
         assert_eq!(
             read_response,
             ReadResponse {

@@ -9,7 +9,9 @@ use std::{
 
 use maybe_async::*;
 
-use crate::{connection::worker::Worker, msg_handler::IncomingMessage, packets::smb2::Content};
+use crate::{
+    connection::worker::Worker, msg_handler::IncomingMessage, packets::smb2::ResponseContent,
+};
 
 use super::worker::WorkerImpl;
 #[cfg(feature = "async")]
@@ -99,7 +101,7 @@ impl NotificationHandler {
         msg: IncomingMessage,
     ) -> crate::Result<()> {
         match &msg.message.content {
-            Content::ServerToClientNotification(notification) => {
+            ResponseContent::ServerToClientNotification(notification) => {
                 log::info!("Received notification: {:?}", notification);
                 match &notification.notification {
                     crate::packets::smb2::Notification::NotifySessionClosed(
@@ -114,7 +116,7 @@ impl NotificationHandler {
                     }
                 }
             }
-            Content::OplockBreakNotify(oplock) => {
+            ResponseContent::OplockBreakNotify(oplock) => {
                 log::info!("Received oplock break notification: {:?}", oplock);
             }
             _ => {

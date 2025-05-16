@@ -79,7 +79,7 @@ impl Resource {
             ));
         }
 
-        let mut msg = OutgoingMessage::new(Content::CreateRequest(CreateRequest {
+        let mut msg = OutgoingMessage::new(RequestContent::Create(CreateRequest {
             requested_oplock_level: OplockLevel::None,
             impersonation_level: ImpersonationLevel::Impersonation,
             desired_access: create_args.desired_access,
@@ -98,7 +98,7 @@ impl Resource {
 
         let response = upstream.sendo_recv(msg).await?;
 
-        let content = response.message.content.to_createresponse()?;
+        let content = response.message.content.to_create()?;
         log::info!("Created file '{}', ({:?})", name, content.file_id);
 
         let is_dir = content.file_attributes.directory();
@@ -231,11 +231,11 @@ impl ResourceHandle {
     async fn query_common(&self, req: QueryInfoRequest) -> crate::Result<QueryInfoData> {
         let info_type = req.info_type;
         Ok(self
-            .send_receive(Content::QueryInfoRequest(req))
+            .send_receive(RequestContent::QueryInfo(req))
             .await?
             .message
             .content
-            .to_queryinforesponse()?
+            .to_queryinfo()?
             .parse(info_type)?)
     }
     /// Internal: Sends a Set Information Request and parses the response.
@@ -250,8 +250,8 @@ impl ResourceHandle {
         T: Into<SetInfoData>,
     {
         let data = data.into().to_req(cls, self.file_id, additional_info);
-        let response = self.send_receive(Content::SetInfoRequest(data)).await?;
-        response.message.content.to_setinforesponse()?;
+        let response = self.send_receive(RequestContent::SetInfo(data)).await?;
+        response.message.content.to_setinfo()?;
         Ok(())
     }
 
@@ -442,7 +442,7 @@ impl ResourceHandle {
         log::debug!("Closing handle for {} ({:?})", self.name, self.file_id);
         let _response = self
             .handler
-            .send_recv(Content::CloseRequest(CloseRequest {
+            .send_recv(RequestContent::Close(CloseRequest {
                 file_id: self.file_id,
             }))
             .await?;
@@ -462,7 +462,7 @@ impl ResourceHandle {
     #[inline]
     pub async fn send_receive(
         &self,
-        msg: Content,
+        msg: RequestContent,
     ) -> crate::Result<crate::msg_handler::IncomingMessage> {
         self.handler.send_recv(msg).await
     }

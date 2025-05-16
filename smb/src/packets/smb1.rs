@@ -79,17 +79,25 @@ pub struct Smb1Dialect {
     name: binrw::NullString,
 }
 
+impl TryInto<Vec<u8>> for SMB1NegotiateMessage {
+    type Error = binrw::Error;
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
+        let mut buf = std::io::Cursor::new(Vec::new());
+        self.write(&mut buf)?;
+        Ok(buf.into_inner())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     pub fn test_smb1_negotiate_req_write() {
-        let mut cursor = std::io::Cursor::new(Vec::new());
         let msg = SMB1NegotiateMessage::new();
-        msg.write(&mut cursor).unwrap();
+        let buf: Result<Vec<u8>, binrw::Error> = msg.try_into();
         assert_eq!(
-            cursor.into_inner(),
+            buf.unwrap(),
             [
                 0xff, 0x53, 0x4d, 0x42, 0x72, 0x0, 0x0, 0x0, 0x0, 0x18, 0x53, 0xc8, 0x0, 0x0, 0x0,
                 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff, 0xff, 0x01, 0x00, 0x0, 0x0, 0x0,

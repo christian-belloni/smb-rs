@@ -15,13 +15,13 @@ pub struct CancelRequest {
 
 #[cfg(test)]
 mod tests {
+    use crate::packets::smb2::{test::encode_content, RequestContent};
+
     use super::*;
 
     #[test]
     pub fn test_cancel_req_write() {
-        let mut cursor = std::io::Cursor::new(Vec::new());
-        let cancel_req = CancelRequest::default();
-        cancel_req.write_le(&mut cursor).unwrap();
-        assert_eq!(cursor.into_inner(), [0x4, 0x0, 0x0, 0x0])
+        let data = encode_content(RequestContent::Cancel(CancelRequest::default()));
+        assert_eq!(data, [0x4, 0x0, 0x0, 0x0])
     }
 }

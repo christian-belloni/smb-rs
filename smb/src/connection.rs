@@ -9,7 +9,7 @@ pub mod worker;
 
 use crate::dialects::DialectImpl;
 use crate::packets::guid::Guid;
-use crate::packets::smb2::{Command, Message};
+use crate::packets::smb2::{Command, Response};
 use crate::Error;
 use crate::{compression, sync_helpers::*};
 use crate::{
@@ -18,7 +18,6 @@ use crate::{
     packets::{
         smb1::SMB1NegotiateMessage,
         smb2::{negotiate::*, plain::*},
-        transport::SMBMessage,
     },
     session::Session,
 };
@@ -108,16 +107,15 @@ impl Connection {
         if !smb2_only_neg {
             log::debug!("Negotiating multi-protocol: Sending SMB1");
             // 1. Send SMB1 negotiate request
-            let msg_bytes: Vec<u8> =
-                SMBMessage::SMB1Message(SMB1NegotiateMessage::new()).try_into()?;
+            let msg_bytes: Vec<u8> = SMB1NegotiateMessage::new().try_into()?;
             transport.send(&msg_bytes).await?;
 
             log::debug!("Sent SMB1 negotiate request, Receieving SMB2 response");
             // 2. Expect SMB2 negotiate response
             let recieved_bytes = transport.receive().await?;
-            let response = SMBMessage::try_from(recieved_bytes.as_ref())?;
+            let response = Response::try_from(recieved_bytes.as_ref())?;
             let message = match response {
-                SMBMessage::SMB2Message(Message::Plain(m)) => m,
+                Response::Plain(m) => m,
                 _ => {
                     return Err(Error::InvalidMessage(
                         "Expected SMB2 negotiate response, got SMB1".to_string(),
@@ -125,7 +123,7 @@ impl Connection {
                 }
             };
 
-            let smb2_negotiate_response = message.content.to_negotiateresponse()?;
+            let smb2_negotiate_response = message.content.to_negotiate()?;
 
             // 3. Make sure dialect is smb2*, message ID is 0.
             if smb2_negotiate_response.dialect_revision != NegotiateDialect::Smb02Wildcard {
@@ -184,7 +182,7 @@ impl Connection {
         // Send SMB2 negotiate request
         let response = self
             .handler
-            .send_recv(Content::NegotiateRequest(self.make_smb2_neg_request(
+            .send_recv(RequestContent::Negotiate(self.make_smb2_neg_request(
                 dialects,
                 crypto::SIGNING_ALGOS.to_vec(),
                 encryption_algos,
@@ -192,7 +190,7 @@ impl Connection {
             )))
             .await?;
 
-        let smb2_negotiate_response = response.message.content.to_negotiateresponse()?;
+        let smb2_negotiate_response = response.message.content.to_negotiate()?;
 
         // well, only 3.1 is supported for starters.
         let dialect_rev = smb2_negotiate_response.dialect_revision.try_into()?;
@@ -590,7 +588,7 @@ impl MessageHandler for ConnectionMessageHandler {
             .iter()
             .any(|s| msg.message.header.status == *s as u32)
         {
-            if let Content::ErrorResponse(error_res) = msg.message.content {
+            if let ResponseContent::Error(error_res) = msg.message.content {
                 return Err(Error::ReceivedErrorMessage(
                     msg.message.header.status,
                     error_res,

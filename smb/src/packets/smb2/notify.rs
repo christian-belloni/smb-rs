@@ -169,7 +169,7 @@ mod tests {
         ];
 
         let parsed = decode_content(&data);
-        let notify_response = parsed.content.to_changenotifyresponse().unwrap();
+        let notify_response = parsed.content.to_changenotify().unwrap();
 
         assert_eq!(
             notify_response,

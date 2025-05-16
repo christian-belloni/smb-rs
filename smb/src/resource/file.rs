@@ -105,7 +105,7 @@ impl File {
 
         let response = self
             .handle
-            .send_receive(Content::ReadRequest(ReadRequest {
+            .send_receive(RequestContent::Read(ReadRequest {
                 padding: 0,
                 flags,
                 length: buf.len() as u32,
@@ -118,7 +118,7 @@ impl File {
         let content = response
             .message
             .content
-            .to_readresponse()
+            .to_read()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let actual_read_length = content.buffer.len();
         log::debug!(
@@ -160,7 +160,7 @@ impl File {
 
         let response = self
             .handle
-            .send_receive(Content::WriteRequest(WriteRequest {
+            .send_receive(RequestContent::Write(WriteRequest {
                 offset: pos,
                 file_id: self.handle.file_id,
                 flags: WriteFlags::new(),
@@ -172,7 +172,7 @@ impl File {
         let content = response
             .message
             .content
-            .to_writeresponse()
+            .to_write()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let actual_written_length = content.count as usize;
         log::debug!(
@@ -188,7 +188,7 @@ impl File {
     pub async fn flush(&self) -> std::io::Result<()> {
         let _response = self
             .handle
-            .send_receive(Content::FlushRequest(FlushRequest {
+            .send_receive(RequestContent::Flush(FlushRequest {
                 file_id: self.handle.file_id,
             }))
             .await

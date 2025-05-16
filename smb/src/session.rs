@@ -66,7 +66,7 @@ impl Session {
                 ))
             }
         };
-        let request = OutgoingMessage::new(Content::SessionSetupRequest(SessionSetupRequest::new(
+        let request = OutgoingMessage::new(RequestContent::SessionSetup(SessionSetupRequest::new(
             next_buf,
             req_security_mode,
         )));
@@ -90,7 +90,7 @@ impl Session {
         } else {
             Self::setup_more_processing(
                 &mut authenticator,
-                init_response.message.content.to_sessionsetupresponse()?,
+                init_response.message.content.to_sessionsetup()?,
                 &session_state,
                 req_security_mode,
                 &handler,
@@ -154,7 +154,7 @@ impl Session {
                 AuthenticationStep::NextToken(next_buf) => {
                     // We'd like to update preauth hash with the last request before accept.
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
-                    let mut request = OutgoingMessage::new(Content::SessionSetupRequest(
+                    let mut request = OutgoingMessage::new(RequestContent::SessionSetup(
                         SessionSetupRequest::new(next_buf, req_security_mode),
                     ));
                     request.finalize_preauth_hash = is_auth_done;
@@ -199,8 +199,7 @@ impl Session {
                         .await?;
 
                     let message_form = response.form;
-                    let session_setup_response =
-                        response.message.content.to_sessionsetupresponse()?;
+                    let session_setup_response = response.message.content.to_sessionsetup()?;
 
                     if is_auth_done {
                         // Important: If we did NOT make sure the message's signature is valid,
@@ -286,7 +285,7 @@ impl SessionMessageHandler {
         log::debug!("Logging off session.");
 
         let _response = self
-            .send_recv(Content::LogoffRequest(Default::default()))
+            .send_recv(RequestContent::Logoff(Default::default()))
             .await?;
 
         // This also invalidates the session object.

@@ -52,7 +52,7 @@ impl Directory {
 
         let response = self
             .handle
-            .send_receive(Content::QueryDirectoryRequest(QueryDirectoryRequest {
+            .send_receive(RequestContent::QueryDirectory(QueryDirectoryRequest {
                 file_information_class: T::CLASS_ID,
                 flags: QueryDirectoryFlags::new().with_restart_scans(restart),
                 file_index: 0,
@@ -78,7 +78,7 @@ impl Directory {
         Ok(response
             .message
             .content
-            .to_querydirectoryresponse()?
+            .to_querydirectory()?
             .read_output()?)
     }
 
@@ -146,7 +146,7 @@ impl Directory {
             .handle
             .handler
             .send_recvo(
-                Content::ChangeNotifyRequest(ChangeNotifyRequest {
+                RequestContent::ChangeNotify(ChangeNotifyRequest {
                     file_id: self.file_id,
                     flags: NotifyFlags::new().with_watch_tree(recursive),
                     completion_filter: filter,
@@ -185,7 +185,7 @@ impl Directory {
             }
         };
 
-        Ok(response.message.content.to_changenotifyresponse()?.buffer)
+        Ok(response.message.content.to_changenotify()?.buffer)
     }
 
     #[maybe_async]

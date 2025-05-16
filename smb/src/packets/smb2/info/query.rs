@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     pub fn test_query_info_req_short_write() {
-        let data = encode_content(Content::QueryInfoRequest(QueryInfoRequest {
+        let data = encode_content(RequestContent::QueryInfo(QueryInfoRequest {
             info_type: InfoType::File,
             info_class: QueryInfoClass::File(QueryFileInfoClass::NetworkOpenInformation),
             output_buffer_length: 56,
@@ -263,7 +263,7 @@ mod tests {
             }),
             output_buffer_length: 554,
         };
-        let content_data = encode_content(Content::QueryInfoRequest(req));
+        let content_data = encode_content(RequestContent::QueryInfo(req));
         assert_eq!(
             content_data,
             [
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     pub fn test_query_security_request() {
-        let res = encode_content(Content::QueryInfoRequest(QueryInfoRequest {
+        let res = encode_content(RequestContent::QueryInfo(QueryInfoRequest {
             info_type: InfoType::Security,
             info_class: Default::default(),
             output_buffer_length: 0,
@@ -315,7 +315,7 @@ mod tests {
             0x6b, 0xdb, 0x1, 0x4, 0x8f, 0xa1, 0xd, 0x51, 0x6b, 0xdb, 0x1, 0x20, 0x0, 0x0, 0x0, 0x0,
             0x0, 0x0, 0x0,
         ]);
-        let parsed = parsed.content.to_queryinforesponse().unwrap();
+        let parsed = parsed.content.to_queryinfo().unwrap();
         assert_eq!(
             parsed,
             QueryInfoResponse {

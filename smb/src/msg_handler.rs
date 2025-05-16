@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct OutgoingMessage {
-    pub message: PlainMessage,
+    pub message: PlainRequest,
 
     /// Whether to finalize the preauth hash after sending this message.
     /// If this is set to true twice per connection, an error will be thrown.
@@ -21,9 +21,9 @@ pub struct OutgoingMessage {
 }
 
 impl OutgoingMessage {
-    pub fn new(content: Content) -> OutgoingMessage {
+    pub fn new(content: RequestContent) -> OutgoingMessage {
         OutgoingMessage {
-            message: PlainMessage::new(content),
+            message: PlainRequest::new(content),
             finalize_preauth_hash: false,
             compress: true,
             encrypt: false,
@@ -51,7 +51,7 @@ impl SendMessageResult {
 
 #[derive(Debug)]
 pub struct IncomingMessage {
-    pub message: PlainMessage,
+    pub message: PlainResponse,
     /// The raw message received from the server, after applying transformations (e.g. decompression).
     pub raw: Vec<u8>,
 
@@ -162,7 +162,7 @@ pub trait MessageHandler {
 
     // -- Utility functions, accessible from references via Deref.
     #[maybe_async]
-    async fn send(&self, msg: Content) -> crate::Result<SendMessageResult> {
+    async fn send(&self, msg: RequestContent) -> crate::Result<SendMessageResult> {
         self.sendo(OutgoingMessage::new(msg)).await
     }
 
@@ -186,7 +186,7 @@ pub trait MessageHandler {
     #[maybe_async]
     async fn send_recvo(
         &self,
-        msg: Content,
+        msg: RequestContent,
         options: ReceiveOptions<'_>,
     ) -> crate::Result<IncomingMessage> {
         self.sendo_recvo(OutgoingMessage::new(msg), options).await
@@ -200,7 +200,7 @@ pub trait MessageHandler {
     }
 
     #[maybe_async]
-    async fn send_recv(&self, msg: Content) -> crate::Result<IncomingMessage> {
+    async fn send_recv(&self, msg: RequestContent) -> crate::Result<IncomingMessage> {
         self.sendo_recv(OutgoingMessage::new(msg)).await
     }
 }

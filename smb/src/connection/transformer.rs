@@ -2,7 +2,7 @@ use crate::sync_helpers::*;
 use crate::{
     compression::*,
     msg_handler::*,
-    packets::{smb2::*, transport::*},
+    packets::smb2::*,
     session::SessionInfo,
 };
 use binrw::prelude::*;
@@ -202,7 +202,7 @@ impl Transformer {
                     let compressed = compress.0.compress(&data)?;
                     data.clear();
                     let mut cursor = Cursor::new(&mut data);
-                    Message::Compressed(compressed).write(&mut cursor)?;
+                    Request::Compressed(compressed).write(&mut cursor)?;
                 };
             }
             data
@@ -217,7 +217,7 @@ impl Transformer {
                     debug_assert!(should_encrypt && !should_sign);
                     let encrypted = encryptor.encrypt_message(data, set_session_id)?;
                     let mut cursor = Cursor::new(Vec::new());
-                    Message::Encrypted(encrypted).write(&mut cursor)?;
+                    Request::Encrypted(encrypted).write(&mut cursor)?;
                     cursor.into_inner()
                 } else {
                     return Err(crate::Error::TranformFailed(TransformError {
@@ -239,22 +239,12 @@ impl Transformer {
     /// Transforms an incoming message buffer to an [`IncomingMessage`].
     #[maybe_async]
     pub async fn transform_incoming(&self, data: Vec<u8>) -> crate::Result<IncomingMessage> {
-        let message = match SMBMessage::try_from(data.as_ref())? {
-            SMBMessage::SMB2Message(message) => Some(message),
-            _ => None,
-        }
-        .ok_or(crate::Error::TranformFailed(TransformError {
-            outgoing: false,
-            phase: TransformPhase::EncodeDecode,
-            session_id: None,
-            why: "Message is not an SMB2 message!",
-            msg_id: None,
-        }))?;
+        let message = Response::try_from(data.as_ref())?;
 
         let mut form = MessageForm::default();
 
         // 3. Decrpt
-        let (message, raw) = if let Message::Encrypted(encrypted_message) = &message {
+        let (message, raw) = if let Response::Encrypted(encrypted_message) = &message {
             let session = self
                 .get_session(encrypted_message.header.session_id)
                 .await?;
@@ -278,8 +268,8 @@ impl Transformer {
         };
 
         // 2. Decompress
-        debug_assert!(!matches!(message, Message::Encrypted(_)));
-        let (message, raw) = if let Message::Compressed(compressed_message) = &message {
+        debug_assert!(!matches!(message, Response::Encrypted(_)));
+        let (message, raw) = if let Response::Compressed(compressed_message) = &message {
             let rconfig = self.config.read().await?;
             form.compressed = true;
             match &rconfig.compress {
@@ -299,7 +289,7 @@ impl Transformer {
         };
 
         let mut message = match message {
-            Message::Plain(message) => message,
+            Response::Plain(message) => message,
             _ => panic!("Unexpected message type"),
         };
 
@@ -333,7 +323,7 @@ impl Transformer {
     #[maybe_async]
     async fn verify_plain_incoming(
         &self,
-        message: &mut PlainMessage,
+        message: &mut PlainResponse,
         raw: &Vec<u8>,
         form: &mut MessageForm,
     ) -> crate::Result<()> {

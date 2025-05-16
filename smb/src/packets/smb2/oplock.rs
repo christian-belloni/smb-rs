@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     pub fn test_lease_break_ack_response_write() {
-        let req_data = encode_content(Content::LeaseBreakAck(LeaseBreakAck {
+        let req_data = encode_content(RequestContent::LeaseBreakAck(LeaseBreakAck {
             lease_key: "70c8619e-165d-315e-d492-a01b0cbb3af2".parse().unwrap(),
             lease_state: LeaseState::new(),
         }));

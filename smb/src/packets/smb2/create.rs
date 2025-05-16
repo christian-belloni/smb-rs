@@ -730,7 +730,7 @@ mod tests {
                 QueryOnDiskIdReq.into(),
             ],
         };
-        let data_without_header = encode_content(Content::CreateRequest(request));
+        let data_without_header = encode_content(RequestContent::Create(request));
         assert_eq!(
             data_without_header,
             vec![
@@ -772,7 +772,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00,
         ];
-        let m = decode_content(&data).content.to_createresponse().unwrap();
+        let m = decode_content(&data).content.to_create().unwrap();
         assert_eq!(
             m,
             CreateResponse {

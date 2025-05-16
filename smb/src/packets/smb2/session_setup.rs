@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     pub fn test_setup_req_write() {
-        let data = encode_content(Content::SessionSetupRequest(SessionSetupRequest::new(
+        let data = encode_content(RequestContent::SessionSetup(SessionSetupRequest::new(
             [
                 0x60, 0x57, 0x6, 0x6, 0x2b, 0x6, 0x1, 0x5, 0x5, 0x2, 0xa0, 0x4d, 0x30, 0x4b, 0xa0,
                 0xe, 0x30, 0xc, 0x6, 0xa, 0x2b, 0x6, 0x1, 0x4, 0x1, 0x82, 0x37, 0x2, 0x2, 0xa,
@@ -174,10 +174,7 @@ mod tests {
             0xa8, 0x76, 0xd8, 0x78, 0xc5, 0x69, 0xdb, 0x1, 0x0, 0x0, 0x0, 0x0,
         ];
 
-        let response = decode_content(&data)
-            .content
-            .to_sessionsetupresponse()
-            .unwrap();
+        let response = decode_content(&data).content.to_sessionsetup().unwrap();
 
         assert_eq!(
             response,

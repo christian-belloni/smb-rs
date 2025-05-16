@@ -240,9 +240,7 @@ mod tests {
             .into(),
             minimum_count: 1,
         };
-        let mut cursor = Cursor::new(Vec::new());
-        req.write_le(&mut cursor).unwrap();
-        let data = cursor.into_inner();
+        let data = encode_content(RequestContent::Read(req));
         assert_eq![
             data,
             [
@@ -265,9 +263,8 @@ mod tests {
             0x50, 0x0, 0x6, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x62, 0x62,
             0x62, 0x62, 0x62, 0x62,
         ];
-        let parsed = PlainMessage::read(&mut Cursor::new(data)).unwrap();
-        // extract read response:
-        let resp = parsed.content.to_readresponse().unwrap();
+
+        let resp = decode_content(&data).content.to_read().unwrap();
         assert_eq!(
             resp,
             ReadResponse {
@@ -278,7 +275,7 @@ mod tests {
 
     #[test]
     pub fn test_write_req_write() {
-        let data = encode_content(Content::WriteRequest(WriteRequest {
+        let data = encode_content(RequestContent::Write(WriteRequest {
             offset: 0x1234abcd,
             file_id: [
                 0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,

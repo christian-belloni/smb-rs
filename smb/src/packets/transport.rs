@@ -1,6 +1,3 @@
-use std::io::Cursor;
-
-use super::{smb1, smb2};
 use binrw::prelude::*;
 
 #[binrw::binrw]
@@ -17,38 +14,10 @@ impl SmbTcpMessageHeader {
     pub const SIZE: usize = 4;
 }
 
-/// Represents a parsed SMB message.
-///
-/// Use [`SMBMessage::try_from`] to parse a buffer
-/// containing an SMB message to this struct.
-/// Use [`SMBMessage::try_into`] to convert this struct
-/// back to a buffer containing the SMB message.
-#[derive(BinRead, BinWrite, Debug)]
-#[brw(big)]
-pub enum SMBMessage {
-    SMB2Message(smb2::Message),
-    // This is for multi-protocol negotiation purpose ONLY.
-    SMB1Message(smb1::SMB1NegotiateMessage),
-}
-
-impl TryFrom<&[u8]> for SMBMessage {
-    type Error = binrw::Error;
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        Ok(SMBMessage::read(&mut Cursor::new(value))?)
-    }
-}
-
-impl TryInto<Vec<u8>> for SMBMessage {
-    type Error = binrw::Error;
-    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
-        let mut buf = Cursor::new(Vec::new());
-        self.write(&mut buf)?;
-        Ok(buf.into_inner())
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
     #[test]
     fn test_transport_header_write() {

@@ -14,7 +14,7 @@ use crate::{
         fscc::FileAccessMask,
         smb2::{
             create::CreateDisposition,
-            plain::Content,
+            plain::RequestContent,
             tree_connect::{TreeConnectRequest, TreeDisconnectRequest},
         },
     },
@@ -52,10 +52,10 @@ impl Tree {
     ) -> crate::Result<Tree> {
         // send and receive tree request & response.
         let response = upstream
-            .send_recv(Content::TreeConnectRequest(TreeConnectRequest::new(name)))
+            .send_recv(RequestContent::TreeConnect(TreeConnectRequest::new(name)))
             .await?;
 
-        let content = response.message.content.to_treeconnectresponse()?;
+        let content = response.message.content.to_treeconnect()?;
 
         // Make sure the share flags from the server are valid to the dialect.
         if ((!u32::from_le_bytes(conn_info.dialect.get_tree_connect_caps_mask().into_bytes()))
@@ -238,7 +238,7 @@ impl TreeMessageHandler {
 
         // send and receive tree disconnect request & response.
         let _response = self
-            .send_recv(Content::TreeDisconnectRequest(
+            .send_recv(RequestContent::TreeDisconnect(
                 TreeDisconnectRequest::default(),
             ))
             .await?;
