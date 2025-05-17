@@ -78,20 +78,21 @@ impl MessageDecryptor {
 
     pub fn decrypt_message(
         &mut self,
-        msg_in: &EncryptedMessage,
+        msg_in: EncryptedMessage,
     ) -> crate::Result<(Response, Vec<u8>)> {
-        let mut serialized_message = msg_in.encrypted_message.clone();
-        self.algo.decrypt(
-            &mut serialized_message,
-            &msg_in.header.aead_bytes(),
-            &msg_in.header.nonce,
-            msg_in.header.signature,
-        )?;
+        // decrypt in-place
+        let mut buffer = msg_in.encrypted_message;
+        let aead_bytes = msg_in.header.aead_bytes();
+        let nonce = msg_in.header.nonce;
+        let signature = msg_in.header.signature;
+        self.algo
+            .decrypt(&mut buffer, &aead_bytes, &nonce, signature)?;
 
-        let result = Response::read(&mut Cursor::new(&serialized_message))?;
+        // deserialize
+        let result = Response::read(&mut Cursor::new(&buffer))?;
 
         log::debug!("Decrypted with signature {}", msg_in.header.signature);
-        Ok((result, serialized_message))
+        Ok((result, buffer))
     }
 }
 

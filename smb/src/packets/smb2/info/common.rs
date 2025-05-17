@@ -138,7 +138,7 @@ macro_rules! query_info_data {
             {
                 // A parse method that accepts the class of T as an argument, reads the data and returns the T.
                 pub fn parse(&self, class: T::Class) -> Result<T, crate::Error> {
-                    let mut cursor = std::io::Cursor::new(self.data.clone());
+                    let mut cursor = std::io::Cursor::new(&self.data);
                     let value = T::read_le_args(&mut cursor, (class,))?;
                     Ok(value)
                 }

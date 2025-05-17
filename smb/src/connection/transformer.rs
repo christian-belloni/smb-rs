@@ -1,10 +1,5 @@
 use crate::sync_helpers::*;
-use crate::{
-    compression::*,
-    msg_handler::*,
-    packets::smb2::*,
-    session::SessionInfo,
-};
+use crate::{compression::*, msg_handler::*, packets::smb2::*, session::SessionInfo};
 use binrw::prelude::*;
 use maybe_async::*;
 use std::{collections::HashMap, io::Cursor, sync::Arc};
@@ -160,43 +155,41 @@ impl Transformer {
 
     /// Transforms an outgoing message to a raw SMB message.
     #[maybe_async]
-    pub async fn transform_outgoing(&self, msg: OutgoingMessage) -> crate::Result<Vec<u8>> {
+    pub async fn transform_outgoing(&self, mut msg: OutgoingMessage) -> crate::Result<Vec<u8>> {
         let should_encrypt = msg.encrypt;
         let should_sign = msg.message.header.flags.signed();
         let set_session_id = msg.message.header.session_id;
 
+        let mut data = Vec::new();
+        msg.message.write(&mut Cursor::new(&mut data))?;
+
+        // 0. Update preauth hash as needed.
+        self.step_preauth_hash(&data).await?;
+
         // 1. Sign
-        let mut data = {
-            let mut data = Vec::new();
-            msg.message.write(&mut Cursor::new(&mut data))?;
+        if should_sign {
+            debug_assert!(
+                !should_encrypt,
+                "Should not sign and encrypt at the same time!"
+            );
 
-            // 0. Update preauth hash as needed.
-            self.step_preauth_hash(&data).await?;
-            if should_sign {
-                debug_assert!(
-                    !should_encrypt,
-                    "Should not sign and encrypt at the same time!"
-                );
-                let mut header_copy = msg.message.header.clone();
-
-                let signer = {
-                    self.get_session(set_session_id)
-                        .await?
-                        .lock()
-                        .await?
-                        .signer()
-                        .cloned()
-                };
-                if let Some(mut signer) = signer {
-                    signer.sign_message(&mut header_copy, &mut data)?;
-                };
+            let signer = {
+                self.get_session(set_session_id)
+                    .await?
+                    .lock()
+                    .await?
+                    .signer()
+                    .cloned()
             };
-            data
+            if let Some(mut signer) = signer {
+                signer.sign_message(&mut msg.message.header, &mut data)?;
+            };
         };
 
         // 2. Compress
+        const COMPRESSION_THRESHOLD: usize = 1024;
         data = {
-            if msg.compress && data.len() > 1024 {
+            if msg.compress && data.len() > COMPRESSION_THRESHOLD {
                 let rconfig = self.config.read().await?;
                 if let Some(compress) = &rconfig.compress {
                     let compressed = compress.0.compress(&data)?;
@@ -244,14 +237,14 @@ impl Transformer {
         let mut form = MessageForm::default();
 
         // 3. Decrpt
-        let (message, raw) = if let Response::Encrypted(encrypted_message) = &message {
+        let (message, raw) = if let Response::Encrypted(encrypted_message) = message {
             let session = self
                 .get_session(encrypted_message.header.session_id)
                 .await?;
             let decryptor = { session.lock().await?.decryptor().cloned() };
             form.encrypted = true;
             match decryptor {
-                Some(mut decryptor) => decryptor.decrypt_message(&encrypted_message)?,
+                Some(mut decryptor) => decryptor.decrypt_message(encrypted_message)?,
                 None => {
                     return Err(crate::Error::TranformFailed(TransformError {
                         outgoing: false,
@@ -263,17 +256,16 @@ impl Transformer {
                 }
             }
         } else {
-            // TODO: Decrypt in-place?
             (message, data.to_vec())
         };
 
         // 2. Decompress
         debug_assert!(!matches!(message, Response::Encrypted(_)));
-        let (message, raw) = if let Response::Compressed(compressed_message) = &message {
+        let (message, raw) = if let Response::Compressed(compressed_message) = message {
             let rconfig = self.config.read().await?;
             form.compressed = true;
             match &rconfig.compress {
-                Some(compress) => compress.1.decompress(compressed_message)?,
+                Some(compress) => compress.1.decompress(&compressed_message)?,
                 None => {
                     return Err(crate::Error::TranformFailed(TransformError {
                         outgoing: false,
@@ -341,8 +333,8 @@ impl Transformer {
         let session = self.get_session(session_id).await?;
         let verifier = { session.lock().await?.signer().cloned() };
         if let Some(mut verifier) = verifier {
-            form.signed = true;
             verifier.verify_signature(&mut message.header, raw)?;
+            form.signed = true;
             Ok(())
         } else {
             Err(crate::Error::TranformFailed(TransformError {

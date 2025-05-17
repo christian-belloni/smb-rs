@@ -150,7 +150,9 @@ pub async fn copy(cmd: &CopyCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
         Path::Remote(_) => panic!("Remote to remote copy not supported"),
     };
 
+    log::info!("Starting copy");
     do_copy(from, to).await?;
+    log::info!("Copy completed");
 
     client.close().await?;
 

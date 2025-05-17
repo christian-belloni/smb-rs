@@ -28,15 +28,25 @@ pub struct EncryptedHeader {
 
 impl EncryptedHeader {
     const MAGIC_SIZE: usize = 4;
+    const STRUCTURE_SIZE: usize = 4
+        + size_of::<u128>()
+        + size_of::<EncryptionNonce>()
+        + size_of::<u32>()
+        + size_of::<u16>()
+        + size_of::<u16>()
+        + size_of::<u64>();
+    const AEAD_BYTES_SIZE: usize = Self::STRUCTURE_SIZE - Self::MAGIC_SIZE - SIGNATURE_SIZE;
 
     /// The bytes to use as the additional data for the AEAD out of this header.
     /// Make sure to call it after all fields (except signature) are finalized.
     ///
     /// Returns (according to MS-SMB2) the bytes of the header, excluding the magic and the signature.
-    pub fn aead_bytes(&self) -> Vec<u8> {
-        let mut cursor = Cursor::new(vec![]);
+    pub fn aead_bytes(&self) -> [u8; Self::AEAD_BYTES_SIZE] {
+        let mut cursor = Cursor::new([0u8; Self::STRUCTURE_SIZE]);
         self.write(&mut cursor).unwrap();
-        cursor.into_inner()[Self::MAGIC_SIZE + SIGNATURE_SIZE..].to_vec()
+        cursor.into_inner()[Self::MAGIC_SIZE + SIGNATURE_SIZE..Self::STRUCTURE_SIZE]
+            .try_into()
+            .unwrap()
     }
 }
 
