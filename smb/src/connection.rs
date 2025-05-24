@@ -582,6 +582,8 @@ impl MessageHandler for ConnectionMessageHandler {
             ));
         }
 
+        self.process_sequence_incoming(&msg).await?;
+
         // Expected status matching. Error if no match.
         if !options
             .status
@@ -596,8 +598,6 @@ impl MessageHandler for ConnectionMessageHandler {
             }
             return Err(Error::UnexpectedMessageStatus(msg.message.header.status));
         }
-
-        self.process_sequence_incoming(&msg).await?;
 
         Ok(msg)
     }
