@@ -319,6 +319,28 @@ impl ResourceHandle {
             .try_into()?)
     }
 
+    #[maybe_async]
+    pub async fn query_stream_info(
+        &self,
+    ) -> crate::Result<QueryFileStreamInformation> {
+        Ok(self
+            .query_common(QueryInfoRequest {
+                info_type: InfoType::File,
+                info_class: QueryInfoClass::File(QueryFileInfoClass::StreamInformation),
+                output_buffer_length: 1024,
+                additional_info: AdditionalInfo::new(),
+                flags: QueryInfoFlags::new()
+                    .with_restart_scan(true)
+                    .with_return_single_entry(true),
+                file_id: self.file_id,
+                data: GetInfoRequestData::None(()),
+            })
+            .await?
+            .as_file()?
+            .parse(QueryFileInfoClass::StreamInformation)?
+            .try_into()?)
+    }
+
     /// Queries the file for it's security descriptor.
     /// # Arguments
     /// * `additional_info` - The information to request on the security descriptor.

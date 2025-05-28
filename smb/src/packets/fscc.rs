@@ -13,7 +13,7 @@ pub mod filesystem_info;
 pub mod query_file_info;
 pub mod set_file_info;
 
-pub use chained_item::ChainedItem;
+pub use chained_item::{ChainedItem, ChainedItemList};
 pub use common_info::*;
 pub use directory_info::*;
 pub use filesystem_info::*;
