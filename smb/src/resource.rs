@@ -319,6 +319,10 @@ impl ResourceHandle {
             .try_into()?)
     }
 
+    /// Queries the file for alternate data streams information.
+    /// # Returns
+    /// A `Result` containing the requested information, of type [QueryFileStreamInformation].
+    /// See [File::query_info] for more information.
     #[maybe_async]
     pub async fn query_stream_info(
         &self,
