@@ -123,7 +123,7 @@ where
 }
 
 #[binrw::binrw]
-#[derive(Default, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ChainedItemList<T, const OFFSET_PAD: u32 = 4>
 where
     T: BinRead + BinWrite,
@@ -133,6 +133,19 @@ where
     #[br(parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = ChainedItem::<T, OFFSET_PAD>::write_chained)]
     values: Vec<ChainedItem<T, OFFSET_PAD>>
+}
+
+impl<T, const OFFSET_PAD: u32> Default for ChainedItemList<T, OFFSET_PAD>
+where
+    T: BinRead + BinWrite,
+    for<'a> <T as BinRead>::Args<'a>: Default,
+    for<'b> <T as BinWrite>::Args<'b>: Default,
+{
+    fn default() -> Self {
+        Self {
+            values: Vec::new(),
+        }
+    }
 }
 
 impl<T, const OFFSET_PAD: u32> Deref for ChainedItemList<T, OFFSET_PAD>
