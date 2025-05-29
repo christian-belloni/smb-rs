@@ -123,7 +123,7 @@ where
 }
 
 #[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Default, Debug, PartialEq, Eq)]
 pub struct ChainedItemList<T, const OFFSET_PAD: u32 = 4>
 where
     T: BinRead + BinWrite,
