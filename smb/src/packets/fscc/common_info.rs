@@ -3,7 +3,7 @@ use modular_bitfield::prelude::*;
 
 use crate::packets::binrw_util::prelude::{FileTime, SizedWideString};
 
-use super::{ChainedItem, ChainedItemList, FileAttributes};
+use super::{ChainedItem, FileAttributes};
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
@@ -36,19 +36,7 @@ pub struct FileFullEaInformationInner {
     pub ea_value: Option<Vec<u8>>,
 }
 
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-pub struct FileStreamInformationInner {
-    #[bw(try_calc = stream_name.size().try_into())]
-    stream_name_length: u32,
-    pub stream_size: u64,
-    pub stream_allocation_size: u64,
-    #[br(args(stream_name_length as u64))]
-    pub stream_name: SizedWideString,
-}
-
 pub type FileFullEaInformationCommon = ChainedItem<FileFullEaInformationInner>;
-pub type FileStreamInformationCommon = ChainedItemList<FileStreamInformationInner>;
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]

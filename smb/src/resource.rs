@@ -4,11 +4,11 @@ use maybe_async::*;
 use time::PrimitiveDateTime;
 
 use crate::{
+    Error,
     connection::connection_info::ConnectionInfo,
     msg_handler::{HandlerReference, MessageHandler, OutgoingMessage},
     packets::{fscc::*, security::SecurityDescriptor, smb2::*},
     tree::TreeMessageHandler,
-    Error,
 };
 
 pub mod directory;
@@ -267,22 +267,11 @@ impl ResourceHandle {
     where
         T: QueryFileInfoValue,
     {
-        Ok(self
-            .query_common(QueryInfoRequest {
-                info_type: InfoType::File,
-                info_class: QueryInfoClass::File(T::CLASS_ID),
-                output_buffer_length: 1024,
-                additional_info: AdditionalInfo::new(),
-                flags: QueryInfoFlags::new()
-                    .with_restart_scan(true)
-                    .with_return_single_entry(true),
-                file_id: self.file_id,
-                data: GetInfoRequestData::None(()),
-            })
-            .await?
-            .as_file()?
-            .parse(T::CLASS_ID)?
-            .try_into()?)
+        let flags = QueryInfoFlags::new()
+            .with_restart_scan(true)
+            .with_return_single_entry(true);
+
+        Ok(self.query_info_with_options::<T>(flags, 1024).await?)
     }
 
     /// Queries the file for extended attributes information.
@@ -319,29 +308,35 @@ impl ResourceHandle {
             .try_into()?)
     }
 
-    /// Queries the file for alternate data streams information.
+    /// Queries the file for information with additional arguments.
+    /// # Type Parameters
+    /// * `T` - The type of information to query. Must implement the [QueryFileInfoValue] trait.
+    /// # Arguments
+    /// * `flags` - The [QueryInfoFlags] for the query request.
+    /// * `output_buffer_length` - The maximum output buffer to use.
     /// # Returns
-    /// A `Result` containing the requested information, of type [QueryFileStreamInformation].
-    /// See [File::query_info] for more information.
+    /// A `Result` containing the requested information.
+    /// # Notes
+    /// * use [File::query_full_ea_info] to query extended attributes information.
     #[maybe_async]
-    pub async fn query_stream_info(
+    pub async fn query_info_with_options<T: QueryFileInfoValue>(
         &self,
-    ) -> crate::Result<QueryFileStreamInformation> {
+        flags: QueryInfoFlags,
+        output_buffer_length: usize,
+    ) -> crate::Result<T> {
         Ok(self
             .query_common(QueryInfoRequest {
                 info_type: InfoType::File,
-                info_class: QueryInfoClass::File(QueryFileInfoClass::StreamInformation),
-                output_buffer_length: 1024,
+                info_class: QueryInfoClass::File(T::CLASS_ID),
+                output_buffer_length: output_buffer_length as u32,
                 additional_info: AdditionalInfo::new(),
-                flags: QueryInfoFlags::new()
-                    .with_restart_scan(true)
-                    .with_return_single_entry(true),
+                flags,
                 file_id: self.file_id,
                 data: GetInfoRequestData::None(()),
             })
             .await?
             .as_file()?
-            .parse(QueryFileInfoClass::StreamInformation)?
+            .parse(T::CLASS_ID)?
             .try_into()?)
     }
 

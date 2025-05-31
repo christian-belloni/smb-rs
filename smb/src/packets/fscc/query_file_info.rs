@@ -1,16 +1,19 @@
 use std::ops::Deref;
 
-use binrw::{io::TakeSeekExt, prelude::*, NullString};
+use binrw::{NullString, io::TakeSeekExt, prelude::*};
 
 use crate::{
     file_info_classes,
-    packets::binrw_util::{helpers::Boolean, prelude::FileTime},
+    packets::binrw_util::{
+        helpers::Boolean,
+        prelude::{FileTime, SizedWideString},
+    },
 };
 
 use super::{
-    ChainedItem, FileAccessMask, FileAttributes, FileBasicInformation, FileFullEaInformationCommon,
-    FileModeInformation, FileNameInformation, FilePipeInformation, FilePositionInformation,
-    FileStreamInformationCommon,
+    ChainedItem, ChainedItemList, FileAccessMask, FileAttributes, FileBasicInformation,
+    FileFullEaInformationCommon, FileModeInformation, FileNameInformation, FilePipeInformation,
+    FilePositionInformation,
 };
 
 file_info_classes! {
@@ -46,8 +49,7 @@ type FileFullEaInformation = FileFullEaInformationCommon;
 /// structure to be used when querying for extended attributes. You may use [super::SetFileFullEaInformation] for setting.
 pub type QueryFileFullEaInformation = FileFullEaInformation;
 
-type FileStreamInformation = FileStreamInformationCommon;
-pub type QueryFileStreamInformation = FileStreamInformation;
+pub type FileStreamInformation = ChainedItemList<FileStreamInformationInner>;
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
@@ -241,6 +243,17 @@ pub struct FileStandardInformation {
     #[bw(calc = 0)]
     #[br(assert(reserved == 0))]
     reserved: u16,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileStreamInformationInner {
+    #[bw(try_calc = stream_name.size().try_into())]
+    stream_name_length: u32,
+    pub stream_size: u64,
+    pub stream_allocation_size: u64,
+    #[br(args(stream_name_length as u64))]
+    pub stream_name: SizedWideString,
 }
 
 #[binrw::binrw]

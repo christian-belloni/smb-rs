@@ -9,10 +9,12 @@ use std::ops::Deref;
 use crate::packets::binrw_util::prelude::*;
 use binrw::prelude::*;
 
+const DEFAULT_OFFSET_PAD: u32 = 4;
+
 #[binrw::binrw]
 #[derive(Debug)]
 #[bw(import(last: bool))]
-pub struct ChainedItem<T, const OFFSET_PAD: u32 = 4>
+pub struct ChainedItem<T, const OFFSET_PAD: u32 = DEFAULT_OFFSET_PAD>
 where
     T: BinRead + BinWrite,
     for<'a> <T as BinRead>::Args<'a>: Default,
@@ -124,7 +126,7 @@ where
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct ChainedItemList<T, const OFFSET_PAD: u32 = 4>
+pub struct ChainedItemList<T, const OFFSET_PAD: u32 = DEFAULT_OFFSET_PAD>
 where
     T: BinRead + BinWrite,
     for<'a> <T as BinRead>::Args<'a>: Default,
