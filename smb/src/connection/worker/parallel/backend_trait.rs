@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::msg_handler::IncomingMessage;
 
-use super::base::MultiWorkerBase;
+use super::base::ParallelWorker;
 
 #[maybe_async(AFIT)]
 #[allow(async_fn_in_trait)] // for maybe_async.
@@ -15,7 +15,7 @@ pub trait MultiWorkerBackend {
 
     async fn start(
         transport: Box<dyn SmbTransport>,
-        worker: Arc<MultiWorkerBase<Self>>,
+        worker: Arc<ParallelWorker<Self>>,
         send_channel_recv: mpsc::Receiver<Self::SendMessage>,
     ) -> crate::Result<Arc<Self>>
     where

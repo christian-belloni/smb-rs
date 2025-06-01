@@ -1,15 +1,12 @@
-#[cfg(not(feature = "single_threaded"))]
-pub mod multi_worker;
-#[cfg(feature = "single_threaded")]
-pub mod single_worker;
 pub mod worker_trait;
-#[cfg(not(feature = "single_threaded"))]
-pub use multi_worker::*;
-#[cfg(feature = "single_threaded")]
-pub use single_worker::*;
 pub use worker_trait::*;
 
 #[cfg(feature = "single_threaded")]
-pub type WorkerImpl = SingleWorker;
+pub mod single_worker;
+#[cfg(feature = "single_threaded")]
+pub use single_worker::SingleWorker as WorkerImpl;
+
 #[cfg(not(feature = "single_threaded"))]
-pub type WorkerImpl = AsyncWorker;
+mod parallel;
+#[cfg(not(feature = "single_threaded"))]
+pub use parallel::ParallelWorker as WorkerImpl;

@@ -21,8 +21,8 @@ use super::backend_trait::MultiWorkerBackend;
 /// This struct is responsible for handling the transport to the server,
 /// sending messages from SMB2 messages, and redirecting correct messages when received,
 /// if using async, to the correct pending task.
-/// One-per transport connection, hence takes ownership of the [SmbTransport] on [MultiWorkerBase::start].
-pub struct MultiWorkerBase<BackendImplT>
+/// One-per transport connection, hence takes ownership of the [SmbTransport] on [ParallelWorker::start].
+pub struct ParallelWorker<BackendImplT>
 where
     BackendImplT: MultiWorkerBackend + std::fmt::Debug,
     BackendImplT::AwaitingNotifier: std::fmt::Debug,
@@ -79,7 +79,7 @@ where
     }
 }
 
-impl<T> MultiWorkerBase<T>
+impl<T> ParallelWorker<T>
 where
     T: MultiWorkerBackend + std::fmt::Debug,
     T::AwaitingNotifier: std::fmt::Debug,
@@ -202,7 +202,7 @@ where
     }
 }
 
-impl<T> Worker for MultiWorkerBase<T>
+impl<T> Worker for ParallelWorker<T>
 where
     T: MultiWorkerBackend + std::fmt::Debug,
     T::AwaitingNotifier: std::fmt::Debug,
@@ -214,7 +214,7 @@ where
     ) -> crate::Result<Arc<Self>> {
         // Build the worker
         let (tx, rx) = T::make_send_channel_pair();
-        let worker = Arc::new(MultiWorkerBase::<T> {
+        let worker = Arc::new(ParallelWorker::<T> {
             state: Mutex::new(WorkerAwaitState::new()),
             backend_impl: Default::default(),
             transformer: Transformer::default(),
@@ -322,13 +322,13 @@ where
     }
 }
 
-impl<T> std::fmt::Debug for MultiWorkerBase<T>
+impl<T> std::fmt::Debug for ParallelWorker<T>
 where
     T: MultiWorkerBackend + std::fmt::Debug,
     T::AwaitingNotifier: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MultiWorkerBase")
+        f.debug_struct("ParallelWorker")
             .field("state", &self.state)
             .field("backend", &self.backend_impl)
             .field("transformer", &self.transformer)

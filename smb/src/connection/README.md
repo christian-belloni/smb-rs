@@ -7,8 +7,8 @@ First, let's define some terms:
 ## Design overview
 1. The most basic unit is the `Worker` trait, which defines the basic operations of a worker, such as `start`, `stop`, `send`, `receive`.
 2. The `SingleWorker` is a simple implementation of `Worker` trait, which is single-threaded.
-3. The `MultiWorkerBase` is a more complex implementation of `Worker` trait, which is multi-threaded.
-   1. The `MultiWorkerBase` uses a `MultiWorkerBackend` trait to define the backend operations.
+3. The `ParallelWorker` is a more complex implementation of `Worker` trait, which is multi-threaded.
+   1. The `ParallelWorker` uses a `MultiWorkerBackend` trait to define the backend operations.
    2. Since much of the common logic is shared between different backends (for example, waiting for a message to be received), the `MultiWorkerBackend` trait is used to define the common operations.
    3. The `ThreadingBackend` and `AsyncBackend` are two implementations of `MultiWorkerBackend` trait, which are multi-threaded and async respectively.
 4. The `ConnectionMessageHandler` is the high-level logic that uses the `Worker` trait to send and receive messages.
@@ -27,8 +27,8 @@ class Worker
     Worker : receive()
 class SingleWorker
     Worker <|-- SingleWorker
-class MultiWorkerBase~B: MultiWorkerBackend~
-    Worker <|-- MultiWorkerBase
+class ParallelWorker~B: MultiWorkerBackend~
+    Worker <|-- ParallelWorker
 
 class MultiWorkerBackend
     <<trait>> MultiWorkerBackend
@@ -36,7 +36,7 @@ class MultiWorkerBackend
     MultiWorkerBackend : stop()
     MultiWorkerBackend : do_send()
     MultiWorkerBackend : do_receive()
-    MultiWorkerBackend *-- MultiWorkerBase
+    MultiWorkerBackend *-- ParallelWorker
 class ThreadingBackend
     MultiWorkerBackend <|-- ThreadingBackend
     ThreadingBackend : loop_send()

@@ -8,11 +8,11 @@ use std::time::Duration;
 
 use crate::{msg_handler::IncomingMessage, Error};
 
-use super::{backend_trait::MultiWorkerBackend, base::MultiWorkerBase};
+use super::{backend_trait::MultiWorkerBackend, base::ParallelWorker};
 
 #[derive(Debug)]
 pub struct ThreadingBackend {
-    worker: Arc<MultiWorkerBase<Self>>,
+    worker: Arc<ParallelWorker<Self>>,
 
     /// The loops' handles for the worker.
     loop_handles: Mutex<Option<(JoinHandle<()>, JoinHandle<()>)>>,
@@ -98,7 +98,7 @@ impl MultiWorkerBackend for ThreadingBackend {
 
     fn start(
         transport: Box<dyn SmbTransport>,
-        worker: Arc<MultiWorkerBase<Self>>,
+        worker: Arc<ParallelWorker<Self>>,
         send_channel_recv: mpsc::Receiver<Self::SendMessage>,
     ) -> crate::Result<Arc<Self>>
     where

@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::{select, sync::oneshot};
 
 use super::backend_trait::MultiWorkerBackend;
-use super::base::MultiWorkerBase;
+use super::base::ParallelWorker;
 
 #[derive(Debug, Default)]
 pub struct AsyncBackend {
@@ -26,7 +26,7 @@ impl AsyncBackend {
     async fn loop_receive(
         self: Arc<Self>,
         mut rtransport: Box<dyn SmbTransportRead>,
-        worker: Arc<MultiWorkerBase<Self>>,
+        worker: Arc<ParallelWorker<Self>>,
     ) {
         log::debug!("Starting worker loop.");
         let self_ref = self.as_ref();
@@ -63,7 +63,7 @@ impl AsyncBackend {
         self: Arc<Self>,
         mut wtransport: Box<dyn SmbTransportWrite>,
         mut send_channel: mpsc::Receiver<Vec<u8>>,
-        worker: Arc<MultiWorkerBase<Self>>,
+        worker: Arc<ParallelWorker<Self>>,
     ) {
         log::debug!("Starting worker loop.");
         let self_ref = self.as_ref();
@@ -95,7 +95,7 @@ impl AsyncBackend {
     async fn handle_next_recv(
         &self,
         rtransport: &mut dyn SmbTransportRead,
-        worker: &Arc<MultiWorkerBase<Self>>,
+        worker: &Arc<ParallelWorker<Self>>,
     ) -> crate::Result<()> {
         select! {
             // Receive a message from the server.
@@ -115,7 +115,7 @@ impl AsyncBackend {
         &self,
         wtransport: &mut dyn SmbTransportWrite,
         send_channel: &mut mpsc::Receiver<Vec<u8>>,
-        worker: &Arc<MultiWorkerBase<Self>>,
+        worker: &Arc<ParallelWorker<Self>>,
     ) -> crate::Result<()> {
         select! {
             // Send a message to the server.
@@ -139,7 +139,7 @@ impl MultiWorkerBackend for AsyncBackend {
 
     async fn start(
         transport: Box<dyn SmbTransport>,
-        worker: Arc<MultiWorkerBase<Self>>,
+        worker: Arc<ParallelWorker<Self>>,
         send_channel_recv: mpsc::Receiver<Self::SendMessage>,
     ) -> crate::Result<Arc<Self>> {
         let backend: Arc<Self> = Default::default();
