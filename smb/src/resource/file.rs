@@ -1,3 +1,4 @@
+use super::file_util::*;
 use super::*;
 #[cfg(not(feature = "async"))]
 use std::io::prelude::*;
@@ -41,12 +42,6 @@ impl File {
             #[cfg(not(feature = "async"))]
             dirty: false,
         }
-    }
-
-    /// Returns the end of file position, as reported by the server.
-    /// This may change if the file is modified.
-    pub fn end_of_file(&self) -> u64 {
-        self.end_of_file
     }
 
     /// Returns the access mask of the file,
@@ -265,6 +260,38 @@ impl Write for File {
             return Ok(());
         }
         File::flush(self)
+    }
+}
+
+impl ReadAt for File {
+    #[maybe_async]
+    async fn read_at(&self, buf: &mut [u8], offset: u64) -> crate::Result<usize> {
+        self.read_block(buf, offset, false)
+            .await
+            .map_err(|e| crate::Error::IoError(e))
+    }
+}
+
+impl WriteAt for File {
+    #[maybe_async]
+    async fn write_at(&self, buf: &[u8], offset: u64) -> crate::Result<usize> {
+        self.write_block(buf, offset)
+            .await
+            .map_err(|e| crate::Error::IoError(e))
+    }
+}
+
+impl GetLen for File {
+    #[maybe_async]
+    async fn get_len(&self) -> crate::Result<u64> {
+        Ok(self.end_of_file)
+    }
+}
+
+impl SetLen for File {
+    #[maybe_async]
+    async fn set_len(&self, len: u64) -> crate::Result<()> {
+        Ok(())
     }
 }
 
