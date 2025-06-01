@@ -13,9 +13,11 @@ use crate::{
 
 pub mod directory;
 pub mod file;
+pub mod file_util;
 
 pub use directory::*;
 pub use file::*;
+pub use file_util::*;
 
 type Upstream = HandlerReference<TreeMessageHandler>;
 
@@ -98,13 +100,13 @@ impl Resource {
 
         let response = upstream.sendo_recv(msg).await?;
 
-        let content = response.message.content.to_create()?;
-        log::info!("Created file '{}', ({:?})", name, content.file_id);
+        let response = response.message.content.to_create()?;
+        log::info!("Created file '{}', ({:?})", name, response.file_id);
 
-        let is_dir = content.file_attributes.directory();
+        let is_dir = response.file_attributes.directory();
 
         // Get maximal access
-        let access = match CreateContextRespData::first_mxac(&content.create_contexts) {
+        let access = match CreateContextRespData::first_mxac(&response.create_contexts) {
             Some(response) => response.maximal_access,
             _ => return Err(Error::InvalidMessage("No maximal access context".into())),
         };
@@ -113,9 +115,9 @@ impl Resource {
         let handle = ResourceHandle {
             name: name.to_string(),
             handler: ResourceMessageHandle::new(upstream),
-            file_id: content.file_id,
-            created: content.creation_time.date_time(),
-            modified: content.last_write_time.date_time(),
+            file_id: response.file_id,
+            created: response.creation_time.date_time(),
+            modified: response.last_write_time.date_time(),
             share_type: share_type,
             conn_info: conn_info.clone(),
         };
@@ -128,7 +130,7 @@ impl Resource {
             Ok(Resource::File(File::new(
                 handle,
                 access,
-                content.endof_file,
+                response.endof_file,
             )))
         }
     }

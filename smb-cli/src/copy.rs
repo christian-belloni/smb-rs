@@ -1,160 +1,118 @@
 use crate::{path::*, Cli};
 use clap::Parser;
 use maybe_async::*;
-#[cfg(not(feature = "single_threaded"))]
 use smb::sync_helpers::*;
-use smb::{packets::fscc::FileAccessMask, resource::*, Client};
+use smb::{
+    packets::{
+        fscc::{FileAccessMask, FileAttributes},
+        smb2::CreateOptions,
+    },
+    resource::*,
+    Client,
+};
 use std::error::Error;
 #[cfg(not(feature = "async"))]
 use std::fs;
 #[cfg(feature = "multi_threaded")]
 use std::io::Write;
-#[cfg(not(feature = "single_threaded"))]
-use std::sync::Arc;
 
 #[cfg(feature = "async")]
-use tokio::{fs, io::AsyncWriteExt};
+use tokio::fs;
 
 #[derive(Parser, Debug)]
 pub struct CopyCmd {
+    /// Force copy, overwriting existing file(s).
+    #[arg(short, long)]
+    pub force: bool,
+
     /// Source path
     pub from: Path,
     /// Destination path
     pub to: Path,
 }
 
-#[cfg(feature = "single_threaded")]
-fn do_copy(from: File, mut to: fs::File) -> Result<(), smb::Error> {
-    use std::io::{copy, BufReader};
-
-    let mut buffered_reader = BufReader::with_capacity(32768, from);
-    copy(&mut buffered_reader, &mut to)?;
-
-    Ok(())
+enum CopyFile {
+    Local(Mutex<fs::File>),
+    Remote(File),
 }
 
-#[cfg(not(feature = "single_threaded"))]
-const WORKERS: usize = 16;
-#[cfg(not(feature = "single_threaded"))]
-const CHUNK_SIZE: usize = 2usize.pow(16);
-
-#[cfg(not(feature = "single_threaded"))]
-#[maybe_async]
-async fn do_copy_task(
-    from: Arc<File>,
-    to: Arc<Mutex<fs::File>>,
-    curr_chunk: Arc<Mutex<usize>>,
-) -> Result<(), smb::Error> {
-    let file_size = from.end_of_file() as usize;
-    let last_chunk = file_size / CHUNK_SIZE;
-    let mut chunk = vec![0u8; CHUNK_SIZE as usize];
-    loop {
-        // 1. Get next chunk index & size
-        let (idx, size) = {
-            let mut curr_chunk = curr_chunk.lock().await?;
-            let chunk_index = *curr_chunk;
-            *curr_chunk += 1;
-
-            if chunk_index > last_chunk {
-                break;
+impl CopyFile {
+    #[maybe_async]
+    async fn open(
+        path: &Path,
+        client: &mut Client,
+        cli: &Cli,
+        cmd: &CopyCmd,
+        read: bool,
+    ) -> Result<Self, smb::Error> {
+        match path {
+            Path::Local(path_buf) => {
+                let file = fs::OpenOptions::new()
+                    .read(read)
+                    .write(!read)
+                    .create(!read)
+                    .create_new(!read && !cmd.force)
+                    .truncate(!read)
+                    .open(path_buf)
+                    .await?;
+                Ok(CopyFile::Local(Mutex::new(file)))
             }
-            if chunk_index == last_chunk {
-                let last_chunk_size = file_size % CHUNK_SIZE;
-                (chunk_index, last_chunk_size)
-            } else {
-                (chunk_index, CHUNK_SIZE)
+            Path::Remote(unc_path) => {
+                client
+                    .share_connect(unc_path, cli.username.as_str(), cli.password.clone())
+                    .await?;
+                let create_args = if read {
+                    FileCreateArgs::make_open_existing(
+                        FileAccessMask::new().with_generic_read(true),
+                    )
+                } else {
+                    FileCreateArgs::make_create_new(
+                        FileAttributes::new().with_archive(true),
+                        CreateOptions::new(),
+                    )
+                };
+                let file = client
+                    .create_file(unc_path, &create_args)
+                    .await?
+                    .unwrap_file();
+                Ok(CopyFile::Remote(file))
             }
-        };
-        // 2. Read chunk from remote
-        from.read_block(&mut chunk[..size], (idx * CHUNK_SIZE) as u64, false)
-            .await?;
-        // 3. Write chunk to destination
-        {
-            to.lock().await?.write_all(&chunk[..size]).await?;
         }
     }
-    Ok(())
-}
 
-#[cfg(any(feature = "async"))]
-async fn do_copy(from: File, to: fs::File) -> Result<(), smb::Error> {
-    use tokio::task::JoinSet;
-
-    // Create a queue of chunks to be written
-    let curr_chunk = Arc::new(Mutex::new(0));
-    let from = Arc::new(from);
-    let to = Arc::new(Mutex::new(to));
-
-    let mut handles = JoinSet::new();
-    for _ in 0..WORKERS {
-        let curr_chunk = curr_chunk.clone();
-        let from = from.clone();
-        let to = to.clone();
-        handles.spawn(async move {
-            do_copy_task(from.clone(), to, curr_chunk).await.unwrap();
-        });
+    #[maybe_async]
+    async fn copy_to(self, to: CopyFile) -> Result<(), smb::Error> {
+        match self {
+            CopyFile::Local(from_local) => match to {
+                CopyFile::Local(_) => unreachable!(),
+                CopyFile::Remote(to_remote) => {
+                    file_util::block_copy(from_local, to_remote, 16).await?
+                }
+            },
+            CopyFile::Remote(from_remote) => match to {
+                CopyFile::Local(to_local) => {
+                    file_util::block_copy(from_remote, to_local, 16).await?
+                }
+                CopyFile::Remote(to_remote) => {
+                    // TODO: If same connection, use fsctls to copy file in-server.
+                    file_util::block_copy(from_remote, to_remote, 8).await?
+                }
+            },
+        }
+        Ok(())
     }
-
-    handles.join_all().await;
-
-    Ok(())
-}
-
-#[cfg(feature = "multi_threaded")]
-fn do_copy(from: File, to: fs::File) -> Result<(), smb::Error> {
-    // Create a queue of chunks to be written
-    let curr_chunk = Arc::new(Mutex::new(0));
-    let from = Arc::new(from);
-    let to = Arc::new(Mutex::new(to));
-
-    let mut handles = Vec::new();
-    for _ in 0..WORKERS {
-        let curr_chunk = curr_chunk.clone();
-        let from = from.clone();
-        let to = to.clone();
-        let handle = std::thread::spawn(move || do_copy_task(from.clone(), to, curr_chunk));
-        handles.push(handle);
-    }
-
-    for handle in handles {
-        handle.join().unwrap()?;
-    }
-
-    Ok(())
 }
 
 #[maybe_async]
 pub async fn copy(cmd: &CopyCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
+    if matches!(cmd.from, Path::Local(_)) && matches!(cmd.to, Path::Local(_)) {
+        return Err("Copying between two local files is not supported".into());
+    }
+
     let mut client = Client::new(cli.make_smb_client_config());
-
-    let from: File = match &cmd.from {
-        Path::Local(_) => panic!("Local to local copy not supported"),
-        Path::Remote(unc_path) => {
-            client
-                .share_connect(unc_path, cli.username.as_str(), cli.password.clone())
-                .await?;
-            client
-                .create_file(
-                    unc_path,
-                    &FileCreateArgs::make_open_existing(
-                        FileAccessMask::new().with_generic_read(true),
-                    ),
-                )
-                .await?
-                .try_into()?
-        }
-    };
-
-    let to: fs::File = match &cmd.to {
-        Path::Local(path_buf) => fs::File::create(path_buf).await?,
-        Path::Remote(_) => panic!("Remote to remote copy not supported"),
-    };
-
-    log::info!("Starting copy");
-    do_copy(from, to).await?;
-    log::info!("Copy completed");
-
-    client.close().await?;
+    let from = CopyFile::open(&cmd.from, &mut client, cli, cmd, true).await?;
+    let to = CopyFile::open(&cmd.to, &mut client, cli, cmd, false).await?;
+    from.copy_to(to).await?;
 
     Ok(())
 }

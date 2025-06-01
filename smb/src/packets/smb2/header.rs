@@ -154,6 +154,7 @@ make_status! {
     PathNotCovered = 0xC0000257: "Path Not Covered",
     NetworkSessionExpired = 0xC000035C: "Network Session Expired",
     SmbTooManyUids = 0xC000205A: "SMB Too Many UIDs",
+    DeviceFeatureNotSupported = 0xC0000463: "Device Feature Not Supported",
 }
 
 /// Sync and Async SMB2 Message header.
