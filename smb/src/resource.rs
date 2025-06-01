@@ -13,9 +13,11 @@ use crate::{
 
 pub mod directory;
 pub mod file;
+pub mod file_util;
 
 pub use directory::*;
 pub use file::*;
+pub use file_util::*;
 
 type Upstream = HandlerReference<TreeMessageHandler>;
 
