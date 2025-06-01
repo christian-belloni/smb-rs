@@ -1,9 +1,4 @@
-use std::{
-    cmp::max,
-    sync::{atomic::AtomicU64, Arc},
-};
-
-use crate::{sync_helpers::*, Error};
+use crate::sync_helpers::*;
 use maybe_async::*;
 
 pub trait ReadAt {
@@ -44,6 +39,7 @@ pub trait SetLen {
 
 mod impls {
     use super::*;
+
     #[cfg(not(feature = "async"))]
     use std::{
         fs::File,
@@ -122,20 +118,22 @@ mod impls {
 
 pub use impls::*;
 
-#[derive(Debug)]
-struct CopyState {
-    current_block: AtomicU64,
-
-    last_block: u64,
-    total_size: u64,
-
-    max_chunk_size: u64,
-    num_jobs: usize,
-}
-
 #[cfg(not(feature = "single_threaded"))]
 mod copy {
     use super::*;
+
+    use std::sync::{atomic::AtomicU64, Arc};
+
+    #[derive(Debug)]
+    struct CopyState {
+        current_block: AtomicU64,
+
+        last_block: u64,
+        total_size: u64,
+
+        max_chunk_size: u64,
+        num_jobs: usize,
+    }
 
     /// Generic block copy function.
     #[maybe_async]
@@ -149,12 +147,18 @@ mod copy {
     ) -> crate::Result<()> {
         const MAX_JOBS: usize = 128;
         if jobs > MAX_JOBS {
-            return Err(Error::InvalidArgument(format!(
+            return Err(crate::Error::InvalidArgument(format!(
                 "Number of jobs exceeds maximum allowed ({MAX_JOBS})"
             )));
         }
 
-        let jobs = max(jobs, 1);
+        const DEFAULT_JOBS: usize = 16;
+        let jobs = if jobs == 0 {
+            log::debug!("No jobs specified, using default: {}", DEFAULT_JOBS);
+            DEFAULT_JOBS
+        } else {
+            jobs
+        };
 
         const CHUNK_SIZE: u64 = 2u64.pow(16);
 

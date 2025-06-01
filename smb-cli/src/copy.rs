@@ -11,7 +11,6 @@ use smb::{
     Client,
 };
 use std::error::Error;
-use std::f32::consts::E;
 #[cfg(not(feature = "async"))]
 use std::fs;
 #[cfg(feature = "multi_threaded")]
@@ -85,7 +84,7 @@ impl CopyFile {
     async fn copy_to(self, to: CopyFile) -> Result<(), smb::Error> {
         match self {
             CopyFile::Local(from_local) => match to {
-                CopyFile::Local(to_local) => unreachable!(),
+                CopyFile::Local(_) => unreachable!(),
                 CopyFile::Remote(to_remote) => {
                     file_util::block_copy(from_local, to_remote, 16).await?
                 }
