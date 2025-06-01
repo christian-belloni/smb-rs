@@ -134,7 +134,7 @@ where
 {
     #[br(parse_with = binrw::helpers::until_eof)]
     #[bw(write_with = ChainedItem::<T, OFFSET_PAD>::write_chained)]
-    values: Vec<ChainedItem<T, OFFSET_PAD>>
+    values: Vec<ChainedItem<T, OFFSET_PAD>>,
 }
 
 impl<T, const OFFSET_PAD: u32> Default for ChainedItemList<T, OFFSET_PAD>
@@ -144,9 +144,7 @@ where
     for<'b> <T as BinWrite>::Args<'b>: Default,
 {
     fn default() -> Self {
-        Self {
-            values: Vec::new(),
-        }
+        Self { values: Vec::new() }
     }
 }
 
@@ -160,5 +158,17 @@ where
 
     fn deref(&self) -> &Self::Target {
         &self.values
+    }
+}
+
+impl<T, const OFFSET_PAD: u32> From<Vec<ChainedItem<T, OFFSET_PAD>>>
+    for ChainedItemList<T, OFFSET_PAD>
+where
+    T: BinRead + BinWrite,
+    for<'a> <T as BinRead>::Args<'a>: Default,
+    for<'b> <T as BinWrite>::Args<'b>: Default,
+{
+    fn from(value: Vec<ChainedItem<T, OFFSET_PAD>>) -> Self {
+        Self { values: value }
     }
 }

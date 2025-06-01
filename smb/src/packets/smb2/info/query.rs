@@ -360,18 +360,6 @@ mod tests {
 
     #[test]
     fn test_query_info_resp_parse_stream_info() {
-        let expected1 = FileStreamInformationInner {
-            stream_size: 0x93,
-            stream_allocation_size: 0x1000,
-            stream_name: SizedWideString::from(":Zone.Identifier:$DATA"),
-        };
-
-        let expected2 = FileStreamInformationInner {
-            stream_size: 0xd6d1,
-            stream_allocation_size: 0xd000,
-            stream_name: SizedWideString::from("::$DATA"),
-        };
-
         let raw_data: QueryInfoResponseData = [
             0x48, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x93, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x00, 0x5a, 0x00,
@@ -385,17 +373,30 @@ mod tests {
         .to_vec()
         .into();
 
-        let actual: FileStreamInformation = raw_data
-            .parse(InfoType::File)
-            .unwrap()
-            .unwrap_file()
-            .parse(QueryFileInfoClass::StreamInformation)
-            .unwrap()
-            .try_into()
-            .unwrap();
-
-        assert_eq!(actual.len(), 2);
-        assert_eq!(*actual[0], expected1);
-        assert_eq!(*actual[1], expected2);
+        assert_eq!(
+            raw_data
+                .parse(InfoType::File)
+                .unwrap()
+                .unwrap_file()
+                .parse(QueryFileInfoClass::StreamInformation)
+                .unwrap(),
+            QueryFileInfo::StreamInformation(
+                vec![
+                    FileStreamInformationInner {
+                        stream_size: 0x93,
+                        stream_allocation_size: 0x1000,
+                        stream_name: SizedWideString::from(":Zone.Identifier:$DATA"),
+                    }
+                    .into(),
+                    FileStreamInformationInner {
+                        stream_size: 0xd6d1,
+                        stream_allocation_size: 0xd000,
+                        stream_name: SizedWideString::from("::$DATA"),
+                    }
+                    .into(),
+                ]
+                .into()
+            )
+        )
     }
 }
