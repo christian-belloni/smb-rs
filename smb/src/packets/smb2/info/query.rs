@@ -1,6 +1,6 @@
 //! Get/Set Info Request/Response
 
-use crate::packets::security::{SecurityDescriptor, SID};
+use crate::packets::security::{SID, SecurityDescriptor};
 use crate::packets::smb2::FileId;
 use crate::query_info_data;
 use binrw::{io::TakeSeekExt, prelude::*};
@@ -256,10 +256,12 @@ mod tests {
             ]
             .into(),
             data: GetInfoRequestData::EaInfo(GetEaInfoList {
-                values: vec![FileGetEaInformationInner {
-                    ea_name: "$MpEa_D262AC624451295".into(),
-                }
-                .into()],
+                values: vec![
+                    FileGetEaInformationInner {
+                        ea_name: "$MpEa_D262AC624451295".into(),
+                    }
+                    .into(),
+                ],
             }),
             output_buffer_length: 554,
         };
@@ -353,6 +355,48 @@ mod tests {
                 change_time: datetime!(2025-01-20 15:36:20.277632400).into(),
                 file_attributes: FileAttributes::new().with_archive(true)
             })
+        )
+    }
+
+    #[test]
+    fn test_query_info_resp_parse_stream_info() {
+        let raw_data: QueryInfoResponseData = [
+            0x48, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x93, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x00, 0x5a, 0x00,
+            0x6f, 0x00, 0x6e, 0x00, 0x65, 0x00, 0x2e, 0x00, 0x49, 0x00, 0x64, 0x00, 0x65, 0x00,
+            0x6e, 0x00, 0x74, 0x00, 0x69, 0x00, 0x66, 0x00, 0x69, 0x00, 0x65, 0x00, 0x72, 0x00,
+            0x3a, 0x00, 0x24, 0x00, 0x44, 0x00, 0x41, 0x00, 0x54, 0x00, 0x41, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0xd1, 0xd6, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x00,
+            0x3a, 0x00, 0x24, 0x00, 0x44, 0x00, 0x41, 0x00, 0x54, 0x00, 0x41, 0x00,
+        ]
+        .to_vec()
+        .into();
+
+        assert_eq!(
+            raw_data
+                .parse(InfoType::File)
+                .unwrap()
+                .unwrap_file()
+                .parse(QueryFileInfoClass::StreamInformation)
+                .unwrap(),
+            QueryFileInfo::StreamInformation(
+                vec![
+                    FileStreamInformationInner {
+                        stream_size: 0x93,
+                        stream_allocation_size: 0x1000,
+                        stream_name: SizedWideString::from(":Zone.Identifier:$DATA"),
+                    }
+                    .into(),
+                    FileStreamInformationInner {
+                        stream_size: 0xd6d1,
+                        stream_allocation_size: 0xd000,
+                        stream_name: SizedWideString::from("::$DATA"),
+                    }
+                    .into(),
+                ]
+                .into()
+            )
         )
     }
 }
