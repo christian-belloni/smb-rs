@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use binrw::{NullString, io::TakeSeekExt, prelude::*};
+use binrw::{io::TakeSeekExt, prelude::*, NullString};
 
 use crate::{
     file_info_classes,

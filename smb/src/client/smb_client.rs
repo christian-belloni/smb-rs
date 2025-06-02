@@ -6,7 +6,8 @@ use crate::{
     packets::{
         dfsc::{ReferralEntry, ReferralEntryValue},
         smb2::Status,
-    }, Connection, Error, File, FileCreateArgs, Resource, Session, Tree
+    },
+    Connection, Error, File, FileCreateArgs, Resource, Session, Tree,
 };
 
 use super::{config::ClientConfig, unc_path::UncPath};
