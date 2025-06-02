@@ -220,18 +220,22 @@ mod tests {
 
     #[test]
     pub fn test_query_info_req_short_write() {
-        let data = encode_content(RequestContent::QueryInfo(QueryInfoRequest {
-            info_type: InfoType::File,
-            info_class: QueryInfoClass::File(QueryFileInfoClass::NetworkOpenInformation),
-            output_buffer_length: 56,
-            additional_info: AdditionalInfo::new(),
-            flags: QueryInfoFlags::new(),
-            file_id: [
-                0x77, 0x5, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0xc5, 0x0, 0x10, 0x0, 0xc, 0x0, 0x0, 0x0,
-            ]
+        let data = encode_content(
+            QueryInfoRequest {
+                info_type: InfoType::File,
+                info_class: QueryInfoClass::File(QueryFileInfoClass::NetworkOpenInformation),
+                output_buffer_length: 56,
+                additional_info: AdditionalInfo::new(),
+                flags: QueryInfoFlags::new(),
+                file_id: [
+                    0x77, 0x5, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0xc5, 0x0, 0x10, 0x0, 0xc, 0x0, 0x0,
+                    0x0,
+                ]
+                .into(),
+                data: GetInfoRequestData::None(()),
+            }
             .into(),
-            data: GetInfoRequestData::None(()),
-        }));
+        );
         assert_eq!(
             data,
             [
@@ -263,7 +267,7 @@ mod tests {
             }),
             output_buffer_length: 554,
         };
-        let content_data = encode_content(RequestContent::QueryInfo(req));
+        let content_data = encode_content(req.into());
         assert_eq!(
             content_data,
             [
@@ -278,21 +282,24 @@ mod tests {
 
     #[test]
     pub fn test_query_security_request() {
-        let res = encode_content(RequestContent::QueryInfo(QueryInfoRequest {
-            info_type: InfoType::Security,
-            info_class: Default::default(),
-            output_buffer_length: 0,
-            additional_info: AdditionalInfo::new()
-                .with_owner_security_information(true)
-                .with_group_security_information(true)
-                .with_dacl_security_information(true)
-                .with_sacl_security_information(true),
-            flags: QueryInfoFlags::new(),
-            file_id: Guid::from_str("0000002b-000d-0000-3100-00000d000000")
-                .unwrap()
-                .into(),
-            data: GetInfoRequestData::None(()),
-        }));
+        let res = encode_content(
+            QueryInfoRequest {
+                info_type: InfoType::Security,
+                info_class: Default::default(),
+                output_buffer_length: 0,
+                additional_info: AdditionalInfo::new()
+                    .with_owner_security_information(true)
+                    .with_group_security_information(true)
+                    .with_dacl_security_information(true)
+                    .with_sacl_security_information(true),
+                flags: QueryInfoFlags::new(),
+                file_id: Guid::from_str("0000002b-000d-0000-3100-00000d000000")
+                    .unwrap()
+                    .into(),
+                data: GetInfoRequestData::None(()),
+            }
+            .into(),
+        );
         assert_eq!(
             res,
             &[

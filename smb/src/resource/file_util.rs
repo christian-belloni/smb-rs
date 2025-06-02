@@ -295,14 +295,14 @@ mod copy {
 mod copy {
     use super::*;
 
-    #[maybe_async]
-    pub async fn block_copy<F: ReadAt + GetLen, T: WriteAt + SetLen>(
+    /// Generic block copy function.
+    pub fn block_copy<F: ReadAt + GetLen, T: WriteAt + SetLen>(
         from: F,
         to: T,
         _jobs: usize,
     ) -> crate::Result<()> {
-        let file_length = from.get_len().await?;
-        to.set_len(file_length).await?;
+        let file_length = from.get_len()?;
+        to.set_len(file_length)?;
 
         if file_length == 0 {
             log::debug!("Source file is empty, nothing to copy.");
@@ -318,7 +318,7 @@ mod copy {
             } else {
                 curr_chunk.len()
             };
-            let bytes_read = from.read_at(&mut curr_chunk[..chunk_size], offset).await?;
+            let bytes_read = from.read_at(&mut curr_chunk[..chunk_size], offset)?;
             if bytes_read < chunk_size {
                 log::warn!(
                     "Read less bytes than expected. File might be corrupt. Expected: {}, Read: {}",
@@ -326,7 +326,7 @@ mod copy {
                     bytes_read
                 );
             }
-            to.write_at(&curr_chunk[..bytes_read], offset).await?;
+            to.write_at(&curr_chunk[..bytes_read], offset)?;
             offset += bytes_read as u64;
         }
         Ok(())

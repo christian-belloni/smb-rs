@@ -66,10 +66,8 @@ impl Session {
                 ))
             }
         };
-        let request = OutgoingMessage::new(RequestContent::SessionSetup(SessionSetupRequest::new(
-            next_buf,
-            req_security_mode,
-        )));
+        let request =
+            OutgoingMessage::new(SessionSetupRequest::new(next_buf, req_security_mode).into());
 
         // response hash is processed later, in the loop.
         let init_response = upstream
@@ -154,9 +152,9 @@ impl Session {
                 AuthenticationStep::NextToken(next_buf) => {
                     // We'd like to update preauth hash with the last request before accept.
                     // therefore we update it here for the PREVIOUS repsponse, assuming that we get an empty request when done.
-                    let mut request = OutgoingMessage::new(RequestContent::SessionSetup(
-                        SessionSetupRequest::new(next_buf, req_security_mode),
-                    ));
+                    let mut request = OutgoingMessage::new(
+                        SessionSetupRequest::new(next_buf, req_security_mode).into(),
+                    );
                     request.finalize_preauth_hash = is_auth_done;
                     let result = handler.sendo(request).await?;
 
@@ -284,9 +282,7 @@ impl SessionMessageHandler {
 
         log::debug!("Logging off session.");
 
-        let _response = self
-            .send_recv(RequestContent::Logoff(Default::default()))
-            .await?;
+        let _response = self.send_recv(LogoffRequest {}.into()).await?;
 
         // This also invalidates the session object.
         self.upstream

@@ -126,6 +126,27 @@ impl ResponseContent {
     }
 }
 
+// Into<RequestContent> and Into<ResponseContent> implementations
+// for all the common requests/responses pairs.
+// the other type are a bit problematic, so they are currently
+// not implemented, but can be added later if needed.
+$(
+    impl From<$struct_pfx::[<$cmd Request>]>
+        for RequestContent
+    {
+        fn from(req: $struct_pfx::[<$cmd Request>]) -> Self {
+            RequestContent::$cmd(req)
+        }
+    }
+    impl From<$struct_pfx::[<$cmd Response>]>
+        for ResponseContent
+    {
+        fn from(resp: $struct_pfx::[<$cmd Response>]) -> Self {
+            ResponseContent::$cmd(resp)
+        }
+    }
+)+
+
 make_content_impl!{
     RequestContent,
     $(

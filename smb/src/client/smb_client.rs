@@ -4,10 +4,12 @@ use maybe_async::maybe_async;
 
 use crate::{
     packets::{
+        dcerpc::DceRpcSyntaxId,
         dfsc::{ReferralEntry, ReferralEntryValue},
         smb2::Status,
     },
-    Connection, Error, File, FileCreateArgs, Resource, Session, Tree,
+    resource::Pipe,
+    Connection, Error, FileCreateArgs, Resource, Session, Tree,
 };
 
 use super::{config::ClientConfig, unc_path::UncPath};
@@ -55,7 +57,8 @@ impl Client {
     #[maybe_async]
     pub async fn list_shares(&mut self, server: &str) -> crate::Result<Vec<String>> {
         let srvsvc_pipe_name: &str = "srvsvc";
-        let srvsvc = self.open_pipe(server, srvsvc_pipe_name).await?;
+        let srvsvc_pipe = self.open_pipe(server, srvsvc_pipe_name).await?;
+        let srvsvc_pipe = srvsvc_pipe.bind(DceRpcSyntaxId::ZERO);
 
         Ok(vec![])
     }
@@ -151,14 +154,14 @@ impl Client {
     }
 
     #[maybe_async]
-    pub async fn open_pipe(&mut self, server: &str, pipe_name: &str) -> crate::Result<File> {
+    pub async fn open_pipe(&mut self, server: &str, pipe_name: &str) -> crate::Result<Pipe> {
         let path = UncPath::ipc_share(server.to_string()).with_path(pipe_name.to_string());
         let pipe = self
             ._create_file_internal(&path, &FileCreateArgs::make_pipe())
             .await?;
         match pipe {
-            Resource::File(file) => {
-                log::info!("Successfully created pipe: {}", pipe_name);
+            Resource::Pipe(file) => {
+                log::info!("Successfully opened pipe: {}", pipe_name);
                 Ok(file)
             }
             _ => crate::Result::Err(Error::InvalidMessage(

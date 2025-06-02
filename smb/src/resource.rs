@@ -14,10 +14,12 @@ use crate::{
 pub mod directory;
 pub mod file;
 pub mod file_util;
+pub mod pipe;
 
 pub use directory::*;
 pub use file::*;
 pub use file_util::*;
+pub use pipe::*;
 
 type Upstream = HandlerReference<TreeMessageHandler>;
 
@@ -66,6 +68,7 @@ impl FileCreateArgs {
 pub enum Resource {
     File(File),
     Directory(Directory),
+    Pipe(Pipe),
 }
 
 impl Resource {
@@ -93,20 +96,23 @@ impl Resource {
             ));
         }
 
-        let mut msg = OutgoingMessage::new(RequestContent::Create(CreateRequest {
-            requested_oplock_level: OplockLevel::None,
-            impersonation_level: ImpersonationLevel::Impersonation,
-            desired_access: create_args.desired_access,
-            file_attributes: create_args.attributes,
-            share_access,
-            create_disposition: create_args.disposition,
-            create_options: create_args.options,
-            name: name.into(),
-            contexts: vec![
-                QueryMaximalAccessRequest::default().into(),
-                QueryOnDiskIdReq.into(),
-            ],
-        }));
+        let mut msg = OutgoingMessage::new(
+            CreateRequest {
+                requested_oplock_level: OplockLevel::None,
+                impersonation_level: ImpersonationLevel::Impersonation,
+                desired_access: create_args.desired_access,
+                file_attributes: create_args.attributes,
+                share_access,
+                create_disposition: create_args.disposition,
+                create_options: create_args.options,
+                name: name.into(),
+                contexts: vec![
+                    QueryMaximalAccessRequest::default().into(),
+                    QueryOnDiskIdReq.into(),
+                ],
+            }
+            .into(),
+        );
         // Make sure to set DFS if required.
         msg.message.header.flags.set_dfs_operation(is_dfs);
 
@@ -130,21 +136,23 @@ impl Resource {
             file_id: response.file_id,
             created: response.creation_time.date_time(),
             modified: response.last_write_time.date_time(),
+            access,
             share_type: share_type,
             conn_info: conn_info.clone(),
         };
 
         // Construct specific resource and return it.
 
-        if is_dir {
-            Ok(Resource::Directory(Directory::new(handle, access.into())))
+        let resource = if is_dir {
+            Resource::Directory(Directory::new(handle))
         } else {
-            Ok(Resource::File(File::new(
-                handle,
-                access,
-                response.endof_file,
-            )))
-        }
+            match share_type {
+                ShareType::Disk => Resource::File(File::new(handle, response.endof_file)),
+                ShareType::Pipe => Resource::Pipe(Pipe::new(handle)),
+                ShareType::Print => unimplemented!("Printer resources are not yet implemented"),
+            }
+        };
+        Ok(resource)
     }
 
     pub fn as_file(&self) -> Option<&File> {
@@ -216,6 +224,8 @@ pub struct ResourceHandle {
     modified: PrimitiveDateTime,
     share_type: ShareType,
 
+    access: FileAccessMask,
+
     conn_info: Arc<ConnectionInfo>,
 }
 
@@ -245,7 +255,7 @@ impl ResourceHandle {
     async fn query_common(&self, req: QueryInfoRequest) -> crate::Result<QueryInfoData> {
         let info_type = req.info_type;
         Ok(self
-            .send_receive(RequestContent::QueryInfo(req))
+            .send_receive(req.into())
             .await?
             .message
             .content
@@ -264,7 +274,7 @@ impl ResourceHandle {
         T: Into<SetInfoData>,
     {
         let data = data.into().to_req(cls, self.file_id, additional_info);
-        let response = self.send_receive(RequestContent::SetInfo(data)).await?;
+        let response = self.send_receive(data.into()).await?;
         response.message.content.to_setinfo()?;
         Ok(())
     }
@@ -477,9 +487,12 @@ impl ResourceHandle {
         log::debug!("Closing handle for {} ({:?})", self.name, self.file_id);
         let _response = self
             .handler
-            .send_recv(RequestContent::Close(CloseRequest {
-                file_id: self.file_id,
-            }))
+            .send_recv(
+                CloseRequest {
+                    file_id: self.file_id,
+                }
+                .into(),
+            )
             .await?;
 
         self.file_id = FileId::EMPTY;

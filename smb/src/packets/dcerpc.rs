@@ -20,6 +20,7 @@ macro_rules! rpc_pkts {
 // Entire Packet, for each direction (Request/Response).
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
+#[brw(little)]
 pub struct [<DceRpcCo $name Pkt>] {
     #[bw(calc = PosMarker::default())]
     _save_pdu_start: PosMarker<()>,
@@ -48,6 +49,8 @@ pub struct [<DceRpcCo $name Pkt>] {
 }
 
 impl [<DceRpcCo $name Pkt>] {
+    pub const COMMON_SIZE_BYTES: usize = 16;
+
     pub fn new(content: [<DcRpcCoPkt $name Content>], call_id: u32, flags: DceRpcCoPktFlags, packed_drep: u32) -> Self {
         Self {
             pfc_flags: flags,
@@ -72,6 +75,23 @@ impl [<DceRpcCo $name Pkt>] {
 
     pub fn packed_drep(&self) -> u32 {
         self.packed_drep
+    }
+}
+
+impl TryFrom<&[u8]> for [<DceRpcCo $name Pkt>] {
+    type Error = binrw::Error;
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        let mut cursor = std::io::Cursor::new(data);
+        Self::read_le(&mut cursor)
+    }
+}
+
+impl TryInto<Vec<u8>> for [<DceRpcCo $name Pkt>] {
+    type Error = binrw::Error;
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        self.write_le(&mut cursor)?;
+        Ok(cursor.into_inner())
     }
 }
 
@@ -217,7 +237,7 @@ pub struct DcRpcCoPktBindAck {
     #[bw(calc = port_spec.size() as u16)]
     port_spec_len: u16,
     #[br(args(port_spec_len as u64))]
-    port_spec: SizedAnsiString,
+    pub port_spec: SizedAnsiString,
 
     #[br(align_before = 4)]
     #[bw(calc = results.len() as u8)]
@@ -228,7 +248,7 @@ pub struct DcRpcCoPktBindAck {
     _reserved2: u16,
 
     #[br(count = num_results)]
-    results: Vec<DcRpcCoPktBindAckResult>,
+    pub results: Vec<DcRpcCoPktBindAckResult>,
 }
 
 #[binrw::binrw]
@@ -352,8 +372,8 @@ mod tests {
                 DcRpcCoPktBindAck {
                     max_xmit_frag: 4280,
                     max_recv_frag: 4280,
-                    assoc_group_id: 0,
-                    port_spec: "\\PIPE\\wkssvc".into(),
+                    assoc_group_id: 0x3b29,
+                    port_spec: "\\PIPE\\wkssvc\0".into(),
                     results: vec![
                         DcRpcCoPktBindAckResult {
                             result: DceRpcCoPktBindAckDefResult::ProviderRejection,
@@ -370,8 +390,8 @@ mod tests {
                             }
                         },
                         DcRpcCoPktBindAckResult {
-                            result: DceRpcCoPktBindAckDefResult::Acceptance,
-                            reason: DcRpcCoPktBindAckReason::NotSpecified,
+                            result: DceRpcCoPktBindAckDefResult::NegotiateAck,
+                            reason: DcRpcCoPktBindAckReason::LocalLimitExceeded,
                             syntax: DceRpcSyntaxId::ZERO
                         }
                     ]

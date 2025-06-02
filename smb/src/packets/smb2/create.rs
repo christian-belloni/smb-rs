@@ -730,7 +730,7 @@ mod tests {
                 QueryOnDiskIdReq.into(),
             ],
         };
-        let data_without_header = encode_content(RequestContent::Create(request));
+        let data_without_header = encode_content(request.into());
         assert_eq!(
             data_without_header,
             vec![

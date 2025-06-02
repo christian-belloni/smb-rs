@@ -55,6 +55,9 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
             })
             .await?;
         }
+        Resource::Pipe(_) => {
+            log::info!("Pipe (no information)");
+        }
     };
 
     client.close().await?;
