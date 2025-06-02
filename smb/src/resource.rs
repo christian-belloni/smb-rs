@@ -4,11 +4,11 @@ use maybe_async::*;
 use time::PrimitiveDateTime;
 
 use crate::{
-    Error,
     connection::connection_info::ConnectionInfo,
     msg_handler::{HandlerReference, MessageHandler, OutgoingMessage},
     packets::{fscc::*, security::SecurityDescriptor, smb2::*},
     tree::TreeMessageHandler,
+    Error,
 };
 
 pub mod directory;
@@ -46,6 +46,18 @@ impl FileCreateArgs {
             attributes: attributes,
             options: options,
             desired_access: FileAccessMask::new().with_generic_all(true),
+        }
+    }
+
+    /// Returns arguments for opening a duplex pipe (rw).
+    pub fn make_pipe() -> FileCreateArgs {
+        FileCreateArgs {
+            disposition: CreateDisposition::Open,
+            attributes: Default::default(),
+            options: Default::default(),
+            desired_access: FileAccessMask::new()
+                .with_generic_read(true)
+                .with_generic_write(true),
         }
     }
 }

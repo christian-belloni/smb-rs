@@ -1,4 +1,5 @@
 pub mod binrw_util;
+pub mod dcerpc;
 pub mod dfsc;
 pub mod fscc;
 pub mod guid;
