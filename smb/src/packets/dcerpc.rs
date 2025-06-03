@@ -9,6 +9,11 @@ use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 
+pub mod ndr64;
+pub mod srvsvc;
+
+pub const DCE_RPC_VERSION: DceRpcVersion = DceRpcVersion { major: 5, minor: 0 };
+
 macro_rules! rpc_pkts {
     ($
         ($name:ident {
@@ -24,13 +29,9 @@ macro_rules! rpc_pkts {
 pub struct [<DceRpcCo $name Pkt>] {
     #[bw(calc = PosMarker::default())]
     _save_pdu_start: PosMarker<()>,
-
-    #[bw(calc = 5)]
-    #[br(assert(rpc_vers_major == 5))]
-    rpc_vers_major: u8,
-    #[bw(calc = 0)]
-    #[br(assert(rpc_vers_minor == 0))]
-    rpc_vers_minor: u8,
+    #[br(assert(rpc_ver == DCE_RPC_VERSION))]
+    #[bw(calc = DCE_RPC_VERSION)]
+    rpc_ver: DceRpcVersion,
     #[bw(calc = content.get_type())]
     ptype: [<DceRpcCoPkt $name Type>],
     pfc_flags: DceRpcCoPktFlags,
@@ -151,10 +152,17 @@ rpc_pkts! {
         // Response = 2,
         // Fault = 3,
         BindAck = 12,
-        // BindNak = 13,
+        BindNak = 13,
         // AlterContextResp = 15,
         // Shutdown = 17,
     }
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct DceRpcVersion {
+    pub major: u8,
+    pub minor: u8,
 }
 
 #[bitfield]
@@ -277,6 +285,32 @@ pub enum DcRpcCoPktBindAckReason {
     AbstractSyntaxNotSupported = 1,
     ProposedTransferSyntaxesNotSupported = 2,
     LocalLimitExceeded = 3,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct DcRpcCoPktBindNak {
+    pub reason: DceRpcCoPktBindRejectReason,
+    #[bw(calc = protocols.len() as u8)]
+    num_protocols: u8,
+    #[br(count = num_protocols)]
+    pub protocols: Vec<DceRpcVersion>,
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[brw(repr(u16))]
+pub enum DceRpcCoPktBindRejectReason {
+    ReasonNotSpecified = 0,
+    TemporaryCongestion = 1,
+    LocalLimitExceeded = 2,
+    CalledPaddrUnknown = 3,
+    ProtocolVersionNotSupported = 4,
+    DefaultContextNotSupported = 5,
+    UserDataNotReadable = 6,
+    NoPsapAvailable = 7,
+    AuthenticationTypeNotRecognized = 8,
+    AuthenticationTypeNotSupported = 9,
 }
 
 #[cfg(test)]
@@ -404,5 +438,30 @@ mod tests {
                 0x00000010,
             )
         )
+    }
+
+    #[test]
+    fn test_bind_nak_parses() {
+        let data = [
+            0x5, 0x0, 0xd, 0x3, 0x10, 0x0, 0x0, 0x0, 0x18, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x1, 0x5, 0x0, 0x0, 0x0, 0x0,
+        ];
+        let mut cursor = std::io::Cursor::new(data);
+        let bind_nak: DceRpcCoResponsePkt = DceRpcCoResponsePkt::read_le(&mut cursor).unwrap();
+        assert_eq!(
+            bind_nak,
+            DceRpcCoResponsePkt::new(
+                DcRpcCoPktBindNak {
+                    reason: DceRpcCoPktBindRejectReason::ReasonNotSpecified,
+                    protocols: vec![DceRpcVersion { major: 5, minor: 0 }],
+                }
+                .into(),
+                2,
+                DceRpcCoPktFlags::new()
+                    .with_first_frag(true)
+                    .with_last_frag(true),
+                0x00000010,
+            )
+        );
     }
 }

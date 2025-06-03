@@ -58,7 +58,7 @@ impl Client {
     pub async fn list_shares(&mut self, server: &str) -> crate::Result<Vec<String>> {
         let srvsvc_pipe_name: &str = "srvsvc";
         let srvsvc_pipe = self.open_pipe(server, srvsvc_pipe_name).await?;
-        let srvsvc_pipe = srvsvc_pipe.bind(DceRpcSyntaxId::ZERO);
+        let srvsvc_pipe = srvsvc_pipe.bind(DceRpcSyntaxId::ZERO).await?;
 
         Ok(vec![])
     }
