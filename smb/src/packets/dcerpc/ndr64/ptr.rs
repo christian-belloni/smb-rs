@@ -61,7 +61,11 @@ where
                     "NdrPtrReadMode::NoArraySupport does not support parent pointers"
                 );
                 let ref_id = NdrAlign::<u64>::read_options(reader, endian, ())?;
-                let value = if *ref_id == NULL_PTR_REF_ID {
+                let value = if *ref_id != NULL_PTR_REF_ID {
+                    debug_assert!(
+                        *ref_id == REF_ID_UNIQUE_DEFAULT,
+                        "Reference ID must be unique when read_mode is NoArraySupport"
+                    );
                     Some(NdrAlign::<T>::read_options(reader, endian, align_args)?)
                 } else {
                     None
@@ -81,7 +85,11 @@ where
                         _ => panic!("Parent pointer must be in ArrayRefIdRead state"),
                     };
 
-                    let value = if ref_id == NULL_PTR_REF_ID {
+                    let value = if ref_id != NULL_PTR_REF_ID {
+                        debug_assert!(
+                            ref_id == REF_ID_UNIQUE_DEFAULT,
+                            "Reference ID must be unique when read_mode is NoArraySupport"
+                        );
                         Some(NdrAlign::<T>::read_options(reader, endian, align_args)?)
                     } else {
                         None

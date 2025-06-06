@@ -6,7 +6,7 @@ pub use align::*;
 pub mod arrays;
 pub use arrays::*;
 pub mod string;
-use string::*;
+pub use string::*;
 pub mod ptr;
 pub use ptr::*;
 
