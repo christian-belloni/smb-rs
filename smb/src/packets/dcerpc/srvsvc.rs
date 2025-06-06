@@ -46,7 +46,7 @@ impl ShareEnumUnion {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ShareInfo1Container {
-    #[bw(calc = (buffer.as_ref().unwrap().len() as u32).into())]
+    #[bw(calc = (buffer.as_ref().map_or(0, |x| x.len() as u32)).into())]
     entries_read: NdrAlign<u32>,
     #[br(args(None, NdrPtrReadMode::NoArraySupport, (*entries_read as u64,)))]
     buffer: NdrPtr<NdrArray<ShareInfo1>>,
@@ -111,10 +111,10 @@ impl ShareType {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct NetrShareEnumIn {
-    server_name: NdrAlign<NdrString<u16>, 4>,
+    server_name: NdrAlign<NdrPtr<NdrString<u16>>, 4>,
     info_struct: NdrAlign<ShareEnumStruct, 4>,
     prefered_maximum_length: NdrAlign<u32, 4>,
-    resume_handle: NdrAlign<u32, 4>,
+    resume_handle: NdrAlign<NdrPtr<u32>, 4>,
 }
 
 /// Return value and out params of [NetrShareEnum][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/c4a98e7b-d416-439c-97bd-4d9f52f8ba52]
@@ -128,11 +128,11 @@ pub struct NetrShareEnumOut {
 
 #[cfg(test)]
 mod test {
+    use std::io::Cursor;
+
     use super::*;
     #[test]
     fn test_netrshareenumout_read() {
-        use std::io::Cursor;
-
         let data = [
             0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
             0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x6, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
@@ -244,5 +244,38 @@ mod test {
                 resume_handle: NdrPtr::<u32>::from(None).into(),
             }
         );
+    }
+
+    #[test]
+    fn test_netrshareenumin_write() {
+        let val = NetrShareEnumIn {
+            server_name: Into::<NdrPtr<_>>::into(r"\\localhost".parse::<NdrString<u16>>().unwrap())
+                .into(),
+            info_struct: ShareEnumStruct {
+                share_info: ShareEnumUnion::Info1(NdrPtr::from(ShareInfo1Container {
+                    buffer: NdrPtr::from(None),
+                }))
+                .into(),
+            }
+            .into(),
+            prefered_maximum_length: 4294967295.into(),
+            resume_handle: NdrPtr::<u32>::from(None).into(),
+        };
+        let mut cursor = Cursor::new(Vec::new());
+        val.write_le(&mut cursor).unwrap();
+        let data = cursor.into_inner();
+        assert_eq!(
+            data,
+            [
+                0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0x5c, 0x0, 0x5c, 0x0, 0x6c, 0x0, 0x6f, 0x0, 0x63, 0x0, 0x61, 0x0, 0x6c, 0x0, 0x68,
+                0x0, 0x6f, 0x0, 0x73, 0x0, 0x74, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0,
+                0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0x0, 0xff, 0xff, 0xff, 0xff, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0x0
+            ]
+        )
     }
 }
