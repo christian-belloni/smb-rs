@@ -4,9 +4,12 @@ use super::align::*;
 use binrw::{endian, prelude::*};
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-enum NdrPtrReadMode {
+pub enum NdrPtrReadMode {
+    // Default: do not write in multi stages (ref id, data)
     #[default]
     NoArraySupport,
+    // Write in two stages: first write the reference ID, then write the data.
+    // This should generally be used by internal Ndr64 structures.
     WithArraySupport,
 }
 
@@ -206,16 +209,16 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    #[test]
-    fn test_nullptr() {
-        #[binrw::binrw]
-        #[derive(Debug, PartialEq, Eq)]
-        struct TestNdrNullPtr {
-            null_ptr: NdrPtr<u32>,
-            aligned: u32,
-        }
+    #[binrw::binrw]
+    #[derive(Debug, PartialEq, Eq)]
+    struct TestNdrU32Ptr {
+        null_ptr: NdrPtr<u32>,
+        aligned: u32,
+    }
 
-        let data = TestNdrNullPtr {
+    #[test]
+    fn test_nullptr_no_array() {
+        let data = TestNdrU32Ptr {
             null_ptr: None.into(),
             aligned: 0x12345678,
         };
@@ -227,6 +230,26 @@ mod tests {
             write_result,
             [
                 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, // null pointer, no data!
+                0x78, 0x56, 0x34, 0x12 // aligned value
+            ]
+        );
+    }
+
+    #[test]
+    fn test_value_no_array() {
+        let data = TestNdrU32Ptr {
+            null_ptr: Some(0xdeadbeef).into(),
+            aligned: 0x12345678,
+        };
+        let mut cursor = Cursor::new(vec![]);
+        data.write_le(&mut cursor).unwrap();
+        let write_result = cursor.into_inner();
+        assert_eq!(
+            write_result,
+            [
+                0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, // reference ID for unique value
+                0xef, 0xbe, 0xad, 0xde, // value data
+                0x0, 0x0, 0x0, 0x0, // alignment padding
                 0x78, 0x56, 0x34, 0x12 // aligned value
             ]
         );
