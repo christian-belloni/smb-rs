@@ -1,7 +1,7 @@
 use binrw::prelude::*;
 use std::ops::{Deref, DerefMut};
 
-pub const NDR64_PADDING: usize = 8;
+pub const NDR64_ALIGNMENT: usize = 8;
 
 /// A trait for types that are aligned according to NDR64 rules.
 pub trait NdrAligned {}
@@ -15,7 +15,7 @@ pub struct NdrAlign<T>
 where
     T: BinRead + BinWrite,
 {
-    #[brw(align_after = NDR64_PADDING)]
+    #[brw(align_after = NDR64_ALIGNMENT)]
     #[brw(args_raw(args))]
     pub value: T,
 }

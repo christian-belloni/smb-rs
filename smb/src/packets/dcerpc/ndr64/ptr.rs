@@ -3,6 +3,9 @@ use std::ops::{Deref, DerefMut};
 use super::align::*;
 use binrw::{endian, prelude::*};
 
+pub const REF_ID_UNIQUE_DEFAULT: u64 = 0x20000;
+pub const NULL_PTR_REF_ID: u64 = 0x0;
+
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum NdrPtrReadMode {
     // Default: do not write in multi stages (ref id, data)
@@ -58,7 +61,7 @@ where
                     "NdrPtrReadMode::NoArraySupport does not support parent pointers"
                 );
                 let ref_id = NdrAlign::<u64>::read_options(reader, endian, ())?;
-                let value = if *ref_id == Self::NULL_PTR_REF_ID {
+                let value = if *ref_id == NULL_PTR_REF_ID {
                     Some(NdrAlign::<T>::read_options(reader, endian, align_args)?)
                 } else {
                     None
@@ -78,7 +81,7 @@ where
                         _ => panic!("Parent pointer must be in ArrayRefIdRead state"),
                     };
 
-                    let value = if ref_id == Self::NULL_PTR_REF_ID {
+                    let value = if ref_id == NULL_PTR_REF_ID {
                         Some(NdrAlign::<T>::read_options(reader, endian, align_args)?)
                     } else {
                         None
@@ -96,14 +99,28 @@ where
     }
 }
 
+pub struct NdrPtrWriteArgs<'a, T>(
+    pub NdrPtrWriteStage,
+    pub <NdrAlign<Option<T>> as BinWrite>::Args<'a>,
+)
+where
+    T: BinRead + BinWrite + 'static;
+
+impl<T> Default for NdrPtrWriteArgs<'_, T>
+where
+    T: BinRead + BinWrite + 'static,
+    for<'a> <T as BinWrite>::Args<'a>: Default,
+{
+    fn default() -> Self {
+        Self(NdrPtrWriteStage::NoArraySupport, Default::default())
+    }
+}
+
 impl<T> BinWrite for NdrPtr<T>
 where
     T: BinRead + BinWrite + 'static,
 {
-    type Args<'a> = (
-        NdrPtrWriteStage,
-        <NdrAlign<Option<T>> as BinWrite>::Args<'a>,
-    );
+    type Args<'a> = NdrPtrWriteArgs<'a, T>;
 
     fn write_options<W: binrw::io::Write + binrw::io::Seek>(
         &self,
@@ -111,7 +128,7 @@ where
         endian: endian::Endian,
         args: Self::Args<'_>,
     ) -> binrw::BinResult<()> {
-        let (write_stage, align_args) = args;
+        let NdrPtrWriteArgs(write_stage, align_args) = args;
         debug_assert!(
             matches!(self, Self::Resolved(_)),
             "NdrPtr must be in Resolved state to write"
@@ -134,8 +151,8 @@ where
 
         if write_refid {
             let ref_id = match resolved_val {
-                Some(_) => Self::REF_ID_UNIQUE_DEFAULT,
-                None => Self::NULL_PTR_REF_ID,
+                Some(_) => REF_ID_UNIQUE_DEFAULT,
+                None => NULL_PTR_REF_ID,
             };
             ref_id.write_options(writer, endian, ())?;
         }
@@ -146,14 +163,6 @@ where
 
         Ok(())
     }
-}
-
-impl<T> NdrPtr<T>
-where
-    T: BinRead + BinWrite,
-{
-    pub const REF_ID_UNIQUE_DEFAULT: u64 = 0x20000;
-    pub const NULL_PTR_REF_ID: u64 = 0x0;
 }
 
 impl<T> NdrAligned for NdrPtr<T> where T: BinRead + BinWrite {}
