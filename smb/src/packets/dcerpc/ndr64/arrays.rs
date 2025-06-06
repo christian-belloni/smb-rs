@@ -5,6 +5,9 @@ use super::align::*;
 use super::ptr::*;
 use binrw::prelude::*;
 
+/// Array NDR structure.
+///
+/// Each item in the array is assured to be aligned properly in the NDR buffer.
 #[derive(Debug, PartialEq, Eq)]
 pub struct NdrArray<E>
 where
@@ -26,8 +29,20 @@ where
         endian: binrw::endian::Endian,
         args: Self::Args<'_>,
     ) -> binrw::BinResult<Self> {
+        // Begin by reading the count of elements in the array.
+        let max_count = *NdrAlign::<u64>::read_options(reader, endian, ())?;
         // First read: direct data (ptr refs & actual data)
         let count = args.0;
+        // TODO: Test if that's real, and generally --should we just use `max_count`?
+        if count > max_count {
+            return Err(binrw::Error::AssertFail {
+                pos: reader.stream_position()?,
+                message: format!(
+                    "NdrArray read count requested ({}) is more than the array's max count ({})",
+                    count, max_count
+                ),
+            });
+        }
         let mut data = Vec::with_capacity(count as usize);
         for _ in 0..count {
             data.push(NdrAlign::<E>::read_options(reader, endian, (None,))?);
@@ -55,6 +70,9 @@ where
         endian: binrw::endian::Endian,
         _args: Self::Args<'_>,
     ) -> binrw::BinResult<()> {
+        // Max count:
+        let max_count = self.data.len() as u64;
+        Ndr64Align::from(max_count).write_options(writer, endian, ())?;
         // First write: direct data (ptr refs)
         for item in &self.data {
             item.write_options(writer, endian, (NdrPtrWriteStage::ArraySupportWriteRefId,))?;
@@ -107,8 +125,12 @@ where
     }
 }
 
+/// A helper for wrapping in-structure NDR elements, that may be used
+/// for arrays of structures.
+///
+/// See example usage in the tests below.
 #[derive(Debug, PartialEq, Eq)]
-struct NdrArrayStructureElement<T>
+pub struct NdrArrayStructureElement<T>
 where
     T: BinRead + BinWrite + 'static,
 {
@@ -261,16 +283,14 @@ mod tests {
                 .unwrap();
 
             let world_data = cursor.into_inner();
-            assert!(
-                // sanity for this encoding
-                hello_data.len() % NDR64_ALIGNMENT == 0 && world_data.len() % NDR64_ALIGNMENT == 0,
-                "String data should be aligned to 8 bytes",
-            );
             (hello_data, world_data)
         };
 
         let exp_data = [
-            // size
+            // our size
+            0x02, 0x00, 0x00, 0x00, // size of array (2 elements)
+            0x00, 0x00, 0x00, 0x00, // aligned to 8 bytes
+            // array max_count
             0x02, 0x00, 0x00, 0x00, // size of array (2 elements)
             0x00, 0x00, 0x00, 0x00, // aligned to 8 bytes
             // struct#1
@@ -292,11 +312,16 @@ mod tests {
         ]
         .into_iter()
         .chain(hello_data)
-        .chain([
-            84, 0, 0, 0, 0, 0, 0, 0, // aligned to 8 bytes
-        ])
-        .chain(world_data)
         .collect::<Vec<u8>>();
+        let pad_to_ndr = exp_data.len() % 8;
+        let exp_data = exp_data
+            .into_iter()
+            .chain(std::iter::repeat(0).take(pad_to_ndr))
+            .chain([
+                84, 0, 0, 0, 0, 0, 0, 0, // aligned to 8 bytes
+            ])
+            .chain(world_data)
+            .collect::<Vec<u8>>();
 
         assert_eq!(cursor.into_inner(), exp_data);
 

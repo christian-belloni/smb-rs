@@ -24,6 +24,9 @@ pub enum NdrPtrWriteStage {
     ArraySupportWriteData,
 }
 
+/// Ndr represents a pointer.
+///
+/// *Note*: This is only aligned if the type [`T`] is aligned!
 #[derive(Debug, Default, PartialEq, Eq)]
 pub enum NdrPtr<T>
 where
@@ -162,10 +165,11 @@ where
                 Some(_) => REF_ID_UNIQUE_DEFAULT,
                 None => NULL_PTR_REF_ID,
             };
-            ref_id.write_options(writer, endian, ())?;
+            Ndr64Align::from(ref_id).write_options(writer, endian, ())?;
         }
 
         if write_data {
+            // Let's trust T to be aligned if it desires to.
             resolved_val.write_options(writer, endian, align_args)?;
         }
 
@@ -173,7 +177,7 @@ where
     }
 }
 
-impl<T> NdrAligned for NdrPtr<T> where T: BinRead + BinWrite {}
+impl<T> NdrAligned for NdrPtr<T> where T: BinRead + BinWrite + NdrAligned {}
 
 impl<T> Deref for NdrPtr<T>
 where
@@ -229,15 +233,17 @@ mod tests {
     #[binrw::binrw]
     #[derive(Debug, PartialEq, Eq)]
     struct TestNdrU32Ptr {
+        unalign: u8,
         null_ptr: NdrPtr<u32>,
-        aligned: u32,
+        other: u32,
     }
 
     #[test]
     fn test_nullptr_no_array() {
         let data = TestNdrU32Ptr {
+            unalign: 0x1,
             null_ptr: None.into(),
-            aligned: 0x12345678,
+            other: 0x12345678,
         };
 
         let mut cursor = Cursor::new(vec![]);
@@ -246,8 +252,10 @@ mod tests {
         assert_eq!(
             write_result,
             [
+                0x1, // unaligned byte
+                0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, // alignment padding
                 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, // null pointer, no data!
-                0x78, 0x56, 0x34, 0x12 // aligned value
+                0x78, 0x56, 0x34, 0x12 // other value
             ]
         );
     }
@@ -255,8 +263,9 @@ mod tests {
     #[test]
     fn test_value_no_array() {
         let data = TestNdrU32Ptr {
+            unalign: 0x2,
             null_ptr: Some(0xdeadbeef).into(),
-            aligned: 0x12345678,
+            other: 0x12345678,
         };
         let mut cursor = Cursor::new(vec![]);
         data.write_le(&mut cursor).unwrap();
@@ -264,10 +273,11 @@ mod tests {
         assert_eq!(
             write_result,
             [
+                0x2, // unaligned byte
+                0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, // alignment padding
                 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, // reference ID for unique value
                 0xef, 0xbe, 0xad, 0xde, // value data
-                0x0, 0x0, 0x0, 0x0, // alignment padding
-                0x78, 0x56, 0x34, 0x12 // aligned value
+                0x78, 0x56, 0x34, 0x12 // other value
             ]
         );
     }

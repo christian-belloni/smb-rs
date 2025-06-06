@@ -16,18 +16,18 @@ where
     // This is only for non-conformant strings -
     // strings that have a variable allocation size.
     // for conformant strings, const SIZE is non-zero!
-    #[bw(if(SIZE == 0), calc = Some(data.len() as u64))]
+    #[bw(if(SIZE == 0), calc = Some((data.len() as u64).into()))]
     #[br(if(SIZE == 0))]
-    alloc_length: Option<u64>,
+    alloc_length: Option<NdrAlign<u64>>,
 
-    #[bw(calc = 0)]
-    #[br(assert(offset == 0))] // TODO: Support non-zero offsets!
-    offset: u64,
-    #[bw(calc = data.len() as u64)]
-    #[br(assert((SIZE == 0 || actual_count < SIZE as u64) ||
-                (SIZE != 0 && actual_count < alloc_length.unwrap() as u64)))]
-    actual_count: u64,
-    #[br(count = actual_count, args { inner: args })]
+    #[bw(calc = 0.into())]
+    #[br(assert(*offset == 0))] // TODO: Support non-zero offsets!
+    offset: NdrAlign<u64>,
+    #[bw(calc = (data.len() as u64).into())]
+    #[br(assert((SIZE == 0 || *actual_count < SIZE as u64) ||
+                (SIZE != 0 && *actual_count < *(alloc_length.unwrap()) as u64)))]
+    actual_count: NdrAlign<u64>,
+    #[br(count = *actual_count, args { inner: args })]
     #[bw(args_raw(args))]
     pub data: NdrAlign<Vec<E>>,
 }

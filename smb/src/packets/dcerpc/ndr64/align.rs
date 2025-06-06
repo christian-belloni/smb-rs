@@ -3,24 +3,36 @@ use std::ops::{Deref, DerefMut};
 
 pub const NDR64_ALIGNMENT: usize = 8;
 
+/// Asserts that the writer is aligned to NDR64 alignment.
+pub fn debug_assert_aligned<W: std::io::Seek>(stream: &mut W) -> binrw::BinResult<()> {
+    let pos = stream.stream_position()?;
+    debug_assert!(
+        pos as usize % NDR64_ALIGNMENT == 0,
+        "Writer is not aligned to NDR64"
+    );
+    Ok(())
+}
+
 /// A trait for types that are aligned according to NDR64 rules.
 pub trait NdrAligned {}
 /// Writes the inner value, and aligns the writer to
-/// the NDR alignment AFTER writing the value.
+/// the NDR alignment BEFORE writing the value.
+///
+/// *Note:* NDR-encoded data can be of an unaligned length!
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[br(import_raw(args: <T as BinRead>::Args<'_>))]
 #[bw(import_raw(args: <T as BinWrite>::Args<'_>))]
-pub struct NdrAlign<T>
+pub struct NdrAlign<T, const TO: usize = NDR64_ALIGNMENT>
 where
     T: BinRead + BinWrite,
 {
-    #[brw(align_after = NDR64_ALIGNMENT)]
+    #[brw(align_before = TO)]
     #[brw(args_raw(args))]
     pub value: T,
 }
 
-impl<T> Deref for NdrAlign<T>
+impl<T, const TO: usize> Deref for NdrAlign<T, TO>
 where
     T: BinRead + BinWrite,
 {
@@ -31,7 +43,7 @@ where
     }
 }
 
-impl<T> DerefMut for NdrAlign<T>
+impl<T, const TO: usize> DerefMut for NdrAlign<T, TO>
 where
     T: BinRead + BinWrite,
 {
@@ -40,9 +52,9 @@ where
     }
 }
 
-impl<T> NdrAligned for NdrAlign<T> where T: BinRead + BinWrite {}
+impl<T, const TO: usize> NdrAligned for NdrAlign<T, TO> where T: BinRead + BinWrite {}
 
-impl<T> From<T> for NdrAlign<T>
+impl<T, const TO: usize> From<T> for NdrAlign<T, TO>
 where
     T: BinRead + BinWrite,
 {
@@ -51,7 +63,7 @@ where
     }
 }
 
-impl<T> Default for NdrAlign<T>
+impl<T, const TO: usize> Default for NdrAlign<T, TO>
 where
     T: BinRead + BinWrite + Default,
 {
@@ -59,6 +71,8 @@ where
         T::default().into()
     }
 }
+
+pub type Ndr64Align<T> = NdrAlign<T, NDR64_ALIGNMENT>;
 
 #[cfg(test)]
 mod tests {
@@ -76,14 +90,14 @@ mod tests {
             unalign: u8,
             unalign2: u16,
             should_align: NdrAlign<u32>,
-            aligned: u32,
         }
 
         let data = TestNdrAlign {
             unalign: 0,
             unalign2: 0,
-            should_align: NdrAlign { value: 0 },
-            aligned: ALIGNED_MAGIC,
+            should_align: NdrAlign {
+                value: ALIGNED_MAGIC,
+            },
         };
 
         let mut cursor = Cursor::new(vec![]);
@@ -95,9 +109,8 @@ mod tests {
             [
                 0x00, // unalign
                 0x00, 0x00, // unalign2
-                0x00, 0x00, 0x00, 0x00, // should_align (uninitialized)
-                0x00, // shoukd_align's padding
-                0x78, 0x56, 0x34, 0x12 // aligned
+                0x00, 0x00, 0x00, 0x00, 0x00, // alignment
+                0x78, 0x56, 0x34, 0x12, // aligned value
             ]
         );
 
@@ -108,8 +121,9 @@ mod tests {
             TestNdrAlign {
                 unalign: 0,
                 unalign2: 0,
-                should_align: NdrAlign { value: 0 },
-                aligned: ALIGNED_MAGIC
+                should_align: NdrAlign {
+                    value: ALIGNED_MAGIC
+                }
             }
         )
     }
