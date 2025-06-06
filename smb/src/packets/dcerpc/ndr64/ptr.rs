@@ -1,22 +1,148 @@
 use std::ops::{Deref, DerefMut};
 
 use super::align::*;
-use binrw::prelude::*;
+use binrw::{endian, prelude::*};
 
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-#[br(import_raw(args: <T as BinRead>::Args<'_>))]
-#[bw(import_raw(args: <T as BinWrite>::Args<'_>))]
-pub struct NdrPtr<T>
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+enum NdrPtrReadMode {
+    #[default]
+    NoArraySupport,
+    WithArraySupport,
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+pub enum NdrPtrWriteStage {
+    #[default]
+    NoArraySupport,
+    ArraySupportWriteRefId,
+    ArraySupportWriteData,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub enum NdrPtr<T>
 where
     for<'a, 'b> T: BinRead + BinWrite,
 {
-    // For unique pointers, this is the default.
-    #[bw(calc = {if value.is_some() {Self::REF_ID_UNIQUE_DEFAULT} else {Self::NULL_PTR_REF_ID}})]
-    ref_id: u64,
-    #[br(if(ref_id != Self::NULL_PTR_REF_ID))]
-    #[brw(args_raw(args))]
-    pub value: NdrAlign<Option<T>>,
+    // read started, with no value yet.
+    #[default]
+    Uninit,
+    // read started, with a reference ID read.
+    RefIdRead(u64),
+    // read done, with a value resolved.
+    Resolved(Option<NdrAlign<T>>),
+}
+
+impl<T> BinRead for NdrPtr<T>
+where
+    T: BinRead + BinWrite + 'static,
+{
+    type Args<'a> = (
+        Option<&'a Self>,
+        NdrPtrReadMode,
+        <NdrAlign<Option<T>> as BinRead>::Args<'a>,
+    );
+
+    fn read_options<R: binrw::io::Read + binrw::io::Seek>(
+        reader: &mut R,
+        endian: endian::Endian,
+        args: Self::Args<'_>,
+    ) -> binrw::BinResult<Self> {
+        let (parent, read_mode, align_args) = args;
+        match read_mode {
+            NdrPtrReadMode::NoArraySupport => {
+                debug_assert!(
+                    parent.is_none(),
+                    "NdrPtrReadMode::NoArraySupport does not support parent pointers"
+                );
+                let ref_id = NdrAlign::<u64>::read_options(reader, endian, ())?;
+                let value = if *ref_id == Self::NULL_PTR_REF_ID {
+                    Some(NdrAlign::<T>::read_options(reader, endian, align_args)?)
+                } else {
+                    None
+                };
+
+                Ok(Self::Resolved(value))
+            }
+            NdrPtrReadMode::WithArraySupport => match parent {
+                Some(p) => {
+                    debug_assert!(
+                        matches!(p, Self::RefIdRead(_)),
+                        "Parent pointer must be in RefIdRead state when read_mode is WithArraySupport"
+                    );
+                    // If parent pointer is in ArrayRefIdRead state, we read the reference ID
+                    let ref_id = match p {
+                        Self::RefIdRead(ref_id) => *ref_id,
+                        _ => panic!("Parent pointer must be in ArrayRefIdRead state"),
+                    };
+
+                    let value = if ref_id == Self::NULL_PTR_REF_ID {
+                        Some(NdrAlign::<T>::read_options(reader, endian, align_args)?)
+                    } else {
+                        None
+                    };
+
+                    Ok(Self::Resolved(value))
+                }
+                None => {
+                    // Read reference ID and assign into the state.
+                    let ref_id = NdrAlign::<u64>::read_options(reader, endian, ())?;
+                    Ok(Self::RefIdRead(*ref_id))
+                }
+            },
+        }
+    }
+}
+
+impl<T> BinWrite for NdrPtr<T>
+where
+    T: BinRead + BinWrite + 'static,
+{
+    type Args<'a> = (
+        NdrPtrWriteStage,
+        <NdrAlign<Option<T>> as BinWrite>::Args<'a>,
+    );
+
+    fn write_options<W: binrw::io::Write + binrw::io::Seek>(
+        &self,
+        writer: &mut W,
+        endian: endian::Endian,
+        args: Self::Args<'_>,
+    ) -> binrw::BinResult<()> {
+        let (write_stage, align_args) = args;
+        debug_assert!(
+            matches!(self, Self::Resolved(_)),
+            "NdrPtr must be in Resolved state to write"
+        );
+        let write_refid = matches!(
+            write_stage,
+            NdrPtrWriteStage::NoArraySupport | NdrPtrWriteStage::ArraySupportWriteRefId
+        );
+        let write_data = matches!(
+            write_stage,
+            NdrPtrWriteStage::NoArraySupport | NdrPtrWriteStage::ArraySupportWriteData
+        );
+
+        let resolved_val = match self {
+            Self::Resolved(x) => x,
+            _ => {
+                panic!("NdrPtr must be in Resolved state to write data");
+            }
+        };
+
+        if write_refid {
+            let ref_id = match resolved_val {
+                Some(_) => Self::REF_ID_UNIQUE_DEFAULT,
+                None => Self::NULL_PTR_REF_ID,
+            };
+            ref_id.write_options(writer, endian, ())?;
+        }
+
+        if write_data {
+            resolved_val.write_options(writer, endian, align_args)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl<T> NdrPtr<T>
@@ -33,10 +159,14 @@ impl<T> Deref for NdrPtr<T>
 where
     T: BinRead + BinWrite,
 {
-    type Target = Option<T>;
+    type Target = Option<NdrAlign<T>>;
 
     fn deref(&self) -> &Self::Target {
-        &self.value
+        match self {
+            Self::Resolved(ref value) => value,
+            Self::RefIdRead(_) => panic!("Cannot deref on a pointer that is in RefIdRead state"),
+            Self::Uninit => panic!("Cannot deref on an uninitialized pointer"),
+        }
     }
 }
 
@@ -45,7 +175,10 @@ where
     T: BinRead + BinWrite,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.value
+        match self {
+            Self::Resolved(ref mut value) => value,
+            _ => panic!("Cannot deref_mut on an uninitialized or unresolved pointer"),
+        }
     }
 }
 
@@ -63,9 +196,7 @@ where
     T: BinRead + BinWrite,
 {
     fn from(value: Option<T>) -> Self {
-        Self {
-            value: NdrAlign { value },
-        }
+        Self::Resolved(value.map(NdrAlign::from))
     }
 }
 
