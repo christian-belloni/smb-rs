@@ -6,7 +6,7 @@ use std::{
 use super::ResourceHandle;
 use crate::packets::{
     guid::Guid,
-    rpc::pdu::*,
+    rpc::{interface::*, pdu::*},
     smb2::{ReadRequest, WriteRequest},
 };
 use maybe_async::*;
@@ -24,20 +24,26 @@ impl Pipe {
     }
 
     #[maybe_async]
-    pub async fn bind(self, syntax_id: DceRpcSyntaxId) -> crate::Result<BoundRpcPipe> {
-        BoundRpcPipe::bind(self, syntax_id).await
+    pub async fn bind<I>(self) -> crate::Result<I>
+    where
+        I: RpcInterface<PipeRpcConnection>,
+    {
+        PipeRpcConnection::bind::<I>(self).await
     }
 }
 
-pub struct BoundRpcPipe {
+pub struct PipeRpcConnection {
     pipe: Pipe,
     syntax_id: DceRpcSyntaxId,
     next_call_id: u32,
 }
 
-impl BoundRpcPipe {
+impl PipeRpcConnection {
     #[maybe_async]
-    pub async fn bind(mut pipe: Pipe, syntax_id: DceRpcSyntaxId) -> crate::Result<Self> {
+    pub async fn bind<I>(mut pipe: Pipe) -> crate::Result<I>
+    where
+        I: RpcInterface<PipeRpcConnection>,
+    {
         let tranfer_syntaxes: [DceRpcSyntaxId; 2] = [
             DceRpcSyntaxId {
                 uuid: Guid::from_str("71710533-beba-4937-8319-b5dbef9ccc36").unwrap(), // NDR64
@@ -48,7 +54,7 @@ impl BoundRpcPipe {
                 version: 2,
             },
         ];
-        let context_elements = Self::make_bind_contexts(syntax_id.clone(), &tranfer_syntaxes);
+        let context_elements = Self::make_bind_contexts(I::syntax_id(), &tranfer_syntaxes);
 
         const START_CALL_ID: u32 = 2;
         const DEFAULT_FRAG_LIMIT: u16 = 4280;
@@ -81,11 +87,11 @@ impl BoundRpcPipe {
 
         Self::check_bind_results(&bind_ack, &tranfer_syntaxes)?;
 
-        Ok(BoundRpcPipe {
+        Ok(I::new(PipeRpcConnection {
             pipe,
-            syntax_id,
+            syntax_id: I::syntax_id(),
             next_call_id: START_CALL_ID + 1,
-        })
+        }))
     }
 
     fn make_bind_contexts(
@@ -210,6 +216,12 @@ impl BoundRpcPipe {
 
     pub fn pipe(&self) -> &Pipe {
         &self.pipe
+    }
+}
+
+impl BoundRpcConnection for PipeRpcConnection {
+    fn send_receive_raw(&mut self, stub_input: &[u8]) -> crate::Result<Vec<u8>> {
+        todo!()
     }
 }
 

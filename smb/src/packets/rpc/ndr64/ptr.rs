@@ -224,6 +224,19 @@ where
     }
 }
 
+impl<T> Clone for NdrPtr<T>
+where
+    T: BinRead + BinWrite + Clone,
+{
+    fn clone(&self) -> Self {
+        match self {
+            Self::Uninit => Self::Uninit,
+            Self::RefIdRead(ref_id) => Self::RefIdRead(*ref_id),
+            Self::Resolved(value) => Self::Resolved(value.clone()),
+        }
+    }
+}
+
 #[cfg(test)]
 
 mod tests {

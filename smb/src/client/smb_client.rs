@@ -59,12 +59,12 @@ impl Client {
     pub async fn list_shares(&mut self, server: &str) -> crate::Result<Vec<String>> {
         let srvsvc_pipe_name: &str = "srvsvc";
         let srvsvc_pipe = self.open_pipe(server, srvsvc_pipe_name).await?;
-        let srvsvc_pipe = srvsvc_pipe
-            .bind(DceRpcSyntaxId {
-                uuid: Guid::from_str("4b324fc8-1670-01d3-1278-5a47bf6ee188").unwrap(), // SRVSVC
-                version: 3,
-            })
-            .await?;
+        // let srvsvc_pipe = srvsvc_pipe
+        //     .bind(DceRpcSyntaxId {
+        //         uuid: Guid::from_str("4b324fc8-1670-01d3-1278-5a47bf6ee188").unwrap(), // SRVSVC
+        //         version: 3,
+        //     })
+        //     .await?;
 
         Ok(vec![])
     }

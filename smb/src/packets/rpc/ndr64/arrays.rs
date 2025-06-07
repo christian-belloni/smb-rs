@@ -219,6 +219,17 @@ where
     }
 }
 
+impl<T> Clone for NdrArrayStructureElement<T>
+where
+    T: BinRead + BinWrite + Clone + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            val: self.val.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::packets::rpc::ndr64::NdrString;

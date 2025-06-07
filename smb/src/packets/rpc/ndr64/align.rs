@@ -72,6 +72,17 @@ where
     }
 }
 
+impl<T, const TO: usize> Clone for NdrAlign<T, TO>
+where
+    T: BinRead + BinWrite + Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+        }
+    }
+}
+
 pub type Ndr64Align<T> = NdrAlign<T, NDR64_ALIGNMENT>;
 
 #[cfg(test)]

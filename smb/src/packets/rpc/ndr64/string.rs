@@ -4,12 +4,12 @@ use super::align::*;
 use binrw::prelude::*;
 
 #[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[br(import_raw(args: <E as BinRead>::Args<'_>))]
 #[bw(import_raw(args: <E as BinWrite>::Args<'_>))]
 pub struct NdrString<E, const SIZE: u32 = 0>
 where
-    E: BinRead + BinWrite + 'static,
+    E: BinRead + BinWrite + Clone + 'static,
     for<'a> <E as BinRead>::Args<'a>: Clone,
     for<'a> <E as BinWrite>::Args<'a>: Clone,
 {
@@ -34,7 +34,7 @@ where
 
 impl<E> NdrAligned for NdrString<E>
 where
-    E: BinRead + BinWrite + 'static,
+    E: BinRead + BinWrite + Clone + 'static,
     for<'a> <E as BinRead>::Args<'a>: Clone,
     for<'a> <E as BinWrite>::Args<'a>: Clone,
 {

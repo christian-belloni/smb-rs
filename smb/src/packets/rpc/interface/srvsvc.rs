@@ -1,4 +1,11 @@
-use super::ndr64::*;
+use std::str::FromStr;
+
+use crate::packets::{
+    guid::Guid,
+    rpc::{interface::*, pdu::DceRpcSyntaxId},
+};
+
+use crate::packets::rpc::ndr64::*;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
 /// [SHARE_ENUM_STRUCT][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/79ee052e-e16b-4ec5-b4b7-e99777c26eca]
@@ -28,15 +35,19 @@ pub enum ShareInfoLevel {
 #[derive(Debug, PartialEq, Eq)]
 #[br(import(level: ShareInfoLevel))]
 pub enum ShareEnumUnion {
+    #[brw(magic = 0u64)]
+    #[br(pre_assert(level == ShareInfoLevel::Info0))]
+    Info0(NdrPtr<ShareInfoContainer<ShareInfo0>>),
     #[brw(magic = 1u64)]
     #[br(pre_assert(level == ShareInfoLevel::Info1))]
-    Info1(NdrPtr<ShareInfo1Container>),
+    Info1(NdrPtr<ShareInfoContainer<ShareInfo1>>),
 }
 
 impl ShareEnumUnion {
     /// Returns the level of the share info contained in this union.
     pub fn level(&self) -> ShareInfoLevel {
         match self {
+            ShareEnumUnion::Info0(_) => ShareInfoLevel::Info0,
             ShareEnumUnion::Info1(_) => ShareInfoLevel::Info1,
         }
     }
@@ -45,16 +56,29 @@ impl ShareEnumUnion {
 /// [`SHARE_INFO_1_CONTAINER`][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/919abd5d-87d9-4ffa-b4b1-632a66053bc6]
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct ShareInfo1Container {
+struct ShareInfoContainer<T>
+where
+    T: ShareInfo,
+{
     #[bw(calc = (buffer.as_ref().map_or(0, |x| x.len() as u32)).into())]
     entries_read: NdrAlign<u32>,
     #[br(args(None, NdrPtrReadMode::NoArraySupport, (*entries_read as u64,)))]
-    buffer: NdrPtr<NdrArray<ShareInfo1>>,
+    buffer: NdrPtr<NdrArray<T>>,
+}
+
+trait ShareInfo:
+    for<'a> BinRead<Args<'a> = (Option<&'a Self>,)>
+    + for<'a> BinWrite<Args<'a> = (NdrPtrWriteStage,)>
+    + Clone
+    + PartialEq
+    + Eq
+    + 'static
+{
 }
 
 /// [`SHARE_INFO_1`][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/fc69f110-998d-4c16-9667-514e22fdd80b]
 #[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[bw(import(stage: NdrPtrWriteStage))]
 #[br(import(prev: Option<&Self>))]
 pub struct ShareInfo1 {
@@ -68,6 +92,20 @@ pub struct ShareInfo1 {
     #[br(args(prev.map(|x| &x.remark), NdrPtrReadMode::WithArraySupport, ()))]
     remark: NdrPtr<NdrString<u16>>,
 }
+
+/// [`SHARE_INFO_0`][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/73a25288-8086-4975-91a3-5cbee5b590cc]
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[bw(import(stage: NdrPtrWriteStage))]
+#[br(import(prev: Option<&Self>))]
+pub struct ShareInfo0 {
+    #[bw(args_raw(NdrPtrWriteArgs(stage, ())))]
+    #[br(args(prev.map(|x| &x.netname), NdrPtrReadMode::WithArraySupport, ()))]
+    netname: NdrPtr<NdrString<u16>>,
+}
+
+impl ShareInfo for ShareInfo0 {}
+impl ShareInfo for ShareInfo1 {}
 
 #[derive(BitfieldSpecifier, Debug, Clone, Copy, PartialEq, Eq)]
 #[bits = 2]
@@ -110,7 +148,7 @@ impl ShareType {
 /// Input arguments for [NetrShareEnum][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/c4a98e7b-d416-439c-97bd-4d9f52f8ba52]
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct NetrShareEnumIn {
+struct NetrShareEnumIn {
     server_name: NdrAlign<NdrPtr<NdrString<u16>>, 4>,
     info_struct: NdrAlign<ShareEnumStruct, 4>,
     prefered_maximum_length: NdrAlign<u32, 4>,
@@ -120,10 +158,81 @@ pub struct NetrShareEnumIn {
 /// Return value and out params of [NetrShareEnum][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/c4a98e7b-d416-439c-97bd-4d9f52f8ba52]
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct NetrShareEnumOut {
+struct NetrShareEnumOut {
     info_struct: NdrAlign<ShareEnumStruct, 4>,
     total_entries: NdrAlign<u32, 4>,
     resume_handle: NdrAlign<NdrPtr<u32>, 4>,
+}
+
+impl RpcStubInput for NetrShareEnumIn {}
+impl RpcStubOutput for NetrShareEnumOut {}
+
+pub struct SrvSvc<T>
+where
+    T: BoundRpcConnection,
+{
+    bound_pipe: T,
+}
+
+impl<T> SrvSvc<T>
+where
+    T: BoundRpcConnection,
+{
+    pub fn netr_share_enum(&mut self, server_name: &str) -> crate::Result<Vec<ShareInfo1>> {
+        let input_struct = NetrShareEnumIn {
+            server_name: NdrPtr::from(server_name.parse::<NdrString<u16>>().unwrap()).into(),
+            info_struct: ShareEnumStruct {
+                share_info: ShareEnumUnion::Info1(NdrPtr::from(ShareInfoContainer::<ShareInfo1> {
+                    buffer: NdrPtr::from(None),
+                }))
+                .into(),
+            }
+            .into(),
+            prefered_maximum_length: u32::MAX.into(),
+            resume_handle: NdrPtr::<u32>::from(None).into(),
+        };
+        let enum_result: NetrShareEnumOut = self.bound_pipe.send_receive(input_struct)?;
+        let mut result: Vec<ShareInfo1> = vec![];
+        if let ShareEnumUnion::Info1(container) = &*enum_result.info_struct.share_info {
+            match &**container {
+                None => {
+                    return Err(crate::Error::InvalidMessage(
+                        "NetrShareEnum returned no data".to_string(),
+                    ));
+                }
+                Some(x) => match &*x.buffer {
+                    None => {
+                        return Err(crate::Error::InvalidMessage(
+                            "NetrShareEnum returned no data".to_string(),
+                        ));
+                    }
+                    Some(y) => {
+                        for share_info in y.into_iter() {
+                            let share_info = &**share_info;
+                            result.push(share_info.clone());
+                        }
+                    }
+                },
+            }
+        }
+        Ok(result)
+    }
+}
+
+impl<T> super::base::RpcInterface<T> for SrvSvc<T>
+where
+    T: BoundRpcConnection,
+{
+    fn syntax_id() -> DceRpcSyntaxId {
+        DceRpcSyntaxId {
+            uuid: Guid::from_str("4b324fc8-1670-01d3-1278-5a47bf6ee188").unwrap(),
+            version: 3,
+        }
+    }
+
+    fn new(bound_pipe: T) -> Self {
+        SrvSvc { bound_pipe }
+    }
 }
 
 #[cfg(test)]
@@ -185,7 +294,7 @@ mod test {
             NetrShareEnumOut {
                 info_struct: ShareEnumStruct {
                     share_info: ShareEnumUnion::Info1(
-                        ShareInfo1Container {
+                        ShareInfoContainer::<ShareInfo1> {
                             buffer: Into::<NdrArray<ShareInfo1>>::into(vec![
                                 ShareInfo1 {
                                     netname: "ADMIN$".parse::<NdrString<u16>>().unwrap().into(),
@@ -252,7 +361,7 @@ mod test {
             server_name: Into::<NdrPtr<_>>::into(r"\\localhost".parse::<NdrString<u16>>().unwrap())
                 .into(),
             info_struct: ShareEnumStruct {
-                share_info: ShareEnumUnion::Info1(NdrPtr::from(ShareInfo1Container {
+                share_info: ShareEnumUnion::Info1(NdrPtr::from(ShareInfoContainer::<ShareInfo1> {
                     buffer: NdrPtr::from(None),
                 }))
                 .into(),
