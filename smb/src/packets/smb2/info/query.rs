@@ -210,11 +210,13 @@ query_info_data! {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
 
     use time::macros::datetime;
 
-    use crate::packets::{guid::Guid, smb2::*};
+    use crate::{
+        guid,
+        packets::{guid::Guid, smb2::*},
+    };
 
     use super::*;
 
@@ -293,9 +295,7 @@ mod tests {
                     .with_dacl_security_information(true)
                     .with_sacl_security_information(true),
                 flags: QueryInfoFlags::new(),
-                file_id: Guid::from_str("0000002b-000d-0000-3100-00000d000000")
-                    .unwrap()
-                    .into(),
+                file_id: guid!("0000002b-000d-0000-3100-00000d000000").into(),
                 data: GetInfoRequestData::None(()),
             }
             .into(),

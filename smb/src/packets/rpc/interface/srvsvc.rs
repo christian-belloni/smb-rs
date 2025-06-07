@@ -1,8 +1,9 @@
-use std::str::FromStr;
-
-use crate::packets::{
-    guid::Guid,
-    rpc::{interface::*, pdu::DceRpcSyntaxId},
+use crate::{
+    guid,
+    packets::{
+        guid::Guid,
+        rpc::{interface::*, pdu::DceRpcSyntaxId},
+    },
 };
 
 use crate::packets::rpc::ndr64::*;
@@ -228,12 +229,10 @@ impl<T> super::base::RpcInterface<T> for SrvSvc<T>
 where
     T: BoundRpcConnection,
 {
-    fn syntax_id() -> DceRpcSyntaxId {
-        DceRpcSyntaxId {
-            uuid: Guid::from_str("4b324fc8-1670-01d3-1278-5a47bf6ee188").unwrap(),
-            version: 3,
-        }
-    }
+    const SYNTAX_ID: DceRpcSyntaxId = DceRpcSyntaxId {
+        uuid: guid!("4b324fc8-1670-01d3-1278-5a47bf6ee188"),
+        version: 3,
+    };
 
     fn new(bound_pipe: T) -> Self {
         SrvSvc { bound_pipe }

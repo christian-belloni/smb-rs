@@ -30,7 +30,56 @@ impl Guid {
         3: [u8::MAX; 8],
     };
 
-    // TODO: Support constant (compile-time) GUIDs.
+    pub const fn parse_uuid(s: &str) -> Result<Guid, &'static str> {
+        use super::util::parse_byte;
+        let b = s.as_bytes();
+        let so = if b[0] == b'{' && b[b.len() - 1] == b'}' {
+            if s.len() != 38 {
+                return Err("Invalid UUID format");
+            }
+            1
+        } else {
+            if s.len() != 36 {
+                return Err("Invalid UUID format");
+            }
+            0
+        };
+        if b[so + 8] != b'-' || b[so + 13] != b'-' || b[so + 18] != b'-' || b[so + 23] != b'-' {
+            return Err("Invalid UUID format");
+        }
+        Ok(Guid(
+            u32::from_be_bytes([
+                parse_byte(b, so + 0),
+                parse_byte(b, so + 2),
+                parse_byte(b, so + 4),
+                parse_byte(b, so + 6),
+            ]),
+            u16::from_be_bytes([parse_byte(b, so + 9), parse_byte(b, so + 11)]),
+            u16::from_be_bytes([parse_byte(b, so + 14), parse_byte(b, so + 16)]),
+            [
+                parse_byte(b, so + 19),
+                parse_byte(b, so + 21),
+                parse_byte(b, so + 24),
+                parse_byte(b, so + 26),
+                parse_byte(b, so + 28),
+                parse_byte(b, so + 30),
+                parse_byte(b, so + 32),
+                parse_byte(b, so + 34),
+            ],
+        ))
+    }
+}
+
+/// A macro to create a `Guid` from a string literal at compile time.
+///
+#[macro_export]
+macro_rules! guid {
+    ($s:literal) => {{
+        match Guid::parse_uuid($s) {
+            Ok(guid) => guid,
+            Err(_) => panic!("Invalid GUID format"),
+        }
+    }};
 }
 
 impl From<[u8; 16]> for Guid {
@@ -57,50 +106,10 @@ impl Into<[u8; 16]> for Guid {
 }
 
 impl FromStr for Guid {
-    type Err = ();
+    type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = Self::default();
-        let components = s.split('-').collect::<Vec<&str>>();
-        if components.len() != 5 {
-            return Err(());
-        }
-
-        // little endian string of 4 bytes, read component in reverse order:
-        let mut bytes = [0u8; 4];
-        bytes.copy_from_slice(
-            &u32::from_str_radix(components[0], 16)
-                .map_err(|_| ())?
-                .to_be_bytes(),
-        );
-        result.0 = u32::from_be_bytes(bytes);
-
-        // 2 byte components, x2:
-        let mut bytes = [0u8; 2];
-        bytes.copy_from_slice(
-            &u16::from_str_radix(components[1], 16)
-                .map_err(|_| ())?
-                .to_be_bytes(),
-        );
-        result.1 = u16::from_be_bytes(bytes);
-        bytes.copy_from_slice(
-            &u16::from_str_radix(components[2], 16)
-                .map_err(|_| ())?
-                .to_be_bytes(),
-        );
-        result.2 = u16::from_be_bytes(bytes);
-
-        // The rest are 2 byte components, in big endian, and then 6 more bytes:
-        result.3[..2].copy_from_slice(
-            &u16::from_str_radix(components[3], 16)
-                .map_err(|_| ())?
-                .to_be_bytes(),
-        );
-        for i in 0..6 {
-            result.3[i + 2] =
-                u8::from_str_radix(&components[4][i * 2..i * 2 + 2], 16).map_err(|_| ())?;
-        }
-        Ok(result)
+        Guid::parse_uuid(s)
     }
 }
 
@@ -145,10 +154,22 @@ mod tests {
     ];
 
     #[test]
-    pub fn test_guid_parse_string() {
+    pub fn test_guid_parse_runtime() {
         let guid = TEST_GUID_STR.parse::<Guid>().unwrap();
         assert_eq!(guid, PARSED_GUID_VALUE);
         assert_eq!(guid.to_string(), TEST_GUID_STR);
+    }
+
+    #[test]
+    pub fn test_const_guid() {
+        assert_eq!(
+            guid!("065eadf1-6daf-1543-b04f-10e69084c9ae"),
+            PARSED_GUID_VALUE
+        );
+        assert_eq!(
+            guid!("{065eadf1-6daf-1543-b04f-10e69084c9ae}"),
+            PARSED_GUID_VALUE
+        );
     }
 
     #[test]

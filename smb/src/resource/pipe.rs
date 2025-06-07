@@ -1,14 +1,10 @@
-use std::{
-    ops::{Deref, DerefMut},
-    str::FromStr,
-};
+use std::ops::{Deref, DerefMut};
 
 use super::ResourceHandle;
 use crate::{
     msg_handler::ReceiveOptions,
     packets::{
-        guid::Guid,
-        rpc::{interface::*, pdu::*},
+        rpc::{interface::*, ndr64::NDR64_SYNTAX_ID, pdu::*},
         smb2::{
             FsctlCodes, IoctlBuffer, IoctlReqData, IoctlRequest, IoctlRequestFlags, ReadRequest,
             WriteRequest,
@@ -51,17 +47,8 @@ impl PipeRpcConnection {
     where
         I: RpcInterface<PipeRpcConnection>,
     {
-        let tranfer_syntaxes: [DceRpcSyntaxId; 2] = [
-            DceRpcSyntaxId {
-                uuid: Guid::from_str("71710533-beba-4937-8319-b5dbef9ccc36").unwrap(), // NDR64
-                version: 1,
-            },
-            DceRpcSyntaxId {
-                uuid: Guid::from_str("6cb71c2c-9812-4540-0300-000000000000").unwrap(),
-                version: 2,
-            },
-        ];
-        let context_elements = Self::make_bind_contexts(I::syntax_id(), &tranfer_syntaxes);
+        let tranfer_syntaxes: [DceRpcSyntaxId; 2] = [NDR64_SYNTAX_ID, BIND_TIME_NEGOTIATION];
+        let context_elements = Self::make_bind_contexts(I::SYNTAX_ID, &tranfer_syntaxes);
 
         const START_CALL_ID: u32 = 2;
         const DEFAULT_FRAG_LIMIT: u16 = 4280;
@@ -122,7 +109,6 @@ impl PipeRpcConnection {
         bind_ack: &DcRpcCoPktBindAck,
         transfer_syntaxes: &[DceRpcSyntaxId],
     ) -> crate::Result<u16> {
-        const BIND_TIME_FEATURE_NEG_PREFIX: &str = "6cb71c2c-9812-4540-";
         if bind_ack.results.len() != transfer_syntaxes.len() {
             return Err(crate::Error::InvalidMessage(format!(
                 "BindAck results length {} does not match transfer syntaxes length {}",
@@ -137,7 +123,7 @@ impl PipeRpcConnection {
             if syntax
                 .uuid
                 .to_string()
-                .starts_with(BIND_TIME_FEATURE_NEG_PREFIX)
+                .starts_with(BIND_TIME_NEGOTIATION_PREFIX)
             {
                 // Bind time feature negotiation element. Currently ignored.
                 log::debug!(

@@ -9,6 +9,8 @@ pub mod string;
 pub use string::*;
 pub mod ptr;
 pub use ptr::*;
+pub mod consts;
+pub use consts::*;
 
 #[cfg(test)]
 mod tests {
