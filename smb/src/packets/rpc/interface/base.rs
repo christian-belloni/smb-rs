@@ -6,7 +6,7 @@ pub trait RpcInterface<T>
 where
     T: BoundRpcConnection,
 {
-    fn syntax_id() -> DceRpcSyntaxId;
+    const SYNTAX_ID: DceRpcSyntaxId;
     fn new(bound_pipe: T) -> Self;
 }
 

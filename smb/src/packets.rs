@@ -8,3 +8,4 @@ pub mod security;
 pub mod smb1;
 pub mod smb2;
 pub mod transport;
+pub mod util;
