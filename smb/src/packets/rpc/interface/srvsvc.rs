@@ -11,7 +11,7 @@ use modular_bitfield::prelude::*;
 /// [SHARE_ENUM_STRUCT][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/79ee052e-e16b-4ec5-b4b7-e99777c26eca]
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct ShareEnumStruct {
+struct ShareEnumStruct {
     #[bw(calc = share_info.level().into())]
     level: NdrAlign<ShareInfoLevel>,
     #[br(args(*level))]
@@ -34,7 +34,7 @@ pub enum ShareInfoLevel {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[br(import(level: ShareInfoLevel))]
-pub enum ShareEnumUnion {
+enum ShareEnumUnion {
     #[brw(magic = 0u64)]
     #[br(pre_assert(level == ShareInfoLevel::Info0))]
     Info0(NdrPtr<ShareInfoContainer<ShareInfo0>>),
@@ -84,13 +84,13 @@ trait ShareInfo:
 pub struct ShareInfo1 {
     #[bw(args_raw(NdrPtrWriteArgs(stage, ())))]
     #[br(args(prev.map(|x| &x.netname), NdrPtrReadMode::WithArraySupport, ()))]
-    netname: NdrPtr<NdrString<u16>>,
+    pub netname: NdrPtr<NdrString<u16>>,
     #[bw(if(stage == NdrPtrWriteStage::ArraySupportWriteRefId))]
     #[br(args(prev.map(|x| &**x.share_type)))]
-    share_type: NdrArrayStructureElement<ShareType>,
+    pub share_type: NdrArrayStructureElement<ShareType>,
     #[bw(args_raw(NdrPtrWriteArgs(stage, ())))]
     #[br(args(prev.map(|x| &x.remark), NdrPtrReadMode::WithArraySupport, ()))]
-    remark: NdrPtr<NdrString<u16>>,
+    pub remark: NdrPtr<NdrString<u16>>,
 }
 
 /// [`SHARE_INFO_0`][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/73a25288-8086-4975-91a3-5cbee5b590cc]

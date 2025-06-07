@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 
 use super::align::*;
 use binrw::prelude::*;
@@ -54,5 +54,12 @@ impl FromStr for NdrString<u16, 0> {
         Ok(Self {
             data: NdrAlign { value: data.into() },
         })
+    }
+}
+
+impl<const SIZE: u32> Display for NdrString<u16, SIZE> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s: String = self.data.value.iter().map(|&c| c as u8 as char).collect();
+        write!(f, "{}", s)
     }
 }

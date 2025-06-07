@@ -221,6 +221,7 @@ impl PipeRpcConnection {
 
 impl BoundRpcConnection for PipeRpcConnection {
     fn send_receive_raw(&mut self, stub_input: &[u8]) -> crate::Result<Vec<u8>> {
+        // TODO: Wrap in request, FSCTL_PIPE_TRANSCEIVE, unwrap response
         todo!()
     }
 }

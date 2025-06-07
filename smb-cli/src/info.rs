@@ -24,7 +24,10 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
             .ipc_connect(&info.path.server, &cli.username, cli.password.clone())
             .await?;
         let shares_info = client.list_shares(&info.path.server).await?;
-        log::info!("Server info: {:?}", shares_info);
+        log::info!("Available shares on {}: ", info.path.server);
+        for share in shares_info {
+            log::info!("  - {}", share.netname.as_ref().unwrap().to_string());
+        }
         return Ok(());
     }
 
