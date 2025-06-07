@@ -50,8 +50,8 @@ impl [<DceRpcCo $name Pkt>] {
     pub fn new(content: [<DcRpcCoPkt $name Content>], call_id: u32, flags: DceRpcCoPktFlags, packed_drep: u32) -> Self {
         Self {
             pfc_flags: flags,
-            packed_drep, // little-endian, ASCII
-            call_id, // TODO: make this configurable?
+            packed_drep,
+            call_id,
             content,
             _write_pdu_size: (),
         }
@@ -327,6 +327,10 @@ pub struct DcRpcCoPktRequest {
 
     #[br(parse_with = binrw::helpers::until_eof)]
     pub stub_data: Vec<u8>,
+}
+
+impl DcRpcCoPktRequest {
+    pub const ALLOC_HINT_NONE: u32 = 0;
 }
 
 #[binrw::binrw]

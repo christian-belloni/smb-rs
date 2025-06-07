@@ -42,7 +42,7 @@ pub struct ReadRequest {
     #[br(assert(_structure_size == 49))]
     _structure_size: u16,
     #[bw(calc = 0)]
-    pub padding: u8,
+    _padding: u8,
     pub flags: ReadFlags,
     pub length: u32,
     pub offset: u64,

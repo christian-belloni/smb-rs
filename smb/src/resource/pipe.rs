@@ -40,11 +40,9 @@ impl Pipe {
 
 pub struct PipeRpcConnection {
     pipe: Pipe,
-    syntax_id: DceRpcSyntaxId,
     next_call_id: u32,
     /// Selected, accepted, context ID from binding.
     context_id: u16,
-    ndr_drep: u32,
 }
 
 impl PipeRpcConnection {
@@ -98,10 +96,8 @@ impl PipeRpcConnection {
 
         Ok(I::new(PipeRpcConnection {
             pipe,
-            syntax_id: I::syntax_id(),
             next_call_id: START_CALL_ID + 1,
             context_id,
-            ndr_drep: 0x10,
         }))
     }
 
@@ -175,6 +171,7 @@ impl PipeRpcConnection {
         }
     }
 
+    pub const PACKED_DREP: u32 = 0x10;
     /// Performs a read+write operation on the pipe, sending a request and receiving it's response.
     #[maybe_async]
     async fn rpc_rw(
@@ -182,8 +179,6 @@ impl PipeRpcConnection {
         call_id: u32,
         to_send: DcRpcCoPktRequestContent,
     ) -> crate::Result<DceRpcCoResponsePkt> {
-        const PACKED_DREP: u32 = 0x10;
-
         const READ_WRITE_PIPE_OFFSET: u64 = 0;
         let dcerpc_request_buffer: Vec<u8> = DceRpcCoRequestPkt::new(
             to_send,
@@ -191,7 +186,7 @@ impl PipeRpcConnection {
             DceRpcCoPktFlags::new()
                 .with_first_frag(true)
                 .with_last_frag(true),
-            PACKED_DREP,
+            Self::PACKED_DREP,
         )
         .try_into()?;
         let exp_write_size = dcerpc_request_buffer.len() as u32;
@@ -227,11 +222,17 @@ impl PipeRpcConnection {
         let content = read_result.message.content.to_read()?;
         let response = DceRpcCoResponsePkt::try_from(content.buffer.as_ref())?;
 
-        if response.packed_drep() != PACKED_DREP {
+        if response.packed_drep() != Self::PACKED_DREP {
             return Err(crate::Error::InvalidMessage(format!(
                 "Currently Unsupported packed DREP: {}",
                 response.packed_drep()
             )));
+        }
+
+        if !response.pfc_flags().first_frag() || !response.pfc_flags().last_frag() {
+            return Err(crate::Error::InvalidMessage(
+                "Expected first and last fragment flags to be set".to_string(),
+            ));
         }
 
         Ok(response)
@@ -246,8 +247,8 @@ impl BoundRpcConnection for PipeRpcConnection {
     #[maybe_async]
     async fn send_receive_raw(&mut self, opnum: u16, stub_input: &[u8]) -> crate::Result<Vec<u8>> {
         let req = DcRpcCoPktRequest {
-            alloc_hint: 0,
-            context_id: 1,
+            alloc_hint: DcRpcCoPktRequest::ALLOC_HINT_NONE,
+            context_id: self.context_id,
             opnum,
             stub_data: stub_input.to_vec(),
         }
@@ -258,7 +259,7 @@ impl BoundRpcConnection for PipeRpcConnection {
             DceRpcCoPktFlags::new()
                 .with_first_frag(true)
                 .with_last_frag(true),
-            0x10, // Packed DREP
+            Self::PACKED_DREP, // Packed DREP
         );
         self.next_call_id += 1;
 
@@ -289,6 +290,20 @@ impl BoundRpcConnection for PipeRpcConnection {
         }
 
         let rpc_reply = DceRpcCoResponsePkt::try_from(res.out_buffer.as_ref())?;
+
+        if rpc_reply.packed_drep() != Self::PACKED_DREP {
+            return Err(crate::Error::InvalidMessage(format!(
+                "Currently Unsupported packed DREP: {}",
+                rpc_reply.packed_drep()
+            )));
+        }
+
+        if !rpc_reply.pfc_flags().first_frag() || !rpc_reply.pfc_flags().last_frag() {
+            return Err(crate::Error::InvalidMessage(
+                "Expected first and last fragment flags to be set".to_string(),
+            ));
+        }
+
         let response = match rpc_reply.into_content() {
             DcRpcCoPktResponseContent::Response(dc_rpc_co_pkt_response) => dc_rpc_co_pkt_response,
             content => {
