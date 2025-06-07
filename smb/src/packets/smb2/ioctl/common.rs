@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 /// A trait that helps calculating the size of the buffer for IOCTL requests.
 // TODO: Make sure it is tested for all types of IOCTL requests.
@@ -45,5 +45,11 @@ impl Deref for IoctlBuffer {
 
     fn deref(&self) -> &Self::Target {
         &self.buffer
+    }
+}
+
+impl DerefMut for IoctlBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buffer
     }
 }

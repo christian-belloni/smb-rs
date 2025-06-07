@@ -12,6 +12,8 @@ impl Guid {
     /// Bytes
     pub const GUID_SIZE: usize = 16;
 
+    pub const ZERO: Guid = Guid(0, 0, 0, [0; 8]);
+
     /// Generates a new random GUID.
     pub fn gen() -> Self {
         let mut rng = OsRng;
@@ -27,6 +29,8 @@ impl Guid {
         2: u16::MAX,
         3: [u8::MAX; 8],
     };
+
+    // TODO: Support constant (compile-time) GUIDs.
 }
 
 impl From<[u8; 16]> for Guid {

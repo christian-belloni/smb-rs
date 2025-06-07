@@ -5,8 +5,10 @@ use maybe_async::maybe_async;
 use crate::{
     packets::{
         dfsc::{ReferralEntry, ReferralEntryValue},
+        rpc::interface::{ShareInfo1, SrvSvc},
         smb2::Status,
     },
+    resource::Pipe,
     Connection, Error, FileCreateArgs, Resource, Session, Tree,
 };
 
@@ -41,8 +43,26 @@ impl Client {
         Ok(())
     }
 
-    pub fn list_shares(&self, server: &str) -> crate::Result<Vec<String>> {
-        unimplemented!()
+    /// Connects to the IPC$ share on the specified server using the provided username and password.
+    #[maybe_async]
+    pub async fn ipc_connect(
+        &mut self,
+        server: &str,
+        user_name: &str,
+        password: String,
+    ) -> crate::Result<()> {
+        let ipc_share = UncPath::ipc_share(server.to_string());
+        self.share_connect(&ipc_share, user_name, password).await
+    }
+
+    #[maybe_async]
+    pub async fn list_shares(&mut self, server: &str) -> crate::Result<Vec<ShareInfo1>> {
+        let srvsvc_pipe_name: &str = "srvsvc";
+        let srvsvc_pipe = self.open_pipe(server, srvsvc_pipe_name).await?;
+        let mut srvsvc_pipe: SrvSvc<_> = srvsvc_pipe.bind().await?;
+        let shares = srvsvc_pipe.netr_share_enum(server).await?;
+
+        Ok(shares)
     }
 
     #[maybe_async]
@@ -98,7 +118,7 @@ impl Client {
     }
 
     #[maybe_async]
-    async fn create_file_shallow(
+    async fn _create_file_internal(
         &self,
         path: &UncPath,
         args: &FileCreateArgs,
@@ -116,7 +136,7 @@ impl Client {
         path: &UncPath,
         args: &FileCreateArgs,
     ) -> crate::Result<Resource> {
-        let file_result = self.create_file_shallow(path, args).await;
+        let file_result = self._create_file_internal(path, args).await;
 
         let resource = match file_result {
             Ok(file) => Ok(file),
@@ -133,6 +153,23 @@ impl Client {
         }?;
 
         Ok(resource)
+    }
+
+    #[maybe_async]
+    pub async fn open_pipe(&mut self, server: &str, pipe_name: &str) -> crate::Result<Pipe> {
+        let path = UncPath::ipc_share(server.to_string()).with_path(pipe_name.to_string());
+        let pipe = self
+            ._create_file_internal(&path, &FileCreateArgs::make_pipe())
+            .await?;
+        match pipe {
+            Resource::Pipe(file) => {
+                log::info!("Successfully opened pipe: {}", pipe_name);
+                Ok(file)
+            }
+            _ => crate::Result::Err(Error::InvalidMessage(
+                "Expected a pipe resource, but got something else.".to_string(),
+            )),
+        }
     }
 }
 
@@ -181,7 +218,7 @@ impl<'a> DfsResolver<'a> {
 
             let resource = self
                 .0
-                .create_file_shallow(ref_unc_path, args)
+                ._create_file_internal(ref_unc_path, args)
                 .await
                 .map_err(|e| {
                     log::error!("Failed to create file on DFS referral: {}", e);

@@ -17,42 +17,53 @@ pub struct InfoCmd {
 
 #[maybe_async]
 pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
-    {
-        let mut client = Client::new(cli.make_smb_client_config());
-        client
-            .share_connect(&info.path, cli.username.as_ref(), cli.password.clone())
-            .await?;
-        let resource = client
-            .create_file(
-                &info.path,
-                &FileCreateArgs::make_open_existing(FileAccessMask::new().with_generic_read(true)),
-            )
-            .await?;
-        match resource {
-            Resource::File(file) => {
-                let info: FileBasicInformation = file.query_info().await?;
-                log::info!("File info: {:?}", info);
-                let security = file
-                    .query_security_info(
-                        AdditionalInfo::new().with_owner_security_information(true),
-                    )
-                    .await?;
-                log::info!("Security info: {:?}", security);
-            }
-            Resource::Directory(dir) => {
-                let dir = Arc::new(dir);
-                iterate_directory(&dir, "*", |info| {
-                    log::info!("Directory info: {:?}", info);
-                    Ok(())
-                })
-                .await?;
-            }
-        };
+    let mut client = Client::new(cli.make_smb_client_config());
 
+    if info.path.share.is_none() || info.path.share.as_ref().unwrap().is_empty() {
         client
+            .ipc_connect(&info.path.server, &cli.username, cli.password.clone())
+            .await?;
+        let shares_info = client.list_shares(&info.path.server).await?;
+        log::info!("Available shares on {}: ", info.path.server);
+        for share in shares_info {
+            log::info!("  - {}", share.netname.as_ref().unwrap().to_string());
+        }
+        return Ok(());
     }
-    .close()
-    .await?;
+
+    client
+        .share_connect(&info.path, cli.username.as_ref(), cli.password.clone())
+        .await?;
+    let resource = client
+        .create_file(
+            &info.path,
+            &FileCreateArgs::make_open_existing(FileAccessMask::new().with_generic_read(true)),
+        )
+        .await?;
+
+    match resource {
+        Resource::File(file) => {
+            let info: FileBasicInformation = file.query_info().await?;
+            log::info!("File info: {:?}", info);
+            let security = file
+                .query_security_info(AdditionalInfo::new().with_owner_security_information(true))
+                .await?;
+            log::info!("Security info: {:?}", security);
+        }
+        Resource::Directory(dir) => {
+            let dir = Arc::new(dir);
+            iterate_directory(&dir, "*", |info| {
+                log::info!("Directory info: {:?}", info);
+                Ok(())
+            })
+            .await?;
+        }
+        Resource::Pipe(_) => {
+            log::info!("Pipe (no information)");
+        }
+    };
+
+    client.close().await?;
 
     Ok(())
 }

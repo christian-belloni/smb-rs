@@ -21,6 +21,27 @@ pub struct UncPath {
 }
 
 impl UncPath {
+    pub fn new(server: String) -> Self {
+        UncPath {
+            server,
+            share: None,
+            path: None,
+        }
+    }
+
+    pub fn ipc_share(server: String) -> Self {
+        const SMB_IPC_SHARE: &str = "IPC$";
+        Self::new(server).with_share(SMB_IPC_SHARE.to_string())
+    }
+
+    pub fn with_share(self, share: String) -> Self {
+        UncPath {
+            server: self.server,
+            share: Some(share),
+            path: self.path,
+        }
+    }
+
     pub fn with_path(self, path: String) -> Self {
         UncPath {
             server: self.server,
@@ -28,6 +49,7 @@ impl UncPath {
             path: Some(path),
         }
     }
+
     pub fn with_no_path(self) -> Self {
         UncPath {
             server: self.server,

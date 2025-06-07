@@ -41,7 +41,8 @@ pub struct ReadRequest {
     #[bw(calc = 49)]
     #[br(assert(_structure_size == 49))]
     _structure_size: u16,
-    pub padding: u8,
+    #[bw(calc = 0)]
+    _padding: u8,
     pub flags: ReadFlags,
     pub length: u32,
     pub offset: u64,
@@ -107,7 +108,7 @@ impl ReadResponse {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct ReadFlags {
     pub read_unbuffered: bool,
@@ -180,7 +181,7 @@ pub struct WriteResponse {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy)]
 #[bw(map = |&x| Self::into_bytes(x))]
 pub struct WriteFlags {
     pub write_unbuffered: bool,
@@ -229,7 +230,6 @@ mod tests {
     #[test]
     pub fn test_read_req_write() {
         let req = ReadRequest {
-            padding: 0,
             flags: ReadFlags::new(),
             length: 0x10203040,
             offset: 0x5060708090a0b0c,
@@ -240,7 +240,7 @@ mod tests {
             .into(),
             minimum_count: 1,
         };
-        let data = encode_content(RequestContent::Read(req));
+        let data = encode_content(req.into());
         assert_eq![
             data,
             [
@@ -275,16 +275,19 @@ mod tests {
 
     #[test]
     pub fn test_write_req_write() {
-        let data = encode_content(RequestContent::Write(WriteRequest {
-            offset: 0x1234abcd,
-            file_id: [
-                0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c, 0x00,
-                0x00, 0x00,
-            ]
+        let data = encode_content(
+            WriteRequest {
+                offset: 0x1234abcd,
+                file_id: [
+                    0x14, 0x04, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x51, 0x00, 0x10, 0x00, 0x0c,
+                    0x00, 0x00, 0x00,
+                ]
+                .into(),
+                flags: WriteFlags::new(),
+                buffer: "MeFriend!THIS IS FINE!".as_bytes().to_vec(),
+            }
             .into(),
-            flags: WriteFlags::new(),
-            buffer: "MeFriend!THIS IS FINE!".as_bytes().to_vec(),
-        }));
+        );
         assert_eq!(
             data,
             [

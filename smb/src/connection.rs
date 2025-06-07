@@ -182,12 +182,15 @@ impl Connection {
         // Send SMB2 negotiate request
         let response = self
             .handler
-            .send_recv(RequestContent::Negotiate(self.make_smb2_neg_request(
-                dialects,
-                crypto::SIGNING_ALGOS.to_vec(),
-                encryption_algos,
-                compression::SUPPORTED_ALGORITHMS.to_vec(),
-            )))
+            .send_recv(
+                self.make_smb2_neg_request(
+                    dialects,
+                    crypto::SIGNING_ALGOS.to_vec(),
+                    encryption_algos,
+                    compression::SUPPORTED_ALGORITHMS.to_vec(),
+                )
+                .into(),
+            )
             .await?;
 
         let smb2_negotiate_response = response.message.content.to_negotiate()?;

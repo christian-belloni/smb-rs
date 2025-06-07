@@ -24,7 +24,8 @@ pub struct Directory {
 }
 
 impl Directory {
-    pub fn new(handle: ResourceHandle, access: DirAccessMask) -> Self {
+    pub fn new(handle: ResourceHandle) -> Self {
+        let access: DirAccessMask = handle.access.into();
         Directory {
             handle,
             access,
@@ -52,14 +53,17 @@ impl Directory {
 
         let response = self
             .handle
-            .send_receive(RequestContent::QueryDirectory(QueryDirectoryRequest {
-                file_information_class: T::CLASS_ID,
-                flags: QueryDirectoryFlags::new().with_restart_scans(restart),
-                file_index: 0,
-                file_id: self.handle.file_id,
-                output_buffer_length: 0x1000,
-                file_name: pattern.into(),
-            }))
+            .send_receive(
+                QueryDirectoryRequest {
+                    file_information_class: T::CLASS_ID,
+                    flags: QueryDirectoryFlags::new().with_restart_scans(restart),
+                    file_index: 0,
+                    file_id: self.handle.file_id,
+                    output_buffer_length: 0x1000,
+                    file_name: pattern.into(),
+                }
+                .into(),
+            )
             .await;
 
         const STATUS_NO_MORE_FILES: u32 = Status::NoMoreFiles as u32;
@@ -146,12 +150,13 @@ impl Directory {
             .handle
             .handler
             .send_recvo(
-                RequestContent::ChangeNotify(ChangeNotifyRequest {
+                ChangeNotifyRequest {
                     file_id: self.file_id,
                     flags: NotifyFlags::new().with_watch_tree(recursive),
                     completion_filter: filter,
                     output_buffer_length: 1024,
-                }),
+                }
+                .into(),
                 ReceiveOptions {
                     allow_async: true,
                     cmd: Some(Command::ChangeNotify),

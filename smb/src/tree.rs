@@ -14,7 +14,6 @@ use crate::{
         fscc::FileAccessMask,
         smb2::{
             create::CreateDisposition,
-            plain::RequestContent,
             tree_connect::{TreeConnectRequest, TreeDisconnectRequest},
         },
     },
@@ -52,7 +51,7 @@ impl Tree {
     ) -> crate::Result<Tree> {
         // send and receive tree request & response.
         let response = upstream
-            .send_recv(RequestContent::TreeConnect(TreeConnectRequest::new(name)))
+            .send_recv(TreeConnectRequest::new(name).into())
             .await?;
 
         let content = response.message.content.to_treeconnect()?;
@@ -238,9 +237,7 @@ impl TreeMessageHandler {
 
         // send and receive tree disconnect request & response.
         let _response = self
-            .send_recv(RequestContent::TreeDisconnect(
-                TreeDisconnectRequest::default(),
-            ))
+            .send_recv(TreeDisconnectRequest::default().into())
             .await?;
 
         self.connect_info.take();

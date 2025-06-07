@@ -27,15 +27,13 @@ pub struct File {
     #[cfg(not(feature = "async"))]
     dirty: bool,
 
-    access: FileAccessMask,
     end_of_file: u64,
 }
 
 impl File {
-    pub fn new(handle: ResourceHandle, access: FileAccessMask, end_of_file: u64) -> Self {
+    pub fn new(handle: ResourceHandle, end_of_file: u64) -> Self {
         File {
             handle,
-            access,
             end_of_file,
             #[cfg(not(feature = "async"))]
             pos: 0,
@@ -100,14 +98,16 @@ impl File {
 
         let response = self
             .handle
-            .send_receive(RequestContent::Read(ReadRequest {
-                padding: 0,
-                flags,
-                length: buf.len() as u32,
-                offset: pos,
-                file_id: self.handle.file_id,
-                minimum_count: 1,
-            }))
+            .send_receive(
+                ReadRequest {
+                    flags,
+                    length: buf.len() as u32,
+                    offset: pos,
+                    file_id: self.handle.file_id,
+                    minimum_count: 1,
+                }
+                .into(),
+            )
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         let content = response
@@ -155,12 +155,15 @@ impl File {
 
         let response = self
             .handle
-            .send_receive(RequestContent::Write(WriteRequest {
-                offset: pos,
-                file_id: self.handle.file_id,
-                flags: WriteFlags::new(),
-                buffer: buf.to_vec(),
-            }))
+            .send_receive(
+                WriteRequest {
+                    offset: pos,
+                    file_id: self.handle.file_id,
+                    flags: WriteFlags::new(),
+                    buffer: buf.to_vec(),
+                }
+                .into(),
+            )
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
@@ -183,9 +186,12 @@ impl File {
     pub async fn flush(&self) -> std::io::Result<()> {
         let _response = self
             .handle
-            .send_receive(RequestContent::Flush(FlushRequest {
-                file_id: self.handle.file_id,
-            }))
+            .send_receive(
+                FlushRequest {
+                    file_id: self.handle.file_id,
+                }
+                .into(),
+            )
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
