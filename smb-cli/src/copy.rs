@@ -13,8 +13,6 @@ use smb::{
 use std::error::Error;
 #[cfg(not(feature = "async"))]
 use std::fs;
-#[cfg(feature = "multi_threaded")]
-use std::io::Write;
 
 #[cfg(feature = "async")]
 use tokio::fs;

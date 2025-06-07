@@ -128,7 +128,13 @@ impl Resource {
         // Get maximal access
         let access = match CreateContextRespData::first_mxac(&response.create_contexts) {
             Some(response) => response.maximal_access,
-            _ => return Err(Error::InvalidMessage("No maximal access context".into())),
+            _ => {
+                log::debug!(
+                    "No maximal access context found for file '{}', using default (full access).",
+                    name
+                );
+                FileAccessMask::from_bytes(u32::MAX.to_be_bytes())
+            }
         };
 
         // Common information is held in the handle object.

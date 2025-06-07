@@ -191,7 +191,7 @@ impl PipeRpcConnection {
         .try_into()?;
         let exp_write_size = dcerpc_request_buffer.len() as u32;
         let write_result = pipe
-            .send_receive(
+            .send_recvo(
                 WriteRequest {
                     offset: READ_WRITE_PIPE_OFFSET,
                     file_id: pipe.handle.file_id,
@@ -199,6 +199,7 @@ impl PipeRpcConnection {
                     buffer: dcerpc_request_buffer,
                 }
                 .into(),
+                ReceiveOptions::new().with_allow_async(true),
             )
             .await?;
         if write_result.message.content.to_write()?.count != exp_write_size {
@@ -208,7 +209,7 @@ impl PipeRpcConnection {
         }
 
         let read_result = pipe
-            .send_receive(
+            .send_recvo(
                 ReadRequest {
                     flags: Default::default(),
                     length: 1024,
@@ -217,6 +218,7 @@ impl PipeRpcConnection {
                     minimum_count: DceRpcCoRequestPkt::COMMON_SIZE_BYTES as u32,
                 }
                 .into(),
+                ReceiveOptions::new().with_allow_async(true),
             )
             .await?;
         let content = read_result.message.content.to_read()?;

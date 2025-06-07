@@ -44,6 +44,7 @@ impl Client {
     }
 
     /// Connects to the IPC$ share on the specified server using the provided username and password.
+    #[maybe_async]
     pub async fn ipc_connect(
         &mut self,
         server: &str,
