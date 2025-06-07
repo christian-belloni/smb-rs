@@ -59,7 +59,7 @@ impl Client {
         let srvsvc_pipe_name: &str = "srvsvc";
         let srvsvc_pipe = self.open_pipe(server, srvsvc_pipe_name).await?;
         let mut srvsvc_pipe: SrvSvc<_> = srvsvc_pipe.bind().await?;
-        let shares = srvsvc_pipe.netr_share_enum(server)?;
+        let shares = srvsvc_pipe.netr_share_enum(server).await?;
 
         Ok(shares)
     }

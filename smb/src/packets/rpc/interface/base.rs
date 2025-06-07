@@ -1,5 +1,6 @@
 use crate::packets::rpc::pdu::DceRpcSyntaxId;
 use binrw::prelude::*;
+use maybe_async::*;
 
 pub trait RpcInterface<T>
 where
@@ -9,33 +10,34 @@ where
     fn new(bound_pipe: T) -> Self;
 }
 
-pub trait RpcStubInput: for<'a> BinWrite<Args<'a> = ()> {
+pub trait RpcCall: for<'a> BinWrite<Args<'a> = ()> {
+    const OPNUM: u16;
+    type ResponseType: for<'b> BinRead<Args<'b> = ()>;
     fn serialize(&self) -> Vec<u8> {
         let mut cursor = std::io::Cursor::new(vec![]);
         self.write_le(&mut cursor).unwrap();
         cursor.into_inner()
     }
-}
-pub trait RpcStubOutput: for<'b> BinRead<Args<'b> = ()> {
-    fn deserialize(data: &[u8]) -> crate::Result<Self>
+
+    fn deserialize(data: &[u8]) -> crate::Result<Self::ResponseType>
     where
         Self: Sized,
     {
         let mut cursor = std::io::Cursor::new(data);
-        Self::read_le(&mut cursor).map_err(|e| crate::Error::from(e))
+        Self::ResponseType::read_le(&mut cursor).map_err(|e| crate::Error::from(e))
     }
 }
 
+#[maybe_async(AFIT)]
 pub trait BoundRpcConnection {
-    fn send_receive<S, R>(&mut self, stub_input: S) -> crate::Result<R>
+    async fn send_receive<S>(&mut self, stub_input: S) -> crate::Result<S::ResponseType>
     where
-        S: RpcStubInput,
-        R: RpcStubOutput,
+        S: RpcCall,
     {
         let serialized_input = stub_input.serialize();
-        let response = self.send_receive_raw(&serialized_input)?;
-        R::deserialize(&response)
+        let response = self.send_receive_raw(S::OPNUM, &serialized_input).await?;
+        S::deserialize(&response)
     }
 
-    fn send_receive_raw(&mut self, stub_input: &[u8]) -> crate::Result<Vec<u8>>;
+    async fn send_receive_raw(&mut self, opnum: u16, stub_input: &[u8]) -> crate::Result<Vec<u8>>;
 }

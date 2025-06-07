@@ -7,6 +7,7 @@ use crate::packets::{
 
 use crate::packets::rpc::ndr64::*;
 use binrw::prelude::*;
+use maybe_async::maybe_async;
 use modular_bitfield::prelude::*;
 /// [SHARE_ENUM_STRUCT][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/79ee052e-e16b-4ec5-b4b7-e99777c26eca]
 #[binrw::binrw]
@@ -164,8 +165,11 @@ struct NetrShareEnumOut {
     resume_handle: NdrAlign<NdrPtr<u32>, 4>,
 }
 
-impl RpcStubInput for NetrShareEnumIn {}
-impl RpcStubOutput for NetrShareEnumOut {}
+impl RpcCall for NetrShareEnumIn {
+    const OPNUM: u16 = 0xf;
+
+    type ResponseType = NetrShareEnumOut;
+}
 
 pub struct SrvSvc<T>
 where
@@ -178,7 +182,8 @@ impl<T> SrvSvc<T>
 where
     T: BoundRpcConnection,
 {
-    pub fn netr_share_enum(&mut self, server_name: &str) -> crate::Result<Vec<ShareInfo1>> {
+    #[maybe_async]
+    pub async fn netr_share_enum(&mut self, server_name: &str) -> crate::Result<Vec<ShareInfo1>> {
         let input_struct = NetrShareEnumIn {
             server_name: NdrPtr::from(server_name.parse::<NdrString<u16>>().unwrap()).into(),
             info_struct: ShareEnumStruct {
@@ -191,7 +196,7 @@ where
             prefered_maximum_length: u32::MAX.into(),
             resume_handle: NdrPtr::<u32>::from(None).into(),
         };
-        let enum_result: NetrShareEnumOut = self.bound_pipe.send_receive(input_struct)?;
+        let enum_result = self.bound_pipe.send_receive(input_struct).await?;
         let mut result: Vec<ShareInfo1> = vec![];
         if let ShareEnumUnion::Info1(container) = &*enum_result.info_struct.share_info {
             match &**container {

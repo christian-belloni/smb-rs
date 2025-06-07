@@ -4,10 +4,16 @@ use std::{
 };
 
 use super::ResourceHandle;
-use crate::packets::{
-    guid::Guid,
-    rpc::{interface::*, pdu::*},
-    smb2::{ReadRequest, WriteRequest},
+use crate::{
+    msg_handler::ReceiveOptions,
+    packets::{
+        guid::Guid,
+        rpc::{interface::*, pdu::*},
+        smb2::{
+            FsctlCodes, IoctlBuffer, IoctlReqData, IoctlRequest, IoctlRequestFlags, ReadRequest,
+            WriteRequest,
+        },
+    },
 };
 use maybe_async::*;
 pub struct Pipe {
@@ -36,6 +42,9 @@ pub struct PipeRpcConnection {
     pipe: Pipe,
     syntax_id: DceRpcSyntaxId,
     next_call_id: u32,
+    /// Selected, accepted, context ID from binding.
+    context_id: u16,
+    ndr_drep: u32,
 }
 
 impl PipeRpcConnection {
@@ -59,7 +68,7 @@ impl PipeRpcConnection {
         const START_CALL_ID: u32 = 2;
         const DEFAULT_FRAG_LIMIT: u16 = 4280;
         const NO_ASSOC_GROUP_ID: u32 = 0;
-        let bind_ack = Self::rpc_send_recv(
+        let bind_ack = Self::rpc_rw(
             &mut pipe,
             START_CALL_ID,
             DcRpcCoPktBind {
@@ -85,12 +94,14 @@ impl PipeRpcConnection {
             }
         };
 
-        Self::check_bind_results(&bind_ack, &tranfer_syntaxes)?;
+        let context_id = Self::check_bind_results(&bind_ack, &tranfer_syntaxes)?;
 
         Ok(I::new(PipeRpcConnection {
             pipe,
             syntax_id: I::syntax_id(),
             next_call_id: START_CALL_ID + 1,
+            context_id,
+            ndr_drep: 0x10,
         }))
     }
 
@@ -114,7 +125,7 @@ impl PipeRpcConnection {
     fn check_bind_results(
         bind_ack: &DcRpcCoPktBindAck,
         transfer_syntaxes: &[DceRpcSyntaxId],
-    ) -> crate::Result<()> {
+    ) -> crate::Result<u16> {
         const BIND_TIME_FEATURE_NEG_PREFIX: &str = "6cb71c2c-9812-4540-";
         if bind_ack.results.len() != transfer_syntaxes.len() {
             return Err(crate::Error::InvalidMessage(format!(
@@ -123,7 +134,10 @@ impl PipeRpcConnection {
                 transfer_syntaxes.len()
             )));
         }
-        for (ack_context, syntax) in bind_ack.results.iter().zip(transfer_syntaxes) {
+        let mut context_id_selected = None;
+        for (indx, (ack_context, syntax)) in
+            bind_ack.results.iter().zip(transfer_syntaxes).enumerate()
+        {
             if syntax
                 .uuid
                 .to_string()
@@ -148,13 +162,22 @@ impl PipeRpcConnection {
                     ack_context.syntax, syntax
                 )));
             }
+            context_id_selected = Some(indx as u16);
         }
 
-        Ok(())
+        if let Some(context_id) = context_id_selected {
+            log::debug!("Selected context ID: {}", context_id);
+            Ok(context_id)
+        } else {
+            Err(crate::Error::InvalidMessage(
+                "No accepted context ID found in BindAck".to_string(),
+            ))
+        }
     }
 
+    /// Performs a read+write operation on the pipe, sending a request and receiving it's response.
     #[maybe_async]
-    async fn rpc_send_recv(
+    async fn rpc_rw(
         pipe: &mut Pipe,
         call_id: u32,
         to_send: DcRpcCoPktRequestContent,
@@ -220,9 +243,70 @@ impl PipeRpcConnection {
 }
 
 impl BoundRpcConnection for PipeRpcConnection {
-    fn send_receive_raw(&mut self, stub_input: &[u8]) -> crate::Result<Vec<u8>> {
-        // TODO: Wrap in request, FSCTL_PIPE_TRANSCEIVE, unwrap response
-        todo!()
+    #[maybe_async]
+    async fn send_receive_raw(&mut self, opnum: u16, stub_input: &[u8]) -> crate::Result<Vec<u8>> {
+        let req = DcRpcCoPktRequest {
+            alloc_hint: 0,
+            context_id: 1,
+            opnum,
+            stub_data: stub_input.to_vec(),
+        }
+        .into();
+        let req = DceRpcCoRequestPkt::new(
+            req,
+            self.next_call_id,
+            DceRpcCoPktFlags::new()
+                .with_first_frag(true)
+                .with_last_frag(true),
+            0x10, // Packed DREP
+        );
+        self.next_call_id += 1;
+
+        let req_data: Vec<u8> = req.try_into()?;
+
+        let res = self
+            .pipe
+            .handle
+            .send_recvo(
+                IoctlRequest {
+                    ctl_code: FsctlCodes::PipeTransceive as u32,
+                    file_id: self.pipe.file_id,
+                    max_input_response: 1024,
+                    max_output_response: 1024,
+                    flags: IoctlRequestFlags::new().with_is_fsctl(true),
+                    buffer: IoctlReqData::FsctlPipeTransceive(IoctlBuffer::from(req_data)),
+                }
+                .into(),
+                ReceiveOptions::new().with_allow_async(true),
+            )
+            .await?;
+        let res = res.message.content.to_ioctl()?;
+        if res.ctl_code != FsctlCodes::PipeTransceive as u32 {
+            return Err(crate::Error::InvalidMessage(format!(
+                "Expected FSCTL_PIPE_TRANSCEIVE, got: {}",
+                res.ctl_code
+            )));
+        }
+
+        let rpc_reply = DceRpcCoResponsePkt::try_from(res.out_buffer.as_ref())?;
+        let response = match rpc_reply.into_content() {
+            DcRpcCoPktResponseContent::Response(dc_rpc_co_pkt_response) => dc_rpc_co_pkt_response,
+            content => {
+                return Err(crate::Error::InvalidMessage(format!(
+                    "Expected DceRpcCoPktResponseContent::Response, got: {:?}",
+                    content
+                )));
+            }
+        };
+
+        if response.context_id != self.context_id {
+            return Err(crate::Error::InvalidMessage(format!(
+                "Response context ID {} does not match expected {}",
+                response.context_id, self.context_id
+            )));
+        }
+
+        Ok(response.stub_data)
     }
 }
 

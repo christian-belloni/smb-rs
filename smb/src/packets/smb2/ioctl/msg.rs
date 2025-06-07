@@ -141,11 +141,11 @@ pub struct IoctlResponse {
 
     #[br(seek_before = SeekFrom::Start(input_offset.value.into()))]
     #[br(count = input_count)]
-    in_buffer: Vec<u8>,
+    pub in_buffer: Vec<u8>,
 
     #[br(seek_before = SeekFrom::Start(output_offset.value.into()))]
     #[br(count = output_count)]
-    out_buffer: Vec<u8>,
+    pub out_buffer: Vec<u8>,
 }
 
 impl IoctlResponse {

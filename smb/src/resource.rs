@@ -5,7 +5,9 @@ use time::PrimitiveDateTime;
 
 use crate::{
     connection::connection_info::ConnectionInfo,
-    msg_handler::{HandlerReference, MessageHandler, OutgoingMessage},
+    msg_handler::{
+        HandlerReference, IncomingMessage, MessageHandler, OutgoingMessage, ReceiveOptions,
+    },
     packets::{fscc::*, security::SecurityDescriptor, smb2::*},
     tree::TreeMessageHandler,
     Error,
@@ -513,6 +515,17 @@ impl ResourceHandle {
         msg: RequestContent,
     ) -> crate::Result<crate::msg_handler::IncomingMessage> {
         self.handler.send_recv(msg).await
+    }
+
+    #[maybe_async]
+    async fn send_recvo(
+        &self,
+        msg: RequestContent,
+        options: ReceiveOptions<'_>,
+    ) -> crate::Result<IncomingMessage> {
+        self.handler
+            .sendo_recvo(OutgoingMessage::new(msg), options)
+            .await
     }
 
     #[cfg(feature = "async")]
