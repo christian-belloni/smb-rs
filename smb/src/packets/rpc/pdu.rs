@@ -1,16 +1,10 @@
-//! MS-RPCE (DCE/RPC) types for RPC over SMB.
-//!
-//! In an optimal world, this file would have been generated
-//! from IDLs.
+//! DCE/RPC PDUs for connection-oriented RPC over SMB.
 
-use super::guid::Guid;
 use crate::packets::binrw_util::prelude::*;
+use crate::packets::guid::Guid;
 use binrw::io::TakeSeekExt;
 use binrw::prelude::*;
 use modular_bitfield::prelude::*;
-
-pub mod ndr64;
-pub mod srvsvc;
 
 pub const DCE_RPC_VERSION: DceRpcVersion = DceRpcVersion { major: 5, minor: 0 };
 
@@ -233,6 +227,12 @@ impl DceRpcSyntaxId {
         uuid: Guid::ZERO,
         version: 0,
     };
+}
+
+impl std::fmt::Display for DceRpcSyntaxId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}/{})", self.uuid, self.version)
+    }
 }
 
 #[binrw::binrw]

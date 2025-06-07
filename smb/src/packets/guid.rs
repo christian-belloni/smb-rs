@@ -29,6 +29,8 @@ impl Guid {
         2: u16::MAX,
         3: [u8::MAX; 8],
     };
+
+    // TODO: Support constant (compile-time) GUIDs.
 }
 
 impl From<[u8; 16]> for Guid {

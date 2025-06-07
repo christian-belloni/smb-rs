@@ -221,7 +221,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::packets::dcerpc::ndr64::NdrString;
+    use crate::packets::rpc::ndr64::NdrString;
 
     use super::*;
     use std::io::Cursor;
