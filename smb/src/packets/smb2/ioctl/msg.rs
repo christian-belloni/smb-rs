@@ -9,9 +9,10 @@ use std::io::SeekFrom;
 
 use crate::packets::{
     binrw_util::prelude::*,
-    dfsc::{ReqGetDfsReferral, ReqGetDfsReferralEx},
+    dfsc::{ReqGetDfsReferral, ReqGetDfsReferralEx, RespGetDfsReferral},
     smb2::FileId,
 };
+use std::ops::{Deref, DerefMut};
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
@@ -46,8 +47,15 @@ pub struct IoctlRequest {
     pub buffer: IoctlReqData,
 }
 
+/// This is a helper trait that defines, for a certain FSCTL request type,
+/// the response type and their matching FSCTL code.
+pub trait FsctlRequest: for<'a> BinWrite<Args<'a> = ()> + Into<IoctlReqData> {
+    type Response: FsctlResponseContent;
+    const FSCTL_CODE: FsctlCodes;
+}
+
 macro_rules! ioctl_req_data {
-    ($($fsctl:ident: $model:ty,)+) => {
+    ($($fsctl:ident: $model:ty, $response:ty, )+) => {
         paste::paste! {
 
 #[binrw::binrw]
@@ -73,31 +81,148 @@ impl IoctlReqData {
         }
     }
 }
+
+$(
+    impl FsctlRequest for $model {
+        type Response = $response;
+        const FSCTL_CODE: FsctlCodes = FsctlCodes::$fsctl;
+    }
+
+    impl Into<IoctlReqData> for $model {
+        fn into(self) -> IoctlReqData {
+            IoctlReqData::[<Fsctl $fsctl:camel>](self)
+        }
+    }
+)+
         }
     }
 }
 
+// TODO: Enable non-fsctl ioctls. currently, we only support FSCTLs.
 ioctl_req_data! {
     // The following FSCTLs do not provide an input buffer:
-    PipePeek: (),
-    SrvEnumerateSnapshots: (),
-    SrvRequestResumeKey: (),
-    QueryNetworkInterfaceInfo: (),
+    PipePeek: PipePeekRequest, PipePeekResponse,
+    SrvEnumerateSnapshots: SrvEnumerateSnapshotsRequest, SrvEnumerateSnapshotsResponse,
+    SrvRequestResumeKey: SrvRequestResumeKeyRequest, SrvRequestResumeKeyResponse,
+    QueryNetworkInterfaceInfo: QueryNetworkInterfaceInfoRequest, NetworkInterfaceInfo,
     // The following FSCTLs provide a specific data structure as input buffer:
-    SrvCopychunk: SrvCopychunkCopy,
-    SrvCopychunkWrite: SrvCopychunkCopy,
-    SrvReadHash: SrvReadHashReq,
-    LmrRequestResiliency: NetworkResiliencyRequest,
-    ValidateNegotiateInfo: ValidateNegotiateInfoRequest,
+    SrvCopychunk: SrvCopychunkCopy, SrvCopychunkCopyResponse,
+    SrvCopychunkWrite: SrvCopyChunkCopyWrite,SrvCopyChunkCopyWriteResponse,
+    SrvReadHash: SrvReadHashReq, SrvReadHashRes,
+    LmrRequestResiliency: NetworkResiliencyRequest, LmrRequestResiliencyResponse,
+    ValidateNegotiateInfo: ValidateNegotiateInfoRequest, ValidateNegotiateInfoResponse,
     // And the rest provide some input buffer.
-    DfsGetReferrals: ReqGetDfsReferral,
-    PipeWait: IoctlBuffer,
-    PipeTransceive: IoctlBuffer,
-    SetReparsePoint: IoctlBuffer,
-    DfsGetReferralsEx: ReqGetDfsReferralEx,
-    FileLevelTrim: IoctlBuffer,
-    QueryAllocatedRanges: QueryAllocRangesItem,
+    DfsGetReferrals: ReqGetDfsReferral, RespGetDfsReferral,
+    PipeWait: PipeWaitRequest, PipeWaitResponse,
+    PipeTransceive: PipeTransceiveRequest, PipeTransceiveResponse,
+    SetReparsePoint: SetReparsePointRequest, SetReparsePointResponse,
+    DfsGetReferralsEx: ReqGetDfsReferralEx, RespGetDfsReferral,
+    FileLevelTrim: FileLevelTrimRequest, FileLevelTrimResponse,
+    QueryAllocatedRanges: QueryAllocRangesItem, QueryAllocRangesResult,
 }
+
+/// This macro wraps an existing type into a newtype that implements the `IoctlRequestContent` trait.
+/// It also provides a constructor and implements `From` and `Deref` traits for the new type.
+///
+/// It's made so we can easily create new types for ioctl requests without repeating boilerplate code,
+/// and prevents collisions with existing types in the `IoctlReqData` enum.
+macro_rules! make_newtype {
+    ($vis:vis $name:ident($inner:ty)) => {
+        #[binrw::binrw]
+        #[derive(Debug, PartialEq, Eq)]
+        pub struct $name(pub $inner);
+
+        impl $name {
+            pub fn new(inner: $inner) -> Self {
+                Self(inner)
+            }
+        }
+
+        impl From<$inner> for $name {
+            fn from(inner: $inner) -> Self {
+                Self(inner)
+            }
+        }
+
+        impl Deref for $name {
+            type Target = $inner;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl DerefMut for $name {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
+        }
+    };
+}
+
+macro_rules! make_req_newtype {
+    ($vis:vis $name:ident($inner:ty)) => {
+        make_newtype!($vis $name($inner));
+        impl IoctlRequestContent for $name {
+            fn get_bin_size(&self) -> u32 {
+                self.0.get_bin_size()
+            }
+        }
+    }
+}
+
+macro_rules! make_res_newtype {
+    ($fsctl:ident: $vis:vis $name:ident($inner:ty)) => {
+        make_newtype!($vis $name($inner));
+        impl FsctlResponseContent for $name {
+            const FSCTL_CODES: &'static [FsctlCodes] = &[FsctlCodes::$fsctl];
+        }
+    }
+}
+
+make_req_newtype!(pub PipePeekRequest(()));
+make_req_newtype!(pub SrvEnumerateSnapshotsRequest(()));
+make_req_newtype!(pub SrvRequestResumeKeyRequest(()));
+make_req_newtype!(pub QueryNetworkInterfaceInfoRequest(()));
+make_req_newtype!(pub PipeWaitRequest(IoctlBuffer));
+make_req_newtype!(pub PipeTransceiveRequest(IoctlBuffer));
+make_req_newtype!(pub SetReparsePointRequest(IoctlBuffer));
+make_req_newtype!(pub FileLevelTrimRequest(IoctlBuffer));
+make_req_newtype!(pub SrvCopyChunkCopyWrite(SrvCopychunkCopy));
+
+make_res_newtype!(
+    PipePeek: pub PipePeekResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    SrvEnumerateSnapshots: pub SrvEnumerateSnapshotsResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    SrvRequestResumeKey: pub SrvRequestResumeKeyResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    QueryNetworkInterfaceInfo: pub NetworkInterfaceInfoResponse(NetworkInterfaceInfo)
+);
+make_res_newtype!( // TODO: Concrete type
+    SrvCopychunk: pub SrvCopychunkCopyResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    SrvCopychunkWrite: pub SrvCopyChunkCopyWriteResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    LmrRequestResiliency: pub LmrRequestResiliencyResponse(IoctlBuffer)
+);
+make_res_newtype!(
+    PipeWait: pub PipeWaitResponse(IoctlBuffer)
+);
+make_res_newtype!(
+    PipeTransceive: pub PipeTransceiveResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    SetReparsePoint: pub SetReparsePointResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    FileLevelTrim: pub FileLevelTrimResponse(RespGetDfsReferral)
+);
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,7 +278,7 @@ impl IoctlResponse {
     /// Parses the response content into the specified type.
     pub fn parse_fsctl<T>(&self) -> crate::Result<T>
     where
-        T: IoctlFsctlResponseContent,
+        T: FsctlResponseContent,
     {
         if !T::FSCTL_CODES.iter().any(|&f| f as u32 == self.ctl_code) {
             return Err(crate::Error::InvalidArgument(format!(
@@ -187,20 +312,23 @@ mod tests {
                 max_output_response: 1024,
                 flags: IoctlRequestFlags::new().with_is_fsctl(true),
                 buffer: IoctlReqData::FsctlPipeTransceive(
-                    [
-                        0x5, 0x0, 0x0, 0x3, 0x10, 0x0, 0x0, 0x0, 0x98, 0x0, 0x0, 0x0, 0x3, 0x0,
-                        0x0, 0x0, 0x80, 0x0, 0x0, 0x0, 0x1, 0x0, 0x39, 0x0, 0x0, 0x0, 0x0, 0x0,
-                        0x13, 0xf8, 0xa5, 0x8f, 0x16, 0x6f, 0xb5, 0x44, 0x82, 0xc2, 0x8f, 0x2d,
-                        0xae, 0x14, 0xd, 0xf5, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0,
-                        0x0, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0,
-                        0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x5, 0x0, 0x0, 0x0,
-                        0x0, 0x0, 0x0, 0x0, 0x1, 0x5, 0x0, 0x0, 0x0, 0x0, 0x0, 0x5, 0x15, 0x0, 0x0,
-                        0x0, 0x17, 0x3d, 0xa7, 0x2e, 0x95, 0x56, 0x53, 0xf9, 0x15, 0xdf, 0xf2,
-                        0x80, 0xe9, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-                        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,
-                        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0,
-                    ]
-                    .as_ref()
+                    Into::<IoctlBuffer>::into(
+                        [
+                            0x5, 0x0, 0x0, 0x3, 0x10, 0x0, 0x0, 0x0, 0x98, 0x0, 0x0, 0x0, 0x3, 0x0,
+                            0x0, 0x0, 0x80, 0x0, 0x0, 0x0, 0x1, 0x0, 0x39, 0x0, 0x0, 0x0, 0x0, 0x0,
+                            0x13, 0xf8, 0xa5, 0x8f, 0x16, 0x6f, 0xb5, 0x44, 0x82, 0xc2, 0x8f, 0x2d,
+                            0xae, 0x14, 0xd, 0xf5, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0,
+                            0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0,
+                            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x5,
+                            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5, 0x0, 0x0, 0x0, 0x0, 0x0,
+                            0x5, 0x15, 0x0, 0x0, 0x0, 0x17, 0x3d, 0xa7, 0x2e, 0x95, 0x56, 0x53,
+                            0xf9, 0x15, 0xdf, 0xf2, 0x80, 0xe9, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                            0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                            0x2, 0x0, 0x0, 0x0,
+                        ]
+                        .as_ref(),
+                    )
                     .into(),
                 ),
             }

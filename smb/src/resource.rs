@@ -396,51 +396,46 @@ impl ResourceHandle {
             .unwrap_security())
     }
 
-    /// Sends an FSCTL message for the current file.
+    /// Sends an FSCTL message for the current resource (file).
     /// # Type Parameters
-    /// * `T` - The type of the response to return. Must implement the [IoctlFsctlResponseContent] trait.
+    /// * `T` - The type of the request to send. Must implement the [`FsctlRequest`] trait.
     /// # Arguments
-    /// * `fsctl_code` - The fsctl command to issue
-    /// * `fsctl_data` - The data associated with the ioctl request
+    /// * `request` - The request to send, which has an associated FSCTL code and data.
     /// # Returns
-    /// A `Result` containing the requested information.
+    /// A `Result` containing the requested information, as bound to [`FsctlRequest::Response`].
     #[maybe_async]
-    pub async fn send_fsctl<T: IoctlFsctlResponseContent>(
-        &self,
-        fsctl_code: FsctlCodes,
-        fsctl_data: IoctlReqData,
-    ) -> crate::Result<T> {
-        self.send_fsctl_with_options(fsctl_code, fsctl_data, 1024, 1024)
+    pub async fn send_fsctl<T: FsctlRequest>(&self, request: T) -> crate::Result<T::Response> {
+        const DEFAULT_RESPONSE_OUT_SIZE: usize = 1024;
+        const DEFAULT_RESPONSE_IN_SIZE: usize = 0;
+        self.send_fsctl_with_options(request, DEFAULT_RESPONSE_IN_SIZE, DEFAULT_RESPONSE_OUT_SIZE)
             .await
     }
 
-    /// Sends an FSCTL message for the current file with more options.
+    /// Sends an FSCTL message for the current resource (file) with additional options.
     /// # Type Parameters
-    /// * `T` - The type of the response to return. Must implement the [IoctlFsctlResponseContent] trait.
+    /// * `T` - The type of the request to send. Must implement the [`FsctlRequest`] trait.
     /// # Arguments
-    /// * `fsctl_code` - The fsctl command to issue
-    /// * `fsctl_data` - The data associated with the ioctl request
-    /// * `max_input_response` - Maximum length of the input response in bytes
-    /// * `max_output_response` - Maximum length of the output response in bytes
+    /// * `request` - The request to send, which has an associated FSCTL code and data.
+    /// * `max_input_response` - The maximum input response size.
+    /// * `max_output_response` - The maximum output response size.
     /// # Returns
-    /// A `Result` containing the requested information.
+    /// A `Result` containing the requested information, as bound to [`FsctlRequest::Response`].
     #[maybe_async]
-    pub async fn send_fsctl_with_options<T: IoctlFsctlResponseContent>(
+    pub async fn send_fsctl_with_options<T: FsctlRequest>(
         &self,
-        fsctl_code: FsctlCodes,
-        fsctl_data: IoctlReqData,
+        request: T,
         max_input_response: usize,
         max_output_response: usize,
-    ) -> crate::Result<T> {
+    ) -> crate::Result<T::Response> {
         self.handler
             .send_recvo(
                 RequestContent::Ioctl(IoctlRequest {
-                    ctl_code: fsctl_code as u32,
+                    ctl_code: T::FSCTL_CODE as u32,
                     file_id: self.file_id,
                     max_input_response: max_input_response as u32,
                     max_output_response: max_output_response as u32,
                     flags: IoctlRequestFlags::new().with_is_fsctl(true),
-                    buffer: fsctl_data,
+                    buffer: request.into(),
                 }),
                 ReceiveOptions::new().with_allow_async(true),
             )
@@ -448,7 +443,7 @@ impl ResourceHandle {
             .message
             .content
             .to_ioctl()?
-            .parse_fsctl::<T>()
+            .parse_fsctl::<T::Response>()
     }
 
     /// Querys the file system information for the current file.

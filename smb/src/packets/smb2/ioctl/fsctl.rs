@@ -1,5 +1,5 @@
 //! FSCTL codes and structs.
-use binrw::{NullWideString, io::TakeSeekExt, prelude::*};
+use binrw::{io::TakeSeekExt, prelude::*, NullWideString};
 use modular_bitfield::prelude::*;
 
 use crate::packets::{
@@ -172,13 +172,13 @@ pub struct SrvRequestResumeKey {
 }
 
 /// A trait that helps parsing FSCTL responses by matching the FSCTL code.
-pub trait IoctlFsctlResponseContent: for<'a> BinRead<Args<'a> = ()> + std::fmt::Debug {
+pub trait FsctlResponseContent: for<'a> BinRead<Args<'a> = ()> + std::fmt::Debug {
     const FSCTL_CODES: &'static [FsctlCodes];
 }
 
 macro_rules! impl_fsctl_response {
     ($code:ident, $type:ty) => {
-        impl IoctlFsctlResponseContent for $type {
+        impl FsctlResponseContent for $type {
             const FSCTL_CODES: &'static [FsctlCodes] = &[FsctlCodes::$code];
         }
     };
@@ -304,7 +304,7 @@ pub struct ValidateNegotiateInfoResponse {
 impl_fsctl_response!(ValidateNegotiateInfo, ValidateNegotiateInfoResponse);
 
 // DFS get referrals FSCTLs.
-impl IoctlFsctlResponseContent for RespGetDfsReferral {
+impl FsctlResponseContent for RespGetDfsReferral {
     const FSCTL_CODES: &'static [FsctlCodes] =
         &[FsctlCodes::DfsGetReferrals, FsctlCodes::DfsGetReferralsEx];
 }
