@@ -173,6 +173,7 @@ pub struct DceRpcVersion {
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
+#[br(map = Self::from_bytes)]
 pub struct DceRpcCoPktFlags {
     pub first_frag: bool,
     pub last_frag: bool,
