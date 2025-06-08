@@ -335,7 +335,7 @@ impl IoctlRequestContent for QueryAllocRangesItem {
 }
 
 #[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct QueryAllocRangesResult {
     #[br(parse_with = binrw::helpers::until_eof)]
     values: Vec<QueryAllocRangesItem>,
@@ -345,12 +345,6 @@ impl Deref for QueryAllocRangesResult {
     type Target = Vec<QueryAllocRangesItem>;
     fn deref(&self) -> &Self::Target {
         &self.values
-    }
-}
-
-impl Default for QueryAllocRangesResult {
-    fn default() -> Self {
-        Self { values: Vec::new() }
     }
 }
 
