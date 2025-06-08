@@ -82,8 +82,8 @@ macro_rules! make_remoted_identity_connect{
     ) => {
         paste::paste! {
 
-#[binrw::binrw]
-#[derive(Debug)]
+#[binwrite]
+#[derive(Debug, BinRead)]
 pub struct RemotedIdentityTreeConnect {
     // MS-SMB2 2.2.9.2.1: Must be set to 0x1.
     #[bw(calc = PosMarker::new(1))]
