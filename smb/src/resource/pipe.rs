@@ -5,10 +5,7 @@ use crate::{
     msg_handler::ReceiveOptions,
     packets::{
         rpc::{interface::*, ndr64::NDR64_SYNTAX_ID, pdu::*},
-        smb2::{
-            FsctlCodes, IoctlBuffer, IoctlReqData, IoctlRequest, IoctlRequestFlags, ReadRequest,
-            WriteRequest,
-        },
+        smb2::{IoctlBuffer, PipeTransceiveRequest, ReadRequest, WriteRequest},
     },
 };
 use maybe_async::*;
@@ -39,6 +36,9 @@ pub struct PipeRpcConnection {
     next_call_id: u32,
     /// Selected, accepted, context ID from binding.
     context_id: u16,
+
+    server_max_xmit_frag: u16,
+    server_max_recv_frag: u16,
 }
 
 impl PipeRpcConnection {
@@ -85,6 +85,8 @@ impl PipeRpcConnection {
             pipe,
             next_call_id: START_CALL_ID + 1,
             context_id,
+            server_max_xmit_frag: bind_ack.max_xmit_frag,
+            server_max_recv_frag: bind_ack.max_recv_frag,
         }))
     }
 
@@ -256,28 +258,14 @@ impl BoundRpcConnection for PipeRpcConnection {
         let res = self
             .pipe
             .handle
-            .send_recvo(
-                IoctlRequest {
-                    ctl_code: FsctlCodes::PipeTransceive as u32,
-                    file_id: self.pipe.file_id,
-                    max_input_response: 1024,
-                    max_output_response: 1024,
-                    flags: IoctlRequestFlags::new().with_is_fsctl(true),
-                    buffer: IoctlReqData::FsctlPipeTransceive(IoctlBuffer::from(req_data)),
-                }
-                .into(),
-                ReceiveOptions::new().with_allow_async(true),
+            .send_fsctl_with_options(
+                PipeTransceiveRequest::from(IoctlBuffer::from(req_data)),
+                0,
+                self.server_max_xmit_frag as usize,
             )
             .await?;
-        let res = res.message.content.to_ioctl()?;
-        if res.ctl_code != FsctlCodes::PipeTransceive as u32 {
-            return Err(crate::Error::InvalidMessage(format!(
-                "Expected FSCTL_PIPE_TRANSCEIVE, got: {}",
-                res.ctl_code
-            )));
-        }
 
-        let rpc_reply = DceRpcCoResponsePkt::try_from(res.out_buffer.as_ref())?;
+        let rpc_reply = DceRpcCoResponsePkt::try_from(res.as_ref())?;
 
         if rpc_reply.packed_drep() != Self::PACKED_DREP {
             return Err(crate::Error::InvalidMessage(format!(
