@@ -404,6 +404,7 @@ impl ResourceHandle {
     /// * `fsctl_data` - The data associated with the ioctl request
     /// # Returns
     /// A `Result` containing the requested information.
+    #[maybe_async]
     pub async fn send_fsctl<T: IoctlFsctlResponseContent>(
         &self,
         fsctl_code: FsctlCodes,
@@ -423,6 +424,7 @@ impl ResourceHandle {
     /// * `max_output_response` - Maximum length of the output response in bytes
     /// # Returns
     /// A `Result` containing the requested information.
+    #[maybe_async]
     pub async fn send_fsctl_with_options<T: IoctlFsctlResponseContent>(
         &self,
         fsctl_code: FsctlCodes,
