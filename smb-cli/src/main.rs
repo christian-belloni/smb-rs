@@ -16,9 +16,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 #[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    _main().await.or_else(|e| {
+    _main().await.map_err(|e| {
         log::error!("Error: {}", e);
-        Err(e)
+        e
     })
 }
 
@@ -44,11 +44,11 @@ async fn _main() -> Result<(), Box<dyn Error>> {
     match &cli.command {
         Commands::Copy(cmd) => {
             log::info!("Copying {:?} to {:?}", cmd.from, cmd.to);
-            copy::copy(&cmd, &cli).await?;
+            copy::copy(cmd, &cli).await?;
         }
         Commands::Info(cmd) => {
             log::info!("Getting info for {:?}", cmd.path);
-            info::info(&cmd, &cli).await?;
+            info::info(cmd, &cli).await?;
         }
     }
 

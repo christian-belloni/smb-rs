@@ -26,7 +26,7 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
         let shares_info = client.list_shares(&info.path.server).await?;
         log::info!("Available shares on {}: ", info.path.server);
         for share in shares_info {
-            log::info!("  - {}", share.netname.as_ref().unwrap().to_string());
+            log::info!("  - {}", **share.netname.as_ref().unwrap());
         }
         return Ok(());
     }

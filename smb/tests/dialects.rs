@@ -106,7 +106,7 @@ async fn test_smb_integration_dialect_encrpytion_mode(
             if entry.unwrap().file_name.to_string() == TEST_FILE {
                 found = true;
             }
-            async { () }
+            async {  }
         })
         .await;
 
@@ -136,8 +136,7 @@ async fn test_smb_integration_dialect_encrpytion_mode(
                     FileAccessMask::new()
                         .with_delete(true)
                         .with_file_read_data(true)
-                        .with_file_read_attributes(true)
-                        .into(),
+                        .with_file_read_attributes(true),
                 ),
             )
             .await?

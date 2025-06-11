@@ -32,7 +32,7 @@ pub async fn make_server_connection(
     let user = var(TestEnv::USER).unwrap_or(TestEnv::DEFAULT_USER.to_string());
     let password = var(TestEnv::PASSWORD).unwrap_or(TestEnv::DEFAULT_PASSWORD.to_string());
 
-    let mut conn_config = config.unwrap_or(ConnectionConfig::default());
+    let mut conn_config = config.unwrap_or_default();
     conn_config.timeout = Some(std::time::Duration::from_secs(10));
     conn_config.auth_methods.kerberos = false;
     conn_config.auth_methods.ntlm = true;
