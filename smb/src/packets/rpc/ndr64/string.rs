@@ -24,8 +24,7 @@ where
     #[br(assert(*offset == 0))] // TODO: Support non-zero offsets!
     offset: NdrAlign<u64>,
     #[bw(calc = (data.len() as u64).into())]
-    #[br(assert((SIZE == 0 || *actual_count < SIZE as u64) ||
-                (SIZE != 0 && *actual_count < *(alloc_length.unwrap()) as u64)))]
+    #[br(assert((SIZE == 0 || *actual_count < SIZE as u64) || *actual_count < *(alloc_length.unwrap()) as u64))]
     actual_count: NdrAlign<u64>,
     #[br(count = *actual_count, args { inner: args })]
     #[bw(args_raw(args))]
