@@ -22,8 +22,8 @@ pub struct Client {
 }
 
 struct OpenedConnectionInfo {
-    conn: Connection,
-    session: Session,
+    _conn: Connection,
+    _session: Session,
     tree: Tree,
     creds: Option<(String, String)>,
 }
@@ -90,8 +90,8 @@ impl Client {
         let tree = session.tree_connect(&share_unc.to_string()).await?;
 
         let mut opened_conn_info = OpenedConnectionInfo {
-            conn,
-            session,
+            _conn: conn,
+            _session: session,
             tree,
             creds: None,
         };

@@ -107,7 +107,7 @@ impl Connection {
         if !smb2_only_neg {
             log::debug!("Negotiating multi-protocol: Sending SMB1");
             // 1. Send SMB1 negotiate request
-            let msg_bytes: Vec<u8> = SMB1NegotiateMessage::new().try_into()?;
+            let msg_bytes: Vec<u8> = SMB1NegotiateMessage::default().try_into()?;
             transport.send(&msg_bytes).await?;
 
             log::debug!("Sent SMB1 negotiate request, Receieving SMB2 response");
@@ -145,7 +145,7 @@ impl Connection {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
 
-        Ok(WorkerImpl::start(transport, self.config.timeout()).await?)
+        WorkerImpl::start(transport, self.config.timeout()).await
     }
 
     /// This method perofrms the SMB2 negotiation.
@@ -206,7 +206,7 @@ impl Connection {
         let dialect_impl = DialectImpl::new(dialect_rev);
         let mut negotiation = NegotiatedProperties {
             server_guid: smb2_negotiate_response.server_guid,
-            caps: smb2_negotiate_response.capabilities.clone(),
+            caps: smb2_negotiate_response.capabilities,
             max_transact_size: smb2_negotiate_response.max_transact_size,
             max_read_size: smb2_negotiate_response.max_read_size,
             max_write_size: smb2_negotiate_response.max_write_size,
@@ -447,7 +447,7 @@ impl ConnectionMessageHandler {
         self.worker.get()
     }
 
-    const SET_CREDIT_CHARGE_CMDS: &[Command] = &[
+    const SET_CREDIT_CHARGE_CMDS: &'static [Command] = &[
         Command::Read,
         Command::Write,
         Command::Ioctl,

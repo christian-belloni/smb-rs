@@ -24,7 +24,7 @@ pub trait RpcCall: for<'a> BinWrite<Args<'a> = ()> {
         Self: Sized,
     {
         let mut cursor = std::io::Cursor::new(data);
-        Self::ResponseType::read_le(&mut cursor).map_err(|e| crate::Error::from(e))
+        Self::ResponseType::read_le(&mut cursor).map_err(crate::Error::from)
     }
 }
 

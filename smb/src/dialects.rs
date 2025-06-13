@@ -6,8 +6,8 @@ use crate::{
     connection::{connection_info::NegotiatedProperties, preauth_hash},
     crypto,
     packets::smb2::{
-        CompressionCapabilities, Dialect, GlobalCapabilities, NegotiateResponse, ShareCacheMode,
-        ShareFlags, SigningAlgorithmId, TreeCapabilities,
+        Dialect, GlobalCapabilities, NegotiateResponse, ShareCacheMode, ShareFlags,
+        SigningAlgorithmId, TreeCapabilities,
     },
     ConnectionConfig, Error,
 };
@@ -151,7 +151,7 @@ impl DialectImpl {
 }
 
 trait DialectMethods {
-    const SIGNING_KEY_LABEL: &[u8];
+    const SIGNING_KEY_LABEL: &'static [u8];
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
@@ -162,12 +162,12 @@ trait DialectMethods {
 
 struct Smb311;
 impl Smb311 {
-    pub const ENCRYPTION_S2C_KEY_LABEL: &[u8] = b"SMBS2CCipherKey\x00";
-    pub const ENCRYPTION_C2S_KEY_LABEL: &[u8] = b"SMBC2SCipherKey\x00";
+    pub const ENCRYPTION_S2C_KEY_LABEL: &'static [u8] = b"SMBS2CCipherKey\x00";
+    pub const ENCRYPTION_C2S_KEY_LABEL: &'static [u8] = b"SMBC2SCipherKey\x00";
 }
 
 impl DialectMethods for Smb311 {
-    const SIGNING_KEY_LABEL: &[u8] = b"SMBSigningKey\x00";
+    const SIGNING_KEY_LABEL: &'static [u8] = b"SMBSigningKey\x00";
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
@@ -214,7 +214,7 @@ impl DialectMethods for Smb311 {
             ));
         }
 
-        let compression = response.get_ctx_compression().map(|c| c.clone());
+        let compression = response.get_ctx_compression().cloned();
 
         state.signing_algo = signing_algo;
         state.encryption_cipher = encryption_cipher;
@@ -227,11 +227,11 @@ impl DialectMethods for Smb311 {
 /// SMB 3.0 and 3.0.2
 struct Smb30X;
 impl Smb30X {
-    pub const ENCRYPTION_KEY_LABEL: &[u8] = b"SMB2AESCCM\x00";
+    pub const ENCRYPTION_KEY_LABEL: &'static [u8] = b"SMB2AESCCM\x00";
 }
 
 impl DialectMethods for Smb30X {
-    const SIGNING_KEY_LABEL: &[u8] = b"SMB2AESCMAC\x00";
+    const SIGNING_KEY_LABEL: &'static [u8] = b"SMB2AESCMAC\x00";
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
@@ -257,7 +257,7 @@ impl DialectMethods for Smb30X {
 struct Smb201;
 
 impl DialectMethods for Smb201 {
-    const SIGNING_KEY_LABEL: &[u8] = b"";
+    const SIGNING_KEY_LABEL: &'static [u8] = b"";
 
     fn process_negotiate_request(
         &self,

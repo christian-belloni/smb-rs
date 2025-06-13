@@ -157,7 +157,7 @@ impl BinRead for NetBiosName {
                 message: "Expected null byte at the end of NetBiosName".to_string(),
             });
         }
-        return Ok(NetBiosName { name, suffix });
+        Ok(NetBiosName { name, suffix })
     }
 }
 
@@ -221,7 +221,7 @@ impl FromStr for NetBiosName {
             .next()
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Missing name"))?
             .to_string();
-        if name.len() < 1 || name.len() > Self::TOTAL_NAME_BYTES {
+        if name.is_empty() || name.len() > Self::TOTAL_NAME_BYTES {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Invalid name length",
@@ -233,7 +233,7 @@ impl FromStr for NetBiosName {
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Missing suffix"))?
             .trim_end_matches('>')
             .to_string();
-        if suffix_str.len() < 1 || suffix_str.len() > 2 {
+        if suffix_str.is_empty() || suffix_str.len() > 2 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Invalid suffix length",
@@ -247,7 +247,7 @@ impl FromStr for NetBiosName {
             ));
         }
         let suffix = suffix.unwrap();
-        return Ok(NetBiosName::new(name, suffix));
+        Ok(NetBiosName::new(name, suffix))
     }
 }
 

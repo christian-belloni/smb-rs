@@ -38,7 +38,7 @@ pub struct PipeRpcConnection {
     context_id: u16,
 
     server_max_xmit_frag: u16,
-    server_max_recv_frag: u16,
+    _server_max_recv_frag: u16,
 }
 
 impl PipeRpcConnection {
@@ -86,7 +86,7 @@ impl PipeRpcConnection {
             next_call_id: START_CALL_ID + 1,
             context_id,
             server_max_xmit_frag: bind_ack.max_xmit_frag,
-            server_max_recv_frag: bind_ack.max_recv_frag,
+            _server_max_recv_frag: bind_ack.max_recv_frag,
         }))
     }
 

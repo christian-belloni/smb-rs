@@ -305,7 +305,7 @@ where
         };
 
         let timeout = { *self.timeout.read().await? };
-        T::wait_on_waiter(wait_for_receive, timeout).await;
+        T::wait_on_waiter(wait_for_receive, timeout).await
     }
 
     fn transformer(&self) -> &Transformer {

@@ -281,11 +281,11 @@ negotiate_context_type!(
     SigningCapabilities = 0x0008,
 );
 
-impl Into<NegotiateContext> for NegotiateContextValue {
-    fn into(self) -> NegotiateContext {
+impl From<NegotiateContextValue> for NegotiateContext {
+    fn from(val: NegotiateContextValue) -> Self {
         NegotiateContext {
-            context_type: self.get_matching_type(),
-            data: self,
+            context_type: val.get_matching_type(),
+            data: val,
         }
     }
 }

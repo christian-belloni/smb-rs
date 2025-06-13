@@ -103,6 +103,7 @@ pub struct FileNameInformation {
 /// The owner is the implementer of the file system filter driver associated with a reparse tag.
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
+#[repr(u32)]
 #[brw(repr(u32))]
 pub enum ReparseTag {
     /// Reserved reparse tag value.

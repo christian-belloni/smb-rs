@@ -222,6 +222,7 @@ pub enum CreateAction {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[bw(import(is_last: bool))]
+#[allow(clippy::manual_non_exhaustive)]
 pub struct CreateContext<T>
 where
     for<'a> T: BinRead<Args<'a> = (&'a Vec<u8>,)> + BinWrite<Args<'static> = ()>,
@@ -256,7 +257,7 @@ where
     #[bw(if(!is_last))]
     #[bw(align_before = 8)]
     #[bw(write_with = PosMarker::write_roff, args(&next_entry_offset))]
-    __: (),
+    _write_offset_placeholder: (),
 }
 
 impl<T> CreateContext<T>
@@ -264,6 +265,7 @@ where
     for<'a> T: BinRead<Args<'a> = (&'a Vec<u8>,)> + BinWrite<Args<'static> = ()>,
 {
     #[binrw::writer(writer, endian)]
+    #[allow(clippy::ptr_arg)] // writer accepts exact type.
     pub fn write_chained_roff_size(
         value: &Vec<CreateContext<T>>,
         offset_dest: &PosMarker<u32>,
@@ -342,7 +344,7 @@ $(
             CreateContext::<[<CreateContext $struct_name Data>]> {
                 name: <$req_type as [<CreateContextData $struct_name Value>]>::CONTEXT_NAME.to_vec(),
                 data: [<CreateContext $struct_name Data>]::[<$context_type:camel $struct_name>](req),
-                __: (),
+                _write_offset_placeholder: (),
             }
         }
     }

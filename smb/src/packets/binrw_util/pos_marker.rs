@@ -154,17 +154,14 @@ where
     {
         // Write offset if needed
         let start_offset = writer.stream_position()?;
-        match write_offset_to {
-            Some(write_offset_at) => {
-                // Is there a base offset marker? Subtract it from the current position.
-                let base_offset_val = match offset_relative_to {
-                    Some(offset_base) => offset_base.get_pos()?,
-                    None => 0,
-                };
-                let offset_to_write = start_offset - base_offset_val;
-                write_offset_at.write_back(offset_to_write, writer, endian)?;
-            }
-            None => (),
+        if let Some(write_offset_at) = write_offset_to {
+            // Is there a base offset marker? Subtract it from the current position.
+            let base_offset_val = match offset_relative_to {
+                Some(offset_base) => offset_base.get_pos()?,
+                None => 0,
+            };
+            let offset_to_write = start_offset - base_offset_val;
+            write_offset_at.write_back(offset_to_write, writer, endian)?;
         };
 
         // Write the underlying value

@@ -41,7 +41,7 @@ pub enum FsctlCodes {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct SrvCopychunkCopy {
-    pub source_key: [u8; Self::SRV_KEY_LENGTH],
+    pub source_key: [u8; SrvCopychunkCopy::SRV_KEY_LENGTH],
     #[bw(try_calc = chunks.len().try_into())]
     chunk_count: u32,
     #[bw(calc = 0)]
@@ -83,8 +83,8 @@ pub struct SrvReadHashReq {
     #[br(assert(hash_type == 1))]
     pub hash_type: u32,
     /// Hash version MUST be 1 or 2
-    #[br(assert(1 <= hash_version && hash_version <= 2))]
-    #[bw(assert(1 <= *hash_version && *hash_version <= 2))]
+    #[br(assert((1..=2).contains(&hash_version)))]
+    #[bw(assert((1..=2).contains(hash_version)))]
     pub hash_version: u32,
     pub hash_retrieval_type: SrvHashRetrievalType,
 }

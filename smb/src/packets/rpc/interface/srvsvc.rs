@@ -214,7 +214,7 @@ where
                         ));
                     }
                     Some(y) => {
-                        for share_info in y.into_iter() {
+                        for share_info in y.iter() {
                             let share_info = &**share_info;
                             result.push(share_info.clone());
                         }

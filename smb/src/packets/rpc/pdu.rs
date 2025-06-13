@@ -134,9 +134,9 @@ impl [<DcRpcCoPkt $name Content>] {
 }
 
 $(
-    impl Into<[<DcRpcCoPkt $name Content>]> for [<DcRpcCoPkt $pdu_type>] {
-        fn into(self) -> [<DcRpcCoPkt $name Content>] {
-            [<DcRpcCoPkt $name Content>]::$pdu_type(self)
+    impl From<[<DcRpcCoPkt $pdu_type>]> for [<DcRpcCoPkt $name Content>] {
+        fn from(pkt: [<DcRpcCoPkt $pdu_type>]) -> [<DcRpcCoPkt $name Content>] {
+            [<DcRpcCoPkt $name Content>]::$pdu_type(pkt)
         }
     }
 )+
@@ -356,7 +356,6 @@ pub struct DcRpcCoPktResponse {
 
 #[cfg(test)]
 mod tests {
-
     use crate::guid;
 
     use super::*;

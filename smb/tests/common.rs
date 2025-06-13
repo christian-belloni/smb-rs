@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use smb::{Client, ClientConfig, ConnectionConfig, UncPath};
 use std::env::var;
 
@@ -41,7 +42,7 @@ pub async fn make_server_connection(
         connection: conn_config,
         ..Default::default()
     });
-    log::info!("Connecting to {}", server);
+    log::info!("Connecting to {server}");
 
     let unc_path = UncPath {
         server: server.clone(),
@@ -52,7 +53,7 @@ pub async fn make_server_connection(
     smb.share_connect(&unc_path, user.as_str(), password.clone())
         .await?;
 
-    log::info!("Connected to {}", unc_path);
+    log::info!("Connected to {unc_path}");
     Ok((smb, unc_path))
 }
 

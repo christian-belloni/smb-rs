@@ -188,8 +188,9 @@ pub struct LuidAttrData {
 #[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[br(map = Self::from_bytes)]
 pub struct LsaprLuidAttributes {
-    pub default: bool,
-    pub enabled: bool,
+    #[allow(clippy::identity_op)]
+    pub is_default: bool,
+    pub is_enabled: bool,
     #[skip]
     __: B30,
 }

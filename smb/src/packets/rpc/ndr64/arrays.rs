@@ -91,14 +91,14 @@ impl<E> NdrAligned for NdrArray<E> where
 {
 }
 
-impl<E> Into<NdrArray<E>> for Vec<E>
+impl<E> From<Vec<E>> for NdrArray<E>
 where
     for<'a> E:
         BinRead<Args<'a> = (Option<&'a E>,)> + BinWrite<Args<'a> = (NdrPtrWriteStage,)> + 'static,
 {
-    fn into(self) -> NdrArray<E> {
+    fn from(val: Vec<E>) -> Self {
         NdrArray {
-            data: self.into_iter().map(NdrAlign::from).collect(),
+            data: val.into_iter().map(NdrAlign::from).collect(),
         }
     }
 }

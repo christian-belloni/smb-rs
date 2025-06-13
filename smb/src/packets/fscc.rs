@@ -219,9 +219,9 @@ macro_rules! file_info_classes {
             }
 
             $(
-                impl Into<$name> for [<File $field_name Information>] {
-                    fn into(self) -> $name {
-                        $name::[<$field_name Information>](self)
+                impl From<[<File $field_name Information>]> for $name {
+                    fn from(value: [<File $field_name Information>]) -> $name {
+                        $name::[<$field_name Information>](value)
                     }
                 }
 

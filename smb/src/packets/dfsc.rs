@@ -71,8 +71,8 @@ pub struct DfsRequestData {
 impl DfsRequestData {
     pub fn get_bin_size(&self) -> usize {
         size_of::<u16>() * 2 // lengths
-            + self.request_file_name.len() as usize * size_of::<u16>() // + request_file_name (wstring)
-            + self.site_name.len() as usize * size_of::<u16>() // + site_name (wstring)
+            + self.request_file_name.len() * size_of::<u16>() // + request_file_name (wstring)
+            + self.site_name.len() * size_of::<u16>() // + site_name (wstring)
     }
 }
 

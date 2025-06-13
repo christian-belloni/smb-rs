@@ -64,6 +64,7 @@ macro_rules! make_status {
 /// NT Status codes.
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[repr(u32)]
 #[brw(repr(u32))]
 pub enum Status {
     $(
