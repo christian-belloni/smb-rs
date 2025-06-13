@@ -63,6 +63,6 @@ impl<'a> Deref for DfsRootTreeRef<'a> {
     type Target = Tree;
 
     fn deref(&self) -> &Self::Target {
-        &self.tree
+        self.tree
     }
 }

@@ -109,7 +109,7 @@ impl File {
                 .into(),
             )
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         let content = response
             .message
             .content
@@ -165,7 +165,7 @@ impl File {
                 .into(),
             )
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
 
         let content = response
             .message
@@ -193,7 +193,7 @@ impl File {
                 .into(),
             )
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
 
         log::debug!("Flushed {}.", self.handle.name());
         Ok(())
@@ -246,7 +246,7 @@ impl Seek for File {
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let read_length = File::read_block(self, buf, self.pos, false)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         self.pos += read_length as u64;
         Ok(read_length)
     }
@@ -274,7 +274,7 @@ impl ReadAt for File {
     async fn read_at(&self, buf: &mut [u8], offset: u64) -> crate::Result<usize> {
         self.read_block(buf, offset, false)
             .await
-            .map_err(|e| crate::Error::IoError(e))
+            .map_err(crate::Error::IoError)
     }
 }
 
@@ -283,7 +283,7 @@ impl WriteAt for File {
     async fn write_at(&self, buf: &[u8], offset: u64) -> crate::Result<usize> {
         self.write_block(buf, offset)
             .await
-            .map_err(|e| crate::Error::IoError(e))
+            .map_err(crate::Error::IoError)
     }
 }
 

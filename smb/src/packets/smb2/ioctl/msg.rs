@@ -88,9 +88,9 @@ $(
         const FSCTL_CODE: FsctlCodes = FsctlCodes::$fsctl;
     }
 
-    impl Into<IoctlReqData> for $model {
-        fn into(self) -> IoctlReqData {
-            IoctlReqData::[<Fsctl $fsctl:camel>](self)
+    impl From<$model> for IoctlReqData {
+        fn from(model: $model) -> IoctlReqData {
+            IoctlReqData::[<Fsctl $fsctl:camel>](model)
         }
     }
 )+
@@ -225,7 +225,7 @@ make_res_newtype!( // TODO: Concrete type
 );
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct IoctlRequestFlags {

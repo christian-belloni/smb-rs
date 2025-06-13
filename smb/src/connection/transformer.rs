@@ -44,12 +44,11 @@ impl Transformer {
 
         let mut config = self.config.write().await?;
         if neg_info.dialect.supports_compression() && neg_info.config.compression_enabled {
-            let compress = match &neg_info.negotiation.compression {
-                Some(compression) => {
-                    Some((Compressor::new(compression), Decompressor::new(compression)))
-                }
-                None => None,
-            };
+            let compress = neg_info
+                .negotiation
+                .compression
+                .as_ref()
+                .map(|c| (Compressor::new(c), Decompressor::new(c)));
             config.compress = compress;
         }
 
@@ -111,7 +110,7 @@ impl Transformer {
 
     /// Internal: Calculates the next preauth integrity hash value, if required.
     #[maybe_async]
-    async fn step_preauth_hash(&self, raw: &Vec<u8>) -> crate::Result<()> {
+    async fn step_preauth_hash(&self, raw: &[u8]) -> crate::Result<()> {
         let mut pa_hash = self.preauth_hash.lock().await?;
         // If already finished -- do nothing.
         if matches!(*pa_hash, Some(PreauthHashState::Finished(_))) {
@@ -122,7 +121,7 @@ impl Transformer {
             return Ok(());
         }
         // Otherwise, update the hash!
-        *pa_hash = pa_hash.take().unwrap().next(&raw).into();
+        *pa_hash = pa_hash.take().unwrap().next(raw).into();
         Ok(())
     }
 
@@ -132,7 +131,7 @@ impl Transformer {
     pub async fn finalize_preauth_hash(&self) -> crate::Result<Option<PreauthHashValue>> {
         let mut pa_hash = self.preauth_hash.lock().await?;
         if let Some(PreauthHashState::Finished(hash)) = &*pa_hash {
-            return Ok(Some(hash.clone()));
+            return Ok(Some(*hash));
         }
 
         *pa_hash = match pa_hash.take() {
@@ -143,13 +142,12 @@ impl Transformer {
         };
 
         Ok(Some(
-            pa_hash
+            *pa_hash
                 .as_ref()
                 .ok_or_else(|| {
                     crate::Error::InvalidState("Preauth hash is not supported!".to_string())
                 })?
-                .unwrap_final_hash()
-                .clone(),
+                .unwrap_final_hash(),
         ))
     }
 
@@ -316,7 +314,7 @@ impl Transformer {
     async fn verify_plain_incoming(
         &self,
         message: &mut PlainResponse,
-        raw: &Vec<u8>,
+        raw: &[u8],
         form: &mut MessageForm,
     ) -> crate::Result<()> {
         // Check if signing check is required.

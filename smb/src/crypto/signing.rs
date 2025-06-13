@@ -172,7 +172,7 @@ mod gmac_signer {
         pub fn build(key: &SigningKey) -> Box<dyn SigningAlgo> {
             let key = Key::<Aes128>::from_slice(key);
             Box::new(Gmac128Signer {
-                gmac: Aes128Gcm::new(&key),
+                gmac: Aes128Gcm::new(key),
                 nonce: OnceCell::new(),
                 buffer: vec![],
             })
@@ -181,12 +181,11 @@ mod gmac_signer {
         fn make_nonce(header: &Header) -> Gmac128Nonce {
             debug_assert!(header.message_id > 0 && header.message_id != u64::MAX);
 
-            return NonceSuffixFlags::new()
+            NonceSuffixFlags::new()
                 .with_msg_id(header.message_id)
                 .with_is_cancel(header.command == Command::Cancel)
                 .with_is_server(header.flags.server_to_redir())
                 .into_bytes()
-                .into();
         }
     }
 

@@ -96,11 +96,11 @@ impl Directory {
     /// [`QueryDirectoryStream`] - Which implements [Stream] and can be used to iterate over the directory contents.
     /// # Notes
     /// * **IMPORTANT** Calling this method BLOCKS ANY ADDITIONAL CALLS to this method on THIS structure instance.
-    /// Hence, you should not call this method on the same instance from multiple threads. This is for thread safety,
-    /// since SMB2 does not allow multiple queries on the same handle at the same time. Re-open the directory and
-    /// create a new instance of this structure to query the directory again.
+    ///   Hence, you should not call this method on the same instance from multiple threads. This is for thread safety,
+    ///   since SMB2 does not allow multiple queries on the same handle at the same time. Re-open the directory and
+    ///   create a new instance of this structure to query the directory again.
     /// * You must use [`futures_util::StreamExt`] to consume the stream.
-    /// See [https://tokio.rs/tokio/tutorial/streams] for more information on how to use streams.
+    ///   See [https://tokio.rs/tokio/tutorial/streams] for more information on how to use streams.
     #[cfg(feature = "async")]
     pub async fn query_directory<'a, T>(
         this: &'a Arc<Self>,
@@ -331,7 +331,7 @@ pub mod iter_stream {
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
             let this = self.get_mut();
-            return match this.receiver.poll_recv(cx) {
+            match this.receiver.poll_recv(cx) {
                 Poll::Ready(Some(value)) => {
                     if this.receiver.is_empty() {
                         this.notify_fetch_next.notify_waiters() // Notify that batch is done
@@ -340,7 +340,7 @@ pub mod iter_stream {
                 }
                 Poll::Ready(None) => Poll::Ready(None), // Stream is closed!
                 Poll::Pending => Poll::Pending,
-            };
+            }
         }
     }
 }

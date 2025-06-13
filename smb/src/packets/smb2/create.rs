@@ -153,7 +153,7 @@ pub struct CreateOptions {
 
 // share_access 4 byte flags:
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct ShareAccessFlags {
@@ -199,7 +199,7 @@ pub struct CreateResponse {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct CreateResponseFlags {
@@ -337,11 +337,11 @@ $(
         const CONTEXT_NAME: &'static [u8] = CreateContextType::[<$context_type:upper _NAME>];
     }
 
-    impl Into<CreateContext<[<CreateContext $struct_name Data>]>> for $req_type {
-        fn into(self) -> CreateContext<[<CreateContext $struct_name Data>]> {
+    impl From<$req_type> for CreateContext<[<CreateContext $struct_name Data>]> {
+        fn from(req: $req_type) -> Self {
             CreateContext::<[<CreateContext $struct_name Data>]> {
-                name: <Self as [<CreateContextData $struct_name Value>]>::CONTEXT_NAME.to_vec(),
-                data: [<CreateContext $struct_name Data>]::[<$context_type:camel $struct_name>](self),
+                name: <$req_type as [<CreateContextData $struct_name Value>]>::CONTEXT_NAME.to_vec(),
+                data: [<CreateContext $struct_name Data>]::[<$context_type:camel $struct_name>](req),
                 __: (),
             }
         }
@@ -536,7 +536,7 @@ pub struct DurableHandleRequestV2 {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct DurableHandleV2Flags {
@@ -692,7 +692,7 @@ pub struct CloseResponse {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct CloseFlags {

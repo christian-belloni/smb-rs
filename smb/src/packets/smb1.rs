@@ -40,7 +40,7 @@ pub struct SMB1NegotiateMessage {
     _word_count: u8,
     byte_count: PosMarker<u16>,
     #[br(map_stream = |s| s.take_seek(byte_count.value.into()), parse_with = binrw::helpers::until_eof)]
-    #[bw(write_with = PosMarker::write_size, args(&byte_count))]
+    #[bw(write_with = PosMarker::write_size, args(byte_count))]
     dialects: Vec<Smb1Dialect>,
 }
 

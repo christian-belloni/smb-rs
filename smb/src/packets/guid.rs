@@ -23,12 +23,7 @@ impl Guid {
     }
 
     /// The maximum possible GUID value (all bits set to 1).
-    pub const MAX: Guid = Guid {
-        0: u32::MAX,
-        1: u16::MAX,
-        2: u16::MAX,
-        3: [u8::MAX; 8],
-    };
+    pub const MAX: Guid = Guid(u32::MAX, u16::MAX, u16::MAX, [u8::MAX; 8]);
 
     pub const fn parse_uuid(s: &str) -> Result<Guid, &'static str> {
         use super::util::parse_byte;
@@ -49,7 +44,7 @@ impl Guid {
         }
         Ok(Guid(
             u32::from_be_bytes([
-                parse_byte(b, so + 0),
+                parse_byte(b, so),
                 parse_byte(b, so + 2),
                 parse_byte(b, so + 4),
                 parse_byte(b, so + 6),
@@ -97,10 +92,10 @@ impl TryFrom<&[u8; 16]> for Guid {
     }
 }
 
-impl Into<[u8; 16]> for Guid {
-    fn into(self) -> [u8; 16] {
+impl From<Guid> for [u8; 16] {
+    fn from(val: Guid) -> Self {
         let mut cursor = Cursor::new(Vec::new());
-        self.write(&mut cursor).unwrap();
+        val.write(&mut cursor).unwrap();
         cursor.into_inner().try_into().unwrap()
     }
 }

@@ -80,7 +80,7 @@ impl Client {
 
         let share_unc = unc.clone().with_no_path();
 
-        if let Some(_) = self.connections.get(&share_unc) {
+        if self.connections.contains_key(&share_unc) {
             log::warn!("Connection already exists for this UNC path. Reusing it.");
         }
 
@@ -126,7 +126,7 @@ impl Client {
         let conn_info = self.get_opened_conn_for_path(path)?;
         conn_info
             .tree
-            .create(path.path.as_ref().map(|x| x.as_str()).unwrap_or(""), args)
+            .create(path.path.as_deref().unwrap_or(""), args)
             .await
     }
 
@@ -204,16 +204,13 @@ impl<'a> DfsResolver<'a> {
         // Open the next DFS referral. Try each referral path, since some may be down.
         for ref_unc_path in dfs_ref_paths.iter() {
             // Try opening the share. Log failure, and try next ref.
-            match self
+            if let Err(e) = self
                 .0
                 .share_connect(ref_unc_path, dfs_creds.0.as_str(), dfs_creds.1.clone())
                 .await
             {
-                Err(e) => {
-                    log::error!("Failed to open DFS referral: {}", e);
-                    continue;
-                }
-                _ => (),
+                log::error!("Failed to open DFS referral: {}", e);
+                continue;
             };
 
             let resource = self
@@ -244,8 +241,7 @@ impl<'a> DfsResolver<'a> {
         if !dfs_refs.referral_header_flags.storage_servers() {
             return Err(Error::InvalidMessage(
                 "DFS referral does not contain storage servers".to_string(),
-            )
-            .into());
+            ));
         }
         let mut paths = vec![];
         // Resolve the DFS referral entries.
@@ -265,7 +261,7 @@ impl<'a> DfsResolver<'a> {
         &self,
         entry: &ReferralEntry,
         path_consumed: usize,
-        dfs_path_string: &String,
+        dfs_path_string: &str,
         is_first: bool,
     ) -> crate::Result<UncPath> {
         match &entry.value {
@@ -274,8 +270,7 @@ impl<'a> DfsResolver<'a> {
                 if v4.referral_entry_flags == 0 && is_first {
                     return Err(Error::InvalidMessage(
                         "First DFS Referral is not primary one, invalid message!".to_string(),
-                    )
-                    .into());
+                    ));
                 }
                 // The path consumed is a wstring index.
                 let index_end_of_match = path_consumed / std::mem::size_of::<u16>();
@@ -283,8 +278,7 @@ impl<'a> DfsResolver<'a> {
                 if index_end_of_match > dfs_path_string.len() {
                     return Err(Error::InvalidMessage(
                         "DFS path consumed is out of bounds".to_string(),
-                    )
-                    .into());
+                    ));
                 }
 
                 let suffix = if index_end_of_match < dfs_path_string.len() {
@@ -304,15 +298,12 @@ impl<'a> DfsResolver<'a> {
                     + &v4.refs.network_address.to_string()
                     + &dfs_path_string[suffix..];
                 let unc_path = UncPath::from_str(&unc_str_dest)?;
-                log::debug!("Resolved DFS referral to {}", unc_path.to_string());
+                log::debug!("Resolved DFS referral to {}", unc_path);
                 Ok(unc_path)
             }
-            _ => {
-                return Err(Error::UnsupportedOperation(
-                    "Unsupported DFS referral entry type".to_string(),
-                )
-                .into());
-            }
+            _ => Err(Error::UnsupportedOperation(
+                "Unsupported DFS referral entry type".to_string(),
+            )),
         }
     }
 }

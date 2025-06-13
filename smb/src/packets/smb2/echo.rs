@@ -2,7 +2,7 @@
 use binrw::prelude::*;
 
 #[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct EchoMesasge {
     #[br(assert(_structure_size == 4))]
     #[bw(calc = 4)]
@@ -14,12 +14,6 @@ pub struct EchoMesasge {
 
 pub type EchoRequest = EchoMesasge;
 pub type EchoResponse = EchoMesasge;
-
-impl Default for EchoMesasge {
-    fn default() -> Self {
-        EchoMesasge {}
-    }
-}
 
 #[cfg(test)]
 mod tests {

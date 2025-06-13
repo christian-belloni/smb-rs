@@ -22,7 +22,7 @@ pub use set_file_info::*;
 
 /// MS-FSCC 2.6
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct FileAttributes {
@@ -103,10 +103,10 @@ impl From<FileAccessMask> for DirAccessMask {
     }
 }
 
-impl Into<FileAccessMask> for DirAccessMask {
-    fn into(self) -> FileAccessMask {
+impl From<DirAccessMask> for FileAccessMask {
+    fn from(val: DirAccessMask) -> Self {
         // The bits are the same, just the names are different.
-        FileAccessMask::from_bytes(self.into_bytes())
+        FileAccessMask::from_bytes(val.into_bytes())
     }
 }
 
@@ -168,7 +168,7 @@ macro_rules! file_info_classes {
         paste::paste! {
             // Trait to be implemented for all the included value types.
             pub trait [<$name Value>] :
-                TryFrom<$name, Error = crate::Error>
+                TryFrom<$name, Error = $crate::Error>
                 + Send + 'static
                 + Into<$name>
                 + for <'a> [<Bin $brw_ty>]<Args<'a> = ()> {
@@ -207,7 +207,7 @@ macro_rules! file_info_classes {
                 }
             }
 
-            impl crate::packets::fscc::FileInfoType for $name {
+            impl $crate::packets::fscc::FileInfoType for $name {
                 type Class = [<$name Class>];
                 fn class(&self) -> Self::Class {
                     match self {
@@ -226,13 +226,13 @@ macro_rules! file_info_classes {
                 }
 
                 impl TryFrom<$name> for [<File $field_name Information>] {
-                    type Error = crate::Error;
+                    type Error = $crate::Error;
 
                     fn try_from(value: $name) -> Result<Self, Self::Error> {
-                        pub use crate::packets::fscc::FileInfoType;
+                        pub use $crate::packets::fscc::FileInfoType;
                         match value {
                             $name::[<$field_name Information>](v) => Ok(v),
-                            _ => Err(crate::Error::UnexpectedInformationType(<Self as [<$name Value>]>::CLASS_ID as u8, value.class() as u8)),
+                            _ => Err($crate::Error::UnexpectedInformationType(<Self as [<$name Value>]>::CLASS_ID as u8, value.class() as u8)),
                         }
                     }
                 }

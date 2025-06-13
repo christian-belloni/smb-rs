@@ -33,7 +33,7 @@ impl MessageEncryptor {
             signature: 0,
             nonce: self.gen_nonce(),
             original_message_size: message.len().try_into()?,
-            session_id: session_id,
+            session_id,
         };
 
         let result = self

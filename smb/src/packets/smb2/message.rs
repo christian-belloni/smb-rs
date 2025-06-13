@@ -21,6 +21,6 @@ make_message!(Response, BinRead, PlainResponse);
 impl TryFrom<&[u8]> for Response {
     type Error = binrw::Error;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Response::read(&mut std::io::Cursor::new(value))?)
+        Response::read(&mut std::io::Cursor::new(value))
     }
 }

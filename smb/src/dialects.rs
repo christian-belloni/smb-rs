@@ -174,7 +174,7 @@ impl DialectMethods for Smb311 {
         state: &mut NegotiatedProperties,
         config: &ConnectionConfig,
     ) -> crate::Result<()> {
-        if let None = response.negotiate_context_list {
+        if response.negotiate_context_list.is_none() {
             return Err(Error::InvalidMessage(
                 "Expected negotiate context list".to_string(),
             ));
@@ -203,7 +203,7 @@ impl DialectMethods for Smb311 {
         // And verify that the encryption algorithm is supported.
         let encryption_cipher = response.get_ctx_encrypt_cipher();
         if let Some(encryption_cipher) = &encryption_cipher {
-            if !crypto::ENCRYPTING_ALGOS.contains(&encryption_cipher) {
+            if !crypto::ENCRYPTING_ALGOS.contains(encryption_cipher) {
                 return Err(Error::NegotiationError(
                     "Unsupported encryption algorithm received".into(),
                 ));
@@ -214,10 +214,7 @@ impl DialectMethods for Smb311 {
             ));
         }
 
-        let compression: Option<CompressionCapabilities> = match response.get_ctx_compression() {
-            Some(compression) => Some(compression.clone()),
-            None => None,
-        };
+        let compression = response.get_ctx_compression().map(|c| c.clone());
 
         state.signing_algo = signing_algo;
         state.encryption_cipher = encryption_cipher;

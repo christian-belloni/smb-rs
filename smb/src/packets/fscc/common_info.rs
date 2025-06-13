@@ -39,7 +39,7 @@ pub struct FileFullEaInformationInner {
 pub type FileFullEaInformationCommon = ChainedItem<FileFullEaInformationInner>;
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct FileModeInformation {

@@ -106,7 +106,7 @@ async fn test_smb_integration_dialect_encrpytion_mode(
             if entry.unwrap().file_name.to_string() == TEST_FILE {
                 found = true;
             }
-            async {  }
+            async {}
         })
         .await;
 

@@ -113,7 +113,7 @@ impl Session {
             }
         };
 
-        session_state.lock().await?.set_flags(flags, &conn_info)?;
+        session_state.lock().await?.set_flags(flags, conn_info)?;
 
         log::info!("Session setup complete.");
         if flags.is_guest_or_null_session() {
@@ -144,7 +144,7 @@ impl Session {
         while !authenticator.is_authenticated()? {
             let next_buf = match last_setup_response.as_ref() {
                 Some(response) => authenticator.next(&response.buffer)?,
-                None => authenticator.next(&vec![])?,
+                None => authenticator.next(&[])?,
             };
             let is_auth_done = authenticator.is_authenticated()?;
 
@@ -319,7 +319,7 @@ impl SessionMessageHandler {
         let unsigned_allowed = {
             let session = self.session_state.lock().await?;
             if session.is_invalid() {
-                return Err(Error::InvalidState("Session is invalid".to_string()).into());
+                return Err(Error::InvalidState("Session is invalid".to_string()));
             }
             session.is_guest_or_anonymous() || skip_security_checks
         };
@@ -352,7 +352,7 @@ impl MessageHandler for SessionMessageHandler {
         {
             let session = self.session_state.lock().await?;
             if session.is_invalid() {
-                return Err(Error::InvalidState("Session is invalid".to_string()).into());
+                return Err(Error::InvalidState("Session is invalid".to_string()));
             }
 
             if session.is_set_up() {

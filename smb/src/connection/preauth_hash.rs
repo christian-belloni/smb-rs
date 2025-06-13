@@ -17,7 +17,7 @@ impl PreauthHashState {
         match self {
             PreauthHashState::InProgress(hash) => {
                 let mut hasher = Sha512::new();
-                hasher.update(&hash);
+                hasher.update(hash);
                 hasher.update(data);
                 PreauthHashState::InProgress(hasher.finalize().into())
             }
@@ -27,7 +27,7 @@ impl PreauthHashState {
 
     pub fn current_hash(&self) -> PreauthHashValue {
         match self {
-            PreauthHashState::InProgress(hash) => hash.clone(),
+            PreauthHashState::InProgress(hash) => *hash,
             _ => panic!("Preauth hash not started"),
         }
     }

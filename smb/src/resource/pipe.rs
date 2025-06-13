@@ -79,7 +79,7 @@ impl PipeRpcConnection {
             }
         };
 
-        let context_id = Self::check_bind_results(&bind_ack, &tranfer_syntaxes)?;
+        let context_id = Self::check_bind_results(bind_ack, &tranfer_syntaxes)?;
 
         Ok(I::new(PipeRpcConnection {
             pipe,
@@ -96,7 +96,7 @@ impl PipeRpcConnection {
     ) -> Vec<DcRpcCoPktBindContextElement> {
         let mut result = vec![];
 
-        for (i, syntax) in transfer_syntaxes.into_iter().enumerate() {
+        for (i, syntax) in transfer_syntaxes.iter().enumerate() {
             result.push(DcRpcCoPktBindContextElement {
                 context_id: i as u16,
                 abstract_syntax: syntax_id.clone(),

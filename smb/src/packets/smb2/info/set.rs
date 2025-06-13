@@ -50,15 +50,15 @@ pub enum SetInfoClass {
     Quota(NullByte),
 }
 
-impl Into<SetInfoClass> for SetFileInfoClass {
-    fn into(self) -> SetInfoClass {
-        SetInfoClass::File(self)
+impl From<SetFileInfoClass> for SetInfoClass {
+    fn from(val: SetFileInfoClass) -> Self {
+        SetInfoClass::File(val)
     }
 }
 
-impl Into<SetInfoClass> for SetFileSystemInfoClass {
-    fn into(self) -> SetInfoClass {
-        SetInfoClass::FileSystem(self)
+impl From<SetFileSystemInfoClass> for SetInfoClass {
+    fn from(val: SetFileSystemInfoClass) -> Self {
+        SetInfoClass::FileSystem(val)
     }
 }
 
@@ -82,7 +82,7 @@ impl SetInfoData {
         }
 
         SetInfoRequest {
-            info_class: info_class,
+            info_class,
             additional_information: additional_info,
             file_id,
             data: self,

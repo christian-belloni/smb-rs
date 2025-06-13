@@ -172,9 +172,8 @@ where
 
         let total_size = writer.stream_position()? - start_offset;
         // Write size if needed
-        match write_size_to {
-            Some(write_size_to) => write_size_to.write_back(total_size, writer, endian)?,
-            None => (),
+        if let Some(write_size_to) = write_size_to {
+            write_size_to.write_back(total_size, writer, endian)?
         };
         Ok(())
     }

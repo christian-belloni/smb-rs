@@ -42,7 +42,7 @@ pub struct ReqGetDfsReferralEx {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct DfsRequestFlags {
@@ -89,7 +89,7 @@ pub struct RespGetDfsReferral {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct ReferralHeaderFlags {
@@ -235,7 +235,7 @@ impl ReferralEntryValueV3 {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct ReferralEntryFlags {
@@ -287,13 +287,13 @@ pub struct EntryV3V4DfsPaths {
     _restore_position: PosMarker<()>,
 
     /// The DFS path that corresponds to the DFS root or the DFS link for which target information is returned.
-    #[br(seek_before = _start.seek_from((dfs_path_offset.value - EntryV3Value::OFFSET_FROM_ENTRY_START).try_into().unwrap()))]
+    #[br(seek_before = _start.seek_from((dfs_path_offset.value - EntryV3Value::OFFSET_FROM_ENTRY_START).into()))]
     pub dfs_path: NullWideString,
     /// The DFS path that corresponds to the DFS root or the DFS link for which target information is returned.
-    #[br(seek_before = _start.seek_from((dfs_alternate_path_offset.value - EntryV3Value::OFFSET_FROM_ENTRY_START).try_into().unwrap()))]
+    #[br(seek_before = _start.seek_from((dfs_alternate_path_offset.value - EntryV3Value::OFFSET_FROM_ENTRY_START).into()))]
     pub dfs_alternate_path: NullWideString,
     /// The DFS target that corresponds to this entry.
-    #[br(seek_before = _start.seek_from((network_address_offset.value - EntryV3Value::OFFSET_FROM_ENTRY_START).try_into().unwrap()))]
+    #[br(seek_before = _start.seek_from((network_address_offset.value - EntryV3Value::OFFSET_FROM_ENTRY_START).into()))]
     pub network_address: NullWideString,
 
     #[br(seek_before = _restore_position.seek_from(0))]
@@ -318,9 +318,9 @@ pub struct EntryV3DCRefs {
     #[bw(calc = PosMarker::default())]
     _restore_position: PosMarker<()>,
 
-    #[br(seek_before = _start.seek_from((special_name_offset.value - EntryV3Value::OFFSET_FROM_ENTRY_START).try_into().unwrap()))]
+    #[br(seek_before = _start.seek_from((special_name_offset.value - EntryV3Value::OFFSET_FROM_ENTRY_START).into()))]
     pub special_name: NullWideString,
-    #[br(seek_before = _start.seek_from((expanded_name_offset.value - EntryV3Value::OFFSET_FROM_ENTRY_START).try_into().unwrap()))]
+    #[br(seek_before = _start.seek_from((expanded_name_offset.value - EntryV3Value::OFFSET_FROM_ENTRY_START).into()))]
     #[br(count = number_of_expanded_names)]
     pub expanded_names: Vec<NullWideString>,
 
@@ -345,7 +345,7 @@ pub struct ReferralEntryValueV4 {
 
 /// Internal.
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 struct ReferralEntryFlagsV4 {

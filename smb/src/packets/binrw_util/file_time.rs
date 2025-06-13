@@ -8,7 +8,7 @@ use binrw::prelude::*;
 use time::macros::datetime;
 use time::PrimitiveDateTime;
 
-#[derive(BinRead, BinWrite, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(BinRead, BinWrite, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct FileTime {
     /// 100-nanosecond intervals since January 1, 1601 (UTC)
     value: u64,
@@ -48,12 +48,6 @@ impl From<PrimitiveDateTime> for FileTime {
         Self {
             value: duration.whole_nanoseconds() as u64 / Self::SCALE,
         }
-    }
-}
-
-impl Default for FileTime {
-    fn default() -> Self {
-        Self { value: 0 }
     }
 }
 

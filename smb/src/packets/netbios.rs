@@ -75,7 +75,7 @@ pub struct NetBiosName {
 
 impl NetBiosName {
     /// The difference between byte to converted nibble value.
-    const SUB_TO_GET_NIBBLE: u8 = 'A' as u8;
+    const SUB_TO_GET_NIBBLE: u8 = b'A';
     /// NetBIOS names are exactly 16 bytes long, including the suffix.
     const TOTAL_NAME_BYTES: usize = 15;
 

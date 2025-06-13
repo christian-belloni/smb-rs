@@ -89,7 +89,7 @@ impl Connection {
 
     #[maybe_async]
     pub async fn close(&self) -> crate::Result<()> {
-        match self.handler.worker().take() {
+        match self.handler.worker() {
             Some(c) => c.stop().await,
             None => Ok(()),
         }
@@ -346,7 +346,7 @@ impl Connection {
         let security_mode = NegotiateSecurityMode::new().with_signing_enabled(has_signing);
 
         NegotiateRequest {
-            security_mode: security_mode,
+            security_mode,
             capabilities,
             client_guid,
             dialects: supported_dialects,
@@ -461,10 +461,7 @@ impl ConnectionMessageHandler {
         if let Some(neg) = self.conn_info.get() {
             if neg.negotiation.caps.large_mtu() {
                 // Calculate the cost of the message (charge).
-                let cost = if Self::SET_CREDIT_CHARGE_CMDS
-                    .iter()
-                    .any(|&cmd| cmd == msg.message.header.command)
-                {
+                let cost = if Self::SET_CREDIT_CHARGE_CMDS.contains(&msg.message.header.command) {
                     let send_payload_size = msg.message.content.req_payload_size();
                     let expected_response_payload_size = msg.message.content.expected_resp_size();
                     (1 + (max(send_payload_size, expected_response_payload_size) - 1)
@@ -559,12 +556,11 @@ impl MessageHandler for ConnectionMessageHandler {
         msg.message.header.flags = msg.message.header.flags.with_priority_mask(priority_value);
         self.process_sequence_outgoing(&mut msg).await?;
 
-        Ok(self
-            .worker
+        self.worker
             .get()
             .ok_or(Error::InvalidState("Worker is uninitialized".into()))?
             .send(msg)
-            .await?)
+            .await
     }
 
     #[maybe_async]
