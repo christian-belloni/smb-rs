@@ -13,14 +13,9 @@ pub struct BaseSizedString<T> {
 impl<T> BaseSizedString<T> {
     const CHAR_WIDTH: u64 = std::mem::size_of::<T>() as u64;
 
-    /// In bytes.
+    /// Size of the string's data, in bytes.
     pub fn size(&self) -> u64 {
         self.data.len() as u64 * Self::CHAR_WIDTH
-    }
-
-    /// In chars.
-    pub fn len(&self) -> u64 {
-        self.data.len() as u64
     }
 }
 

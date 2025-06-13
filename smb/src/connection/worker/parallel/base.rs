@@ -305,10 +305,7 @@ where
         };
 
         let timeout = { *self.timeout.read().await? };
-        let wait_result = T::wait_on_waiter(wait_for_receive, timeout).await;
-
-        // Wait for the message to be received.
-        Ok(wait_result?)
+        T::wait_on_waiter(wait_for_receive, timeout).await
     }
 
     fn transformer(&self) -> &Transformer {

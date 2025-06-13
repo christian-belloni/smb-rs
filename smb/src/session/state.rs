@@ -54,7 +54,7 @@ impl SessionAlgos {
             Self::smb3xx_make_ciphers(session_key, preauth_hash, info)?
         } else {
             SessionAlgos {
-                signer: Self::smb2_make_signer(session_key, info)?.into(),
+                signer: Self::smb2_make_signer(session_key, info)?,
                 encryptor: None,
                 decryptor: None,
             }
@@ -273,7 +273,7 @@ impl SessionInfo {
     /// Returns whether encryption is set up for this session, and is specified in the session flags.
     pub fn should_encrypt(&self) -> bool {
         if let Some(SessionInfoState::SetUp { algos }) = &self.state {
-            algos.encryptor.is_some() && self.flags.get().map_or(false, |f| f.encrypt_data())
+            algos.encryptor.is_some() && self.flags.get().is_some_and(|f| f.encrypt_data())
         } else {
             false
         }
@@ -283,17 +283,17 @@ impl SessionInfo {
     pub fn is_guest_or_anonymous(&self) -> bool {
         self.flags
             .get()
-            .map_or(false, |f| f.is_guest_or_null_session())
+            .is_some_and(|f| f.is_guest_or_null_session())
     }
 
     /// Returns whether the session is set up - can be used for signing and encryption.
     pub fn is_set_up(&self) -> bool {
-        return matches!(self.state, Some(SessionInfoState::SetUp { .. }));
+        matches!(self.state, Some(SessionInfoState::SetUp { .. }))
     }
 
     /// Returns whether the session is invalid (by calling [`SessionInfo::invalidate`]).
     pub fn is_invalid(&self) -> bool {
-        return matches!(self.state, Some(SessionInfoState::Invalid));
+        matches!(self.state, Some(SessionInfoState::Invalid))
     }
 
     pub fn decryptor(&self) -> Option<&MessageDecryptor> {

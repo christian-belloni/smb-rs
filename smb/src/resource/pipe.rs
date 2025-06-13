@@ -38,7 +38,7 @@ pub struct PipeRpcConnection {
     context_id: u16,
 
     server_max_xmit_frag: u16,
-    server_max_recv_frag: u16,
+    _server_max_recv_frag: u16,
 }
 
 impl PipeRpcConnection {
@@ -79,14 +79,14 @@ impl PipeRpcConnection {
             }
         };
 
-        let context_id = Self::check_bind_results(&bind_ack, &tranfer_syntaxes)?;
+        let context_id = Self::check_bind_results(bind_ack, &tranfer_syntaxes)?;
 
         Ok(I::new(PipeRpcConnection {
             pipe,
             next_call_id: START_CALL_ID + 1,
             context_id,
             server_max_xmit_frag: bind_ack.max_xmit_frag,
-            server_max_recv_frag: bind_ack.max_recv_frag,
+            _server_max_recv_frag: bind_ack.max_recv_frag,
         }))
     }
 
@@ -96,7 +96,7 @@ impl PipeRpcConnection {
     ) -> Vec<DcRpcCoPktBindContextElement> {
         let mut result = vec![];
 
-        for (i, syntax) in transfer_syntaxes.into_iter().enumerate() {
+        for (i, syntax) in transfer_syntaxes.iter().enumerate() {
             result.push(DcRpcCoPktBindContextElement {
                 context_id: i as u16,
                 abstract_syntax: syntax_id.clone(),

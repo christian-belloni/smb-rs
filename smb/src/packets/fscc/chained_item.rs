@@ -14,6 +14,7 @@ const DEFAULT_OFFSET_PAD: u32 = 4;
 #[binrw::binrw]
 #[derive(Debug)]
 #[bw(import(last: bool))]
+#[allow(clippy::manual_non_exhaustive)]
 pub struct ChainedItem<T, const OFFSET_PAD: u32 = DEFAULT_OFFSET_PAD>
 where
     T: BinRead + BinWrite,
@@ -28,7 +29,7 @@ where
     #[bw(if(!last))]
     #[bw(align_before = OFFSET_PAD)]
     #[bw(write_with = PosMarker::write_roff, args(&next_entry_offset))]
-    __: (),
+    _write_offset_placeholder: (),
 }
 
 impl<T, const OFFSET_PAD: u32> ChainedItem<T, OFFSET_PAD>
@@ -46,6 +47,7 @@ where
     }
 
     #[binrw::writer(writer, endian)]
+    #[allow(clippy::ptr_arg)] // writer accepts exact type.
     pub fn write_chained(value: &Vec<ChainedItem<T, OFFSET_PAD>>) -> BinResult<()> {
         for (i, item) in value.iter().enumerate() {
             item.write_options(writer, endian, (i == value.len() - 1,))?;
@@ -56,6 +58,7 @@ where
     /// Write a vector of chained items, and write the size of the vector
     /// to the given `size_dest` position marker.
     #[binrw::writer(writer, endian)]
+    #[allow(clippy::ptr_arg)] // writer accepts exact type.
     pub fn write_chained_size(
         value: &Vec<ChainedItem<T, OFFSET_PAD>>,
         size_dest: &PosMarker<u32>,
@@ -120,7 +123,10 @@ where
     for<'b> <T as BinWrite>::Args<'b>: Default,
 {
     fn from(value: T) -> Self {
-        Self { value, __: () }
+        Self {
+            value,
+            _write_offset_placeholder: (),
+        }
     }
 }
 

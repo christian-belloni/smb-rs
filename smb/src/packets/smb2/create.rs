@@ -153,7 +153,7 @@ pub struct CreateOptions {
 
 // share_access 4 byte flags:
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct ShareAccessFlags {
@@ -199,7 +199,7 @@ pub struct CreateResponse {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct CreateResponseFlags {
@@ -222,6 +222,7 @@ pub enum CreateAction {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 #[bw(import(is_last: bool))]
+#[allow(clippy::manual_non_exhaustive)]
 pub struct CreateContext<T>
 where
     for<'a> T: BinRead<Args<'a> = (&'a Vec<u8>,)> + BinWrite<Args<'static> = ()>,
@@ -256,7 +257,7 @@ where
     #[bw(if(!is_last))]
     #[bw(align_before = 8)]
     #[bw(write_with = PosMarker::write_roff, args(&next_entry_offset))]
-    __: (),
+    _write_offset_placeholder: (),
 }
 
 impl<T> CreateContext<T>
@@ -264,6 +265,7 @@ where
     for<'a> T: BinRead<Args<'a> = (&'a Vec<u8>,)> + BinWrite<Args<'static> = ()>,
 {
     #[binrw::writer(writer, endian)]
+    #[allow(clippy::ptr_arg)] // writer accepts exact type.
     pub fn write_chained_roff_size(
         value: &Vec<CreateContext<T>>,
         offset_dest: &PosMarker<u32>,
@@ -337,12 +339,12 @@ $(
         const CONTEXT_NAME: &'static [u8] = CreateContextType::[<$context_type:upper _NAME>];
     }
 
-    impl Into<CreateContext<[<CreateContext $struct_name Data>]>> for $req_type {
-        fn into(self) -> CreateContext<[<CreateContext $struct_name Data>]> {
+    impl From<$req_type> for CreateContext<[<CreateContext $struct_name Data>]> {
+        fn from(req: $req_type) -> Self {
             CreateContext::<[<CreateContext $struct_name Data>]> {
-                name: <Self as [<CreateContextData $struct_name Value>]>::CONTEXT_NAME.to_vec(),
-                data: [<CreateContext $struct_name Data>]::[<$context_type:camel $struct_name>](self),
-                __: (),
+                name: <$req_type as [<CreateContextData $struct_name Value>]>::CONTEXT_NAME.to_vec(),
+                data: [<CreateContext $struct_name Data>]::[<$context_type:camel $struct_name>](req),
+                _write_offset_placeholder: (),
             }
         }
     }
@@ -536,7 +538,7 @@ pub struct DurableHandleRequestV2 {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct DurableHandleV2Flags {
@@ -692,7 +694,7 @@ pub struct CloseResponse {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct CloseFlags {

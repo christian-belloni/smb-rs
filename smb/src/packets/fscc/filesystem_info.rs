@@ -36,7 +36,7 @@ pub struct FileFsAttributeInformation {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct FileSystemAttributes {
@@ -96,7 +96,7 @@ pub enum FsDeviceType {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct FsDeviceCharacteristics {
@@ -127,7 +127,7 @@ pub struct FsDeviceCharacteristics {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct FileSystemControlFlags {
@@ -178,7 +178,7 @@ pub struct FileFsSectorSizeInformation {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct SectorSizeInfoFlags {

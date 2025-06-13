@@ -68,8 +68,8 @@ impl FromStr for UncPath {
                 "UNC path must start with two slashes/backslashes".to_string(),
             ));
         }
-        let parts: Vec<&str> = input[2..].splitn(3, |c| c == '\\' || c == '/').collect();
-        if parts.len() < 1 {
+        let parts: Vec<&str> = input[2..].splitn(3, ['\\', '/']).collect();
+        if parts.is_empty() {
             return Err(Error::InvalidArgument(
                 "UNC path must include at least a server and tree name".to_string(),
             ));

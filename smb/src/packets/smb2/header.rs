@@ -6,16 +6,16 @@ use modular_bitfield::prelude::*;
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq, Clone, Copy)]
 #[brw(repr(u16))]
 pub enum Command {
-    Negotiate = 00,
-    SessionSetup = 01,
-    Logoff = 02,
-    TreeConnect = 03,
-    TreeDisconnect = 04,
-    Create = 05,
-    Close = 06,
-    Flush = 07,
-    Read = 08,
-    Write = 09,
+    Negotiate = 0,
+    SessionSetup = 1,
+    Logoff = 2,
+    TreeConnect = 3,
+    TreeDisconnect = 4,
+    Create = 5,
+    Close = 6,
+    Flush = 7,
+    Read = 8,
+    Write = 9,
     Lock = 0xA,
     Ioctl = 0xB,
     Cancel = 0xC,
@@ -64,6 +64,7 @@ macro_rules! make_status {
 /// NT Status codes.
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[repr(u32)]
 #[brw(repr(u32))]
 pub enum Status {
     $(
@@ -180,7 +181,7 @@ pub struct Header {
     #[bw(calc = 0)]
     _reserved: u32,
     #[br(if(!flags.async_command()))]
-    #[bw(assert(tree_id.is_some() == !flags.async_command()))]
+    #[bw(assert(tree_id.is_some() != flags.async_command()))]
     pub tree_id: Option<u32>,
 
     // Option 2 - Async: AsyncId. flags.async_command MUST be set manually.
@@ -203,7 +204,7 @@ impl Header {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct HeaderFlags {

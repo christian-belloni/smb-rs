@@ -25,7 +25,7 @@ pub fn kbkdf_hmacsha256<const L: usize>(
 ) -> Result<[u8; L], CryptoError> {
     assert!(L % 8 == 0);
 
-    let key = HmacSha256KeyHandle { key: key.clone() };
+    let key = HmacSha256KeyHandle { key: *key };
 
     let mut prf = HmacSha256Prf::default();
     let mode = KDFMode::CounterMode(CounterMode { counter_length: 32 });
@@ -35,7 +35,7 @@ pub fn kbkdf_hmacsha256<const L: usize>(
     let mut output = [0; L];
     kbkdf(&mode, &input, &key, &mut prf, &mut output)?;
 
-    Ok(output.into())
+    Ok(output)
 }
 
 struct HmacSha256KeyHandle {

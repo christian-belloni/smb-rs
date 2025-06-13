@@ -83,7 +83,7 @@ impl Authenticator {
 
     const SSPI_REQ_DATA_REPRESENTATION: DataRepresentation = DataRepresentation::Native;
 
-    pub fn next(&mut self, gss_token: &Vec<u8>) -> crate::Result<AuthenticationStep> {
+    pub fn next(&mut self, gss_token: &[u8]) -> crate::Result<AuthenticationStep> {
         if self.is_authenticated()? {
             return Ok(AuthenticationStep::Complete);
         }
@@ -111,7 +111,7 @@ impl Authenticator {
         }
 
         let mut input_buffers = vec![];
-        input_buffers.push(SecurityBuffer::new(gss_token.clone(), BufferType::Token));
+        input_buffers.push(SecurityBuffer::new(gss_token.to_owned(), BufferType::Token));
         builder = builder.with_input(&mut input_buffers);
 
         let result = {
@@ -131,14 +131,14 @@ impl Authenticator {
 
         self.current_state = Some(result);
 
-        return Ok(AuthenticationStep::NextToken(
+        Ok(AuthenticationStep::NextToken(
             output_buffer
                 .pop()
                 .ok_or(Error::InvalidState(
                     "SSPI output buffer is empty.".to_string(),
                 ))?
                 .buffer,
-        ));
+        ))
     }
 
     fn get_available_ssp_pkgs(config: &AuthMethodsConfig) -> String {

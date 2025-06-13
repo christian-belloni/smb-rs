@@ -35,7 +35,7 @@ pub trait SmbTransportWrite: Send {
         async {
             // Transport Header
             let header = SmbTcpMessageHeader {
-                stream_protocol_length: (message.len() as u32).into(),
+                stream_protocol_length: message.len() as u32,
             };
             let mut header_buf = Vec::with_capacity(SmbTcpMessageHeader::SIZE);
             header.write(&mut Cursor::new(&mut header_buf))?;
@@ -87,8 +87,7 @@ pub trait SmbTransportRead: Send {
             let header = SmbTcpMessageHeader::read(&mut Cursor::new(header_data))?;
 
             // Content - final response.
-            let mut data = Vec::with_capacity(header.stream_protocol_length as usize);
-            data.resize(data.capacity(), 0);
+            let mut data = vec![0; header.stream_protocol_length as usize];
             self.receive_exact(&mut data).await?;
 
             log::trace!(

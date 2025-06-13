@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use smb::{Client, ClientConfig, ConnectionConfig, UncPath};
 use std::env::var;
 
@@ -32,7 +33,7 @@ pub async fn make_server_connection(
     let user = var(TestEnv::USER).unwrap_or(TestEnv::DEFAULT_USER.to_string());
     let password = var(TestEnv::PASSWORD).unwrap_or(TestEnv::DEFAULT_PASSWORD.to_string());
 
-    let mut conn_config = config.unwrap_or(ConnectionConfig::default());
+    let mut conn_config = config.unwrap_or_default();
     conn_config.timeout = Some(std::time::Duration::from_secs(10));
     conn_config.auth_methods.kerberos = false;
     conn_config.auth_methods.ntlm = true;
@@ -41,7 +42,7 @@ pub async fn make_server_connection(
         connection: conn_config,
         ..Default::default()
     });
-    log::info!("Connecting to {}", server);
+    log::info!("Connecting to {server}");
 
     let unc_path = UncPath {
         server: server.clone(),
@@ -52,7 +53,7 @@ pub async fn make_server_connection(
     smb.share_connect(&unc_path, user.as_str(), password.clone())
         .await?;
 
-    log::info!("Connected to {}", unc_path);
+    log::info!("Connected to {unc_path}");
     Ok((smb, unc_path))
 }
 

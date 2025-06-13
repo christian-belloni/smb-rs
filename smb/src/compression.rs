@@ -1,4 +1,4 @@
-///! Implements (de)compression logic.
+//! Implements (de)compression logic.
 use crate::packets::smb2::*;
 use binrw::prelude::*;
 #[cfg(feature = "compress_lz4")]
@@ -13,7 +13,7 @@ pub struct Decompressor {
     caps: CompressionCapabilities,
 }
 
-impl<'a> Decompressor {
+impl Decompressor {
     pub fn new(caps: &CompressionCapabilities) -> Decompressor {
         Decompressor { caps: caps.clone() }
     }
@@ -52,7 +52,7 @@ impl Compressor {
         Compressor { caps: caps.clone() }
     }
 
-    pub fn compress(&self, bytes: &Vec<u8>) -> crate::Result<CompressedMessage> {
+    pub fn compress(&self, bytes: &[u8]) -> crate::Result<CompressedMessage> {
         // TODO: Add Chained.
         Ok(UnchainedCompression.compress(bytes, &self.caps.compression_algorithms)?)
     }
@@ -68,7 +68,7 @@ trait CompressionMethod {
 
     fn compress(
         &self,
-        data: &Vec<u8>,
+        data: &[u8],
         algorithms: &[CompressionAlgorithm],
     ) -> Result<CompressedMessage, CompressionError>;
 
@@ -107,7 +107,7 @@ impl CompressionMethod for UnchainedCompression {
 
     fn compress(
         &self,
-        data: &Vec<u8>,
+        data: &[u8],
         allowed_algorithms: &[CompressionAlgorithm],
     ) -> Result<CompressedMessage, CompressionError> {
         // Check what algos are supported.
@@ -176,7 +176,7 @@ impl CompressionMethod for ChainedCompression {
 
     fn compress(
         &self,
-        _data: &Vec<u8>,
+        _data: &[u8],
         _algorithms: &[CompressionAlgorithm],
     ) -> Result<CompressedMessage, CompressionError> {
         todo!()
@@ -191,13 +191,13 @@ trait CompressionAlgorithmImpl {
     ///
     fn decompress(
         &self,
-        compressed: &Vec<u8>,
+        compressed: &[u8],
         original_size: Option<u32>,
         out: &mut Vec<u8>,
     ) -> Result<(), CompressionError>;
 
     /// Compress the data into a new buffer.
-    fn compress(&self, data: &Vec<u8>) -> Result<Vec<u8>, CompressionError>;
+    fn compress(&self, data: &[u8]) -> Result<Vec<u8>, CompressionError>;
 }
 
 pub const SUPPORTED_ALGORITHMS: &[CompressionAlgorithm] = &[
@@ -213,7 +213,7 @@ struct NoneCompression;
 impl CompressionAlgorithmImpl for NoneCompression {
     fn decompress(
         &self,
-        compressed: &Vec<u8>,
+        compressed: &[u8],
         original_size: Option<u32>,
         out: &mut Vec<u8>,
     ) -> Result<(), CompressionError> {
@@ -223,8 +223,8 @@ impl CompressionAlgorithmImpl for NoneCompression {
         Ok(())
     }
 
-    fn compress(&self, data: &Vec<u8>) -> Result<Vec<u8>, CompressionError> {
-        Ok(data.clone())
+    fn compress(&self, data: &[u8]) -> Result<Vec<u8>, CompressionError> {
+        Ok(data.to_owned())
     }
 }
 
@@ -250,7 +250,7 @@ pub struct PatternV1Payload {
 impl CompressionAlgorithmImpl for PatternV1Compression {
     fn decompress(
         &self,
-        compressed: &Vec<u8>,
+        compressed: &[u8],
         original_size: Option<u32>,
         out: &mut Vec<u8>,
     ) -> Result<(), CompressionError> {
@@ -262,14 +262,15 @@ impl CompressionAlgorithmImpl for PatternV1Compression {
             Ok(p) => p,
             Err(e) => return Err(CompressionError::PatternV1InvalidPayload(e)),
         };
-        out.extend(
-            std::iter::repeat(parsed_payload.pattern).take(parsed_payload.repetitions as usize),
-        );
+        out.extend(std::iter::repeat_n(
+            parsed_payload.pattern,
+            parsed_payload.repetitions as usize,
+        ));
 
         Ok(())
     }
 
-    fn compress(&self, _data: &Vec<u8>) -> Result<Vec<u8>, CompressionError> {
+    fn compress(&self, _data: &[u8]) -> Result<Vec<u8>, CompressionError> {
         todo!()
     }
 }
@@ -281,7 +282,7 @@ struct Lz4Compression;
 impl CompressionAlgorithmImpl for Lz4Compression {
     fn decompress(
         &self,
-        compressed: &Vec<u8>,
+        compressed: &[u8],
         original_size: Option<u32>,
         out: &mut Vec<u8>,
     ) -> Result<(), CompressionError> {
@@ -296,7 +297,7 @@ impl CompressionAlgorithmImpl for Lz4Compression {
         Ok(())
     }
 
-    fn compress(&self, data: &Vec<u8>) -> Result<Vec<u8>, CompressionError> {
+    fn compress(&self, data: &[u8]) -> Result<Vec<u8>, CompressionError> {
         Ok(lz4_flex::compress(data))
     }
 }

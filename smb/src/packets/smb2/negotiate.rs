@@ -39,7 +39,7 @@ pub struct NegotiateRequest {
 }
 
 #[bitfield]
-#[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct NegotiateSecurityMode {
@@ -50,7 +50,7 @@ pub struct NegotiateSecurityMode {
 }
 
 #[bitfield]
-#[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct GlobalCapabilities {
@@ -281,11 +281,11 @@ negotiate_context_type!(
     SigningCapabilities = 0x0008,
 );
 
-impl Into<NegotiateContext> for NegotiateContextValue {
-    fn into(self) -> NegotiateContext {
+impl From<NegotiateContextValue> for NegotiateContext {
+    fn from(val: NegotiateContextValue) -> Self {
         NegotiateContext {
-            context_type: self.get_matching_type(),
-            data: self,
+            context_type: val.get_matching_type(),
+            data: val,
         }
     }
 }
@@ -379,7 +379,7 @@ impl std::fmt::Display for CompressionAlgorithm {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct CompressionCapsFlags {
@@ -395,7 +395,7 @@ pub struct NetnameNegotiateContextId {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct TransportCapabilities {

@@ -132,7 +132,6 @@ mod cmac_signer {
 
 #[cfg(feature = "sign_gmac")]
 mod gmac_signer {
-
     use std::cell::OnceCell;
 
     use aes::Aes128;
@@ -156,23 +155,27 @@ mod gmac_signer {
         buffer: Vec<u8>,
     }
 
-    #[bitfield]
-    struct NonceSuffixFlags {
-        #[skip(getters)]
-        pub msg_id: B64,
-        #[skip(getters)]
-        pub is_server: bool,
-        #[skip(getters)]
-        pub is_cancel: bool,
-        #[skip]
-        __: B30,
+    #[allow(dead_code)]
+    mod gmac_nonce {
+        use super::*;
+        #[bitfield]
+        pub struct NonceSuffixFlags {
+            #[skip(getters)]
+            pub msg_id: B64,
+            #[skip(getters)]
+            pub is_server: bool,
+            #[skip(getters)]
+            pub is_cancel: bool,
+            #[skip]
+            __: B30,
+        }
     }
 
     impl Gmac128Signer {
         pub fn build(key: &SigningKey) -> Box<dyn SigningAlgo> {
             let key = Key::<Aes128>::from_slice(key);
             Box::new(Gmac128Signer {
-                gmac: Aes128Gcm::new(&key),
+                gmac: Aes128Gcm::new(key),
                 nonce: OnceCell::new(),
                 buffer: vec![],
             })
@@ -181,12 +184,11 @@ mod gmac_signer {
         fn make_nonce(header: &Header) -> Gmac128Nonce {
             debug_assert!(header.message_id > 0 && header.message_id != u64::MAX);
 
-            return NonceSuffixFlags::new()
+            gmac_nonce::NonceSuffixFlags::new()
                 .with_msg_id(header.message_id)
                 .with_is_cancel(header.command == Command::Cancel)
                 .with_is_server(header.flags.server_to_redir())
                 .into_bytes()
-                .into();
         }
     }
 

@@ -89,7 +89,7 @@ impl Connection {
 
     #[maybe_async]
     pub async fn close(&self) -> crate::Result<()> {
-        match self.handler.worker().take() {
+        match self.handler.worker() {
             Some(c) => c.stop().await,
             None => Ok(()),
         }
@@ -107,7 +107,7 @@ impl Connection {
         if !smb2_only_neg {
             log::debug!("Negotiating multi-protocol: Sending SMB1");
             // 1. Send SMB1 negotiate request
-            let msg_bytes: Vec<u8> = SMB1NegotiateMessage::new().try_into()?;
+            let msg_bytes: Vec<u8> = SMB1NegotiateMessage::default().try_into()?;
             transport.send(&msg_bytes).await?;
 
             log::debug!("Sent SMB1 negotiate request, Receieving SMB2 response");
@@ -145,7 +145,7 @@ impl Connection {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
 
-        Ok(WorkerImpl::start(transport, self.config.timeout()).await?)
+        WorkerImpl::start(transport, self.config.timeout()).await
     }
 
     /// This method perofrms the SMB2 negotiation.
@@ -206,7 +206,7 @@ impl Connection {
         let dialect_impl = DialectImpl::new(dialect_rev);
         let mut negotiation = NegotiatedProperties {
             server_guid: smb2_negotiate_response.server_guid,
-            caps: smb2_negotiate_response.capabilities.clone(),
+            caps: smb2_negotiate_response.capabilities,
             max_transact_size: smb2_negotiate_response.max_transact_size,
             max_read_size: smb2_negotiate_response.max_read_size,
             max_write_size: smb2_negotiate_response.max_write_size,
@@ -346,7 +346,7 @@ impl Connection {
         let security_mode = NegotiateSecurityMode::new().with_signing_enabled(has_signing);
 
         NegotiateRequest {
-            security_mode: security_mode,
+            security_mode,
             capabilities,
             client_guid,
             dialects: supported_dialects,
@@ -447,7 +447,7 @@ impl ConnectionMessageHandler {
         self.worker.get()
     }
 
-    const SET_CREDIT_CHARGE_CMDS: &[Command] = &[
+    const SET_CREDIT_CHARGE_CMDS: &'static [Command] = &[
         Command::Read,
         Command::Write,
         Command::Ioctl,
@@ -461,10 +461,7 @@ impl ConnectionMessageHandler {
         if let Some(neg) = self.conn_info.get() {
             if neg.negotiation.caps.large_mtu() {
                 // Calculate the cost of the message (charge).
-                let cost = if Self::SET_CREDIT_CHARGE_CMDS
-                    .iter()
-                    .any(|&cmd| cmd == msg.message.header.command)
-                {
+                let cost = if Self::SET_CREDIT_CHARGE_CMDS.contains(&msg.message.header.command) {
                     let send_payload_size = msg.message.content.req_payload_size();
                     let expected_response_payload_size = msg.message.content.expected_resp_size();
                     (1 + (max(send_payload_size, expected_response_payload_size) - 1)
@@ -559,12 +556,11 @@ impl MessageHandler for ConnectionMessageHandler {
         msg.message.header.flags = msg.message.header.flags.with_priority_mask(priority_value);
         self.process_sequence_outgoing(&mut msg).await?;
 
-        Ok(self
-            .worker
+        self.worker
             .get()
             .ok_or(Error::InvalidState("Worker is uninitialized".into()))?
             .send(msg)
-            .await?)
+            .await
     }
 
     #[maybe_async]

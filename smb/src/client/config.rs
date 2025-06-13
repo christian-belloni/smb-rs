@@ -7,7 +7,7 @@ pub struct ClientConfig {
     /// This includes resolving DFS referrals and accessing DFS namespaces.
     ///
     /// - If this is set to `false`, the client might return [`Status::PathNotCovered`][crate::packets::smb2::Status::PathNotCovered] errors
-    ///  when trying to access DFS paths, instead of automatically resolving them.
+    ///   when trying to access DFS paths, instead of automatically resolving them.
     pub dfs: bool,
 
     /// Configuration related to the SMB connections made by the client.

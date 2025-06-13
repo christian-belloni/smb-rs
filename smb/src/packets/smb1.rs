@@ -40,13 +40,21 @@ pub struct SMB1NegotiateMessage {
     _word_count: u8,
     byte_count: PosMarker<u16>,
     #[br(map_stream = |s| s.take_seek(byte_count.value.into()), parse_with = binrw::helpers::until_eof)]
-    #[bw(write_with = PosMarker::write_size, args(&byte_count))]
+    #[bw(write_with = PosMarker::write_size, args(byte_count))]
     dialects: Vec<Smb1Dialect>,
 }
 
 impl SMB1NegotiateMessage {
-    pub fn new() -> SMB1NegotiateMessage {
-        SMB1NegotiateMessage {
+    pub fn is_smb2_supported(&self) -> bool {
+        self.dialects
+            .iter()
+            .any(|d| d.name.to_string() == "SMB 2.002")
+    }
+}
+
+impl Default for SMB1NegotiateMessage {
+    fn default() -> Self {
+        Self {
             status: 0,
             flags: 0x18,
             flags2: 0xc853,
@@ -64,12 +72,6 @@ impl SMB1NegotiateMessage {
                 },
             ],
         }
-    }
-
-    pub fn is_smb2_supported(&self) -> bool {
-        self.dialects
-            .iter()
-            .any(|d| d.name.to_string() == "SMB 2.002")
     }
 }
 
@@ -94,7 +96,7 @@ mod tests {
 
     #[test]
     pub fn test_smb1_negotiate_req_write() {
-        let msg = SMB1NegotiateMessage::new();
+        let msg = SMB1NegotiateMessage::default();
         let buf: Result<Vec<u8>, binrw::Error> = msg.try_into();
         assert_eq!(
             buf.unwrap(),

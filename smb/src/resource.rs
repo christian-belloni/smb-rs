@@ -47,8 +47,8 @@ impl FileCreateArgs {
     pub fn make_create_new(attributes: FileAttributes, options: CreateOptions) -> FileCreateArgs {
         FileCreateArgs {
             disposition: CreateDisposition::Create,
-            attributes: attributes,
-            options: options,
+            attributes,
+            options,
             desired_access: FileAccessMask::new().with_generic_all(true),
         }
     }
@@ -145,7 +145,7 @@ impl Resource {
             created: response.creation_time.date_time(),
             modified: response.last_write_time.date_time(),
             access,
-            share_type: share_type,
+            share_type,
             conn_info: conn_info.clone(),
         };
 
@@ -303,7 +303,7 @@ impl ResourceHandle {
             .with_restart_scan(true)
             .with_return_single_entry(true);
 
-        Ok(self.query_info_with_options::<T>(flags, 1024).await?)
+        self.query_info_with_options::<T>(flags, 1024).await
     }
 
     /// Queries the file for extended attributes information.
@@ -317,27 +317,26 @@ impl ResourceHandle {
         &self,
         names: Vec<&str>,
     ) -> crate::Result<QueryFileFullEaInformation> {
-        Ok(self
-            .query_common(QueryInfoRequest {
-                info_type: InfoType::File,
-                info_class: QueryInfoClass::File(QueryFileInfoClass::FullEaInformation),
-                output_buffer_length: 1024,
-                additional_info: AdditionalInfo::new(),
-                flags: QueryInfoFlags::new()
-                    .with_restart_scan(true)
-                    .with_return_single_entry(true),
-                file_id: self.file_id,
-                data: GetInfoRequestData::EaInfo(GetEaInfoList {
-                    values: names
-                        .iter()
-                        .map(|&s| FileGetEaInformationInner { ea_name: s.into() }.into())
-                        .collect(),
-                }),
-            })
-            .await?
-            .as_file()?
-            .parse(QueryFileInfoClass::FullEaInformation)?
-            .try_into()?)
+        self.query_common(QueryInfoRequest {
+            info_type: InfoType::File,
+            info_class: QueryInfoClass::File(QueryFileInfoClass::FullEaInformation),
+            output_buffer_length: 1024,
+            additional_info: AdditionalInfo::new(),
+            flags: QueryInfoFlags::new()
+                .with_restart_scan(true)
+                .with_return_single_entry(true),
+            file_id: self.file_id,
+            data: GetInfoRequestData::EaInfo(GetEaInfoList {
+                values: names
+                    .iter()
+                    .map(|&s| FileGetEaInformationInner { ea_name: s.into() }.into())
+                    .collect(),
+            }),
+        })
+        .await?
+        .as_file()?
+        .parse(QueryFileInfoClass::FullEaInformation)?
+        .try_into()
     }
 
     /// Queries the file for information with additional arguments.
@@ -356,20 +355,19 @@ impl ResourceHandle {
         flags: QueryInfoFlags,
         output_buffer_length: usize,
     ) -> crate::Result<T> {
-        Ok(self
-            .query_common(QueryInfoRequest {
-                info_type: InfoType::File,
-                info_class: QueryInfoClass::File(T::CLASS_ID),
-                output_buffer_length: output_buffer_length as u32,
-                additional_info: AdditionalInfo::new(),
-                flags,
-                file_id: self.file_id,
-                data: GetInfoRequestData::None(()),
-            })
-            .await?
-            .as_file()?
-            .parse(T::CLASS_ID)?
-            .try_into()?)
+        self.query_common(QueryInfoRequest {
+            info_type: InfoType::File,
+            info_class: QueryInfoClass::File(T::CLASS_ID),
+            output_buffer_length: output_buffer_length as u32,
+            additional_info: AdditionalInfo::new(),
+            flags,
+            file_id: self.file_id,
+            data: GetInfoRequestData::None(()),
+        })
+        .await?
+        .as_file()?
+        .parse(T::CLASS_ID)?
+        .try_into()
     }
 
     /// Queries the file for it's security descriptor.
@@ -461,22 +459,21 @@ impl ResourceHandle {
                 "File system information is only available for disk files".into(),
             ));
         }
-        Ok(self
-            .query_common(QueryInfoRequest {
-                info_type: InfoType::FileSystem,
-                info_class: QueryInfoClass::FileSystem(T::CLASS_ID),
-                output_buffer_length: 1024,
-                additional_info: AdditionalInfo::new(),
-                flags: QueryInfoFlags::new()
-                    .with_restart_scan(true)
-                    .with_return_single_entry(true),
-                file_id: self.file_id,
-                data: GetInfoRequestData::None(()),
-            })
-            .await?
-            .unwrap_filesystem()
-            .parse(T::CLASS_ID)?
-            .try_into()?)
+        self.query_common(QueryInfoRequest {
+            info_type: InfoType::FileSystem,
+            info_class: QueryInfoClass::FileSystem(T::CLASS_ID),
+            output_buffer_length: 1024,
+            additional_info: AdditionalInfo::new(),
+            flags: QueryInfoFlags::new()
+                .with_restart_scan(true)
+                .with_return_single_entry(true),
+            file_id: self.file_id,
+            data: GetInfoRequestData::None(()),
+        })
+        .await?
+        .unwrap_filesystem()
+        .parse(T::CLASS_ID)?
+        .try_into()
     }
 
     /// Sets the file information for the current file.
@@ -588,9 +585,9 @@ impl ResourceHandle {
     pub async fn close_async(&mut self) {
         self.close()
             .await
-            .or_else(|e| {
+            .map_err(|e| {
                 log::error!("Error closing file: {}", e);
-                Err(e)
+                e
             })
             .ok();
     }

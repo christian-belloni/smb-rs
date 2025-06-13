@@ -59,12 +59,10 @@ mod impls {
     impl<F: ReadSeek + Send> ReadAt for Mutex<F> {
         #[maybe_async]
         async fn read_at(&self, buf: &mut [u8], offset: u64) -> crate::Result<usize> {
-            let mut reader = self.lock().await.or_else(|e| {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
+            let mut reader = self
+                .lock()
+                .await
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
             reader.seek(std::io::SeekFrom::Start(offset)).await?;
             Ok(reader.read(buf).await?)
         }
@@ -78,12 +76,10 @@ mod impls {
     impl<F: WriteSeek + Send> WriteAt for Mutex<F> {
         #[maybe_async]
         async fn write_at(&self, buf: &[u8], offset: u64) -> crate::Result<usize> {
-            let mut writer = self.lock().await.or_else(|e| {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
+            let mut writer = self
+                .lock()
+                .await
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
             writer.seek(std::io::SeekFrom::Start(offset)).await?;
             Ok(writer.write(buf).await?)
         }
@@ -92,12 +88,10 @@ mod impls {
     impl GetLen for Mutex<File> {
         #[maybe_async]
         async fn get_len(&self) -> crate::Result<u64> {
-            let file = self.lock().await.or_else(|e| {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
+            let file = self
+                .lock()
+                .await
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
             Ok(file.metadata().await?.len())
         }
     }
@@ -105,12 +99,10 @@ mod impls {
     impl SetLen for Mutex<File> {
         #[maybe_async]
         async fn set_len(&self, len: u64) -> crate::Result<()> {
-            let file = self.lock().await.or_else(|e| {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
+            let file = self
+                .lock()
+                .await
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
             Ok(File::set_len(&file, len).await?)
         }
     }
@@ -273,7 +265,7 @@ mod copy {
                 state.max_chunk_size
             } as usize;
 
-            let offset = current_block as u64 * state.max_chunk_size as u64;
+            let offset = current_block * state.max_chunk_size;
             let bytes_read = from.read_at(&mut curr_chunk[..chunk_size], offset).await?;
             if bytes_read < chunk_size {
                 log::warn!(
@@ -287,7 +279,7 @@ mod copy {
             to.write_at(&curr_chunk[..valid_chunk_end], offset).await?;
         }
         log::debug!("Copy task {} completed", task_id);
-        return Ok(());
+        Ok(())
     }
 }
 

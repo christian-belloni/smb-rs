@@ -14,7 +14,7 @@ pub enum InfoType {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, Default)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct AdditionalInfo {
@@ -70,10 +70,10 @@ macro_rules! query_info_data {
                             _ => panic!("Expected $info_type, got {:?}", self),
                         }
                     }
-                    pub fn [<as_ $info_type:lower>](self) -> Result<$content, crate::Error> {
+                    pub fn [<as_ $info_type:lower>](self) -> Result<$content, $crate::Error> {
                         match self {
                             $name::$info_type(data) => Ok(data),
-                            _ => Err(crate::Error::UnexpectedContent {
+                            _ => Err($crate::Error::UnexpectedContent {
                                 expected: stringify!($info_type),
                                 actual: self.name(),
                             }),
@@ -138,7 +138,7 @@ macro_rules! query_info_data {
                 T: BinRead<Args<'static> = (T::Class,)> + FileInfoType,
             {
                 // A parse method that accepts the class of T as an argument, reads the data and returns the T.
-                pub fn parse(&self, class: T::Class) -> Result<T, crate::Error> {
+                pub fn parse(&self, class: T::Class) -> Result<T, $crate::Error> {
                     let mut cursor = std::io::Cursor::new(&self.data);
                     let value = T::read_le_args(&mut cursor, (class,))?;
                     Ok(value)

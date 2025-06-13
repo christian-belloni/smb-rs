@@ -6,8 +6,8 @@ use crate::{
     connection::{connection_info::NegotiatedProperties, preauth_hash},
     crypto,
     packets::smb2::{
-        CompressionCapabilities, Dialect, GlobalCapabilities, NegotiateResponse, ShareCacheMode,
-        ShareFlags, SigningAlgorithmId, TreeCapabilities,
+        Dialect, GlobalCapabilities, NegotiateResponse, ShareCacheMode, ShareFlags,
+        SigningAlgorithmId, TreeCapabilities,
     },
     ConnectionConfig, Error,
 };
@@ -151,7 +151,7 @@ impl DialectImpl {
 }
 
 trait DialectMethods {
-    const SIGNING_KEY_LABEL: &[u8];
+    const SIGNING_KEY_LABEL: &'static [u8];
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
@@ -162,19 +162,19 @@ trait DialectMethods {
 
 struct Smb311;
 impl Smb311 {
-    pub const ENCRYPTION_S2C_KEY_LABEL: &[u8] = b"SMBS2CCipherKey\x00";
-    pub const ENCRYPTION_C2S_KEY_LABEL: &[u8] = b"SMBC2SCipherKey\x00";
+    pub const ENCRYPTION_S2C_KEY_LABEL: &'static [u8] = b"SMBS2CCipherKey\x00";
+    pub const ENCRYPTION_C2S_KEY_LABEL: &'static [u8] = b"SMBC2SCipherKey\x00";
 }
 
 impl DialectMethods for Smb311 {
-    const SIGNING_KEY_LABEL: &[u8] = b"SMBSigningKey\x00";
+    const SIGNING_KEY_LABEL: &'static [u8] = b"SMBSigningKey\x00";
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
         state: &mut NegotiatedProperties,
         config: &ConnectionConfig,
     ) -> crate::Result<()> {
-        if let None = response.negotiate_context_list {
+        if response.negotiate_context_list.is_none() {
             return Err(Error::InvalidMessage(
                 "Expected negotiate context list".to_string(),
             ));
@@ -203,7 +203,7 @@ impl DialectMethods for Smb311 {
         // And verify that the encryption algorithm is supported.
         let encryption_cipher = response.get_ctx_encrypt_cipher();
         if let Some(encryption_cipher) = &encryption_cipher {
-            if !crypto::ENCRYPTING_ALGOS.contains(&encryption_cipher) {
+            if !crypto::ENCRYPTING_ALGOS.contains(encryption_cipher) {
                 return Err(Error::NegotiationError(
                     "Unsupported encryption algorithm received".into(),
                 ));
@@ -214,10 +214,7 @@ impl DialectMethods for Smb311 {
             ));
         }
 
-        let compression: Option<CompressionCapabilities> = match response.get_ctx_compression() {
-            Some(compression) => Some(compression.clone()),
-            None => None,
-        };
+        let compression = response.get_ctx_compression().cloned();
 
         state.signing_algo = signing_algo;
         state.encryption_cipher = encryption_cipher;
@@ -230,11 +227,11 @@ impl DialectMethods for Smb311 {
 /// SMB 3.0 and 3.0.2
 struct Smb30X;
 impl Smb30X {
-    pub const ENCRYPTION_KEY_LABEL: &[u8] = b"SMB2AESCCM\x00";
+    pub const ENCRYPTION_KEY_LABEL: &'static [u8] = b"SMB2AESCCM\x00";
 }
 
 impl DialectMethods for Smb30X {
-    const SIGNING_KEY_LABEL: &[u8] = b"SMB2AESCMAC\x00";
+    const SIGNING_KEY_LABEL: &'static [u8] = b"SMB2AESCMAC\x00";
     fn process_negotiate_request(
         &self,
         response: &NegotiateResponse,
@@ -260,7 +257,7 @@ impl DialectMethods for Smb30X {
 struct Smb201;
 
 impl DialectMethods for Smb201 {
-    const SIGNING_KEY_LABEL: &[u8] = b"";
+    const SIGNING_KEY_LABEL: &'static [u8] = b"";
 
     fn process_negotiate_request(
         &self,

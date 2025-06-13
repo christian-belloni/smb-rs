@@ -19,11 +19,7 @@ impl MessageSigner {
     }
 
     /// Verifies the signature of a message.
-    pub fn verify_signature(
-        &mut self,
-        header: &mut Header,
-        raw_data: &Vec<u8>,
-    ) -> crate::Result<()> {
+    pub fn verify_signature(&mut self, header: &mut Header, raw_data: &[u8]) -> crate::Result<()> {
         let calculated_signature = self.calculate_signature(header, raw_data)?;
         if calculated_signature != header.signature {
             return Err(Error::SignatureVerificationFailed);
@@ -36,11 +32,7 @@ impl MessageSigner {
     }
 
     /// Signs a message.
-    pub fn sign_message(
-        &mut self,
-        header: &mut Header,
-        raw_data: &mut Vec<u8>,
-    ) -> crate::Result<()> {
+    pub fn sign_message(&mut self, header: &mut Header, raw_data: &mut [u8]) -> crate::Result<()> {
         debug_assert!(raw_data.len() >= Header::STRUCT_SIZE);
 
         header.signature = self.calculate_signature(header, raw_data)?;
@@ -56,11 +48,7 @@ impl MessageSigner {
         Ok(())
     }
 
-    fn calculate_signature(
-        &mut self,
-        header: &mut Header,
-        raw_data: &Vec<u8>,
-    ) -> crate::Result<u128> {
+    fn calculate_signature(&mut self, header: &mut Header, raw_data: &[u8]) -> crate::Result<u128> {
         // Write header with signature set to 0.
         let signture_backup = header.signature;
         header.signature = 0;
@@ -69,7 +57,7 @@ impl MessageSigner {
         header.signature = signture_backup;
 
         // Start signing session with the header.
-        self.signing_algo.start(&header);
+        self.signing_algo.start(header);
         self.signing_algo.update(&header_bytes.into_inner());
 
         // And write rest of the raw message.

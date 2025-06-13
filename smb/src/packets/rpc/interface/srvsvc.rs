@@ -122,7 +122,7 @@ pub enum ShareKind {
 ///
 /// [MS-SRVS][https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-srvs/6069f8c0-c93f-43a0-a5b4-7ed447eb4b84]
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct ShareType {
@@ -214,7 +214,7 @@ where
                         ));
                     }
                     Some(y) => {
-                        for share_info in y.into_iter() {
+                        for share_info in y.iter() {
                             let share_info = &**share_info;
                             result.push(share_info.clone());
                         }

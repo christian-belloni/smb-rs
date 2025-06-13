@@ -1,6 +1,6 @@
-///! This is a helper module that allows easy access and usage of
-/// Async/Multi-threaded features in the library, according to the
-/// features enabled.
+//! This is a helper module that allows easy access and usage of
+//! Async/Multi-threaded features in the library, according to the
+//! features enabled.
 #[cfg(not(feature = "async"))]
 pub use std::sync::{Mutex, MutexGuard, RwLock};
 

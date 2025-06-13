@@ -81,7 +81,7 @@ impl AdditionalInfo {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct QueryInfoFlags {
@@ -140,7 +140,7 @@ pub struct QueryQuotaInfo {
     #[bw(if(sid.is_some()))]
     #[br(seek_before = SeekFrom::Current(start_sid_offset.value as i64))]
     #[bw(write_with = PosMarker::write_size, args(&start_sid_length))]
-    #[brw(assert(matches!(get_quota_info_content, None) != matches!(sid, None)))]
+    #[brw(assert(get_quota_info_content.is_none() != sid.is_none()))]
     // offset is 0, the default anyway.
     pub sid: Option<SID>,
 }

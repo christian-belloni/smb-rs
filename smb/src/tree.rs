@@ -89,7 +89,7 @@ impl Tree {
         log::info!("Connected to tree {} (#{})", name, tree_id);
 
         let tree_connect_info = TreeConnectInfo {
-            tree_id: tree_id,
+            tree_id,
             share_type: content.share_type,
             share_flags: content.share_flags,
         };
@@ -123,7 +123,7 @@ impl Tree {
             .get()
             .ok_or(Error::InvalidState("Tree is closed".to_string()))?;
 
-        Ok(Resource::create(
+        Resource::create(
             file_name,
             &self.handler,
             args,
@@ -131,7 +131,7 @@ impl Tree {
             info.share_type,
             self.dfs,
         )
-        .await?)
+        .await
     }
 
     /// A wrapper around [Tree::create] that creates a file on the remote server.
@@ -227,7 +227,7 @@ impl TreeMessageHandler {
     async fn disconnect(&mut self) -> crate::Result<()> {
         let info = self.connect_info.get();
 
-        if !info.is_some() {
+        if info.is_none() {
             return Err(Error::InvalidState(
                 "Tree connection already disconnected!".into(),
             ));
@@ -251,9 +251,9 @@ impl TreeMessageHandler {
     pub async fn disconnect_async(&mut self) {
         self.disconnect()
             .await
-            .or_else(|e| {
+            .map_err(|e| {
                 log::error!("Failed to disconnect from tree: {}", e);
-                Err(e)
+                e
             })
             .ok();
     }

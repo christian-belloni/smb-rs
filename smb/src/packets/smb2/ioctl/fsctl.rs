@@ -41,7 +41,7 @@ pub enum FsctlCodes {
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct SrvCopychunkCopy {
-    pub source_key: [u8; Self::SRV_KEY_LENGTH],
+    pub source_key: [u8; SrvCopychunkCopy::SRV_KEY_LENGTH],
     #[bw(try_calc = chunks.len().try_into())]
     chunk_count: u32,
     #[bw(calc = 0)]
@@ -83,8 +83,8 @@ pub struct SrvReadHashReq {
     #[br(assert(hash_type == 1))]
     pub hash_type: u32,
     /// Hash version MUST be 1 or 2
-    #[br(assert(1 <= hash_version && hash_version <= 2))]
-    #[bw(assert(1 <= *hash_version && *hash_version <= 2))]
+    #[br(assert((1..=2).contains(&hash_version)))]
+    #[bw(assert((1..=2).contains(hash_version)))]
     pub hash_version: u32,
     pub hash_retrieval_type: SrvHashRetrievalType,
 }
@@ -192,8 +192,8 @@ pub struct SrvReadHashRes {
     #[br(assert(hash_type == 1))]
     hash_type: u32,
     /// Hash version MUST be 1 or 2
-    #[br(assert(1 <= hash_version && hash_version <= 2))]
-    #[bw(assert(1 <= *hash_version && *hash_version <= 2))]
+    #[br(assert((1..=2).contains(&hash_version)))]
+    #[bw(assert((1..=2).contains(hash_version)))]
     hash_version: u32,
     source_file_change_time: FileTime,
     source_file_size: u64,
@@ -254,7 +254,7 @@ pub struct NetworkInterfaceInfoContent {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct NetworkInterfaceCapability {

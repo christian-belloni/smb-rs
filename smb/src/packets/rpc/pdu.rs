@@ -134,9 +134,9 @@ impl [<DcRpcCoPkt $name Content>] {
 }
 
 $(
-    impl Into<[<DcRpcCoPkt $name Content>]> for [<DcRpcCoPkt $pdu_type>] {
-        fn into(self) -> [<DcRpcCoPkt $name Content>] {
-            [<DcRpcCoPkt $name Content>]::$pdu_type(self)
+    impl From<[<DcRpcCoPkt $pdu_type>]> for [<DcRpcCoPkt $name Content>] {
+        fn from(pkt: [<DcRpcCoPkt $pdu_type>]) -> [<DcRpcCoPkt $name Content>] {
+            [<DcRpcCoPkt $name Content>]::$pdu_type(pkt)
         }
     }
 )+
@@ -171,7 +171,7 @@ pub struct DceRpcVersion {
 }
 
 #[bitfield]
-#[derive(BinWrite, BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[bw(map = |&x| Self::into_bytes(x))]
 #[br(map = Self::from_bytes)]
 pub struct DceRpcCoPktFlags {
@@ -356,7 +356,6 @@ pub struct DcRpcCoPktResponse {
 
 #[cfg(test)]
 mod tests {
-
     use crate::guid;
 
     use super::*;

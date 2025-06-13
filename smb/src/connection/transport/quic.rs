@@ -31,7 +31,7 @@ impl QuicTransport {
             .expect("Failed to install rustls crypto provider");
 
         let local_address = quic_config.local_address.as_deref().unwrap_or("0.0.0.0:0");
-        let client_addr = TransportUtils::parse_socket_address(&local_address)?;
+        let client_addr = TransportUtils::parse_socket_address(local_address)?;
         let mut endpoint = Endpoint::client(client_addr)?;
         endpoint.set_default_client_config(Self::make_client_config(quic_config)?);
         Ok(Self {
