@@ -229,7 +229,7 @@ impl File {
         let other_end_of_file = from.get_len().await?;
         self.set_len(other_end_of_file).await?;
 
-        let resume_key_response = from.send_fsctl(SrvRequestResumeKeyRequest(())).await?;
+        let resume_key_response = from.fsctl(SrvRequestResumeKeyRequest(())).await?;
         let resume_key = resume_key_response.resume_key;
 
         let chunks = (0..other_end_of_file)
@@ -249,7 +249,7 @@ impl File {
             source_key: resume_key,
             chunks,
         };
-        let copy_response = self.send_fsctl(req).await?;
+        let copy_response = self.fsctl(req).await?;
         if copy_response.total_bytes_written as u64 != other_end_of_file {
             return Err(Error::InvalidArgument(format!(
                 "Expected to write {} bytes, but wrote {} bytes",

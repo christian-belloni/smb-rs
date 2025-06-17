@@ -10,9 +10,9 @@ use crate::packets::{
     smb2::{Dialect, NegotiateSecurityMode},
 };
 
-use std::ops::Deref;
-
 use super::common::IoctlRequestContent;
+use crate::packets::smb2::IoctlBuffer;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -359,6 +359,103 @@ impl From<Vec<QueryAllocRangesItem>> for QueryAllocRangesResult {
 }
 
 impl_fsctl_response!(QueryAllocatedRanges, QueryAllocRangesResult);
+
+/// This macro wraps an existing type into a newtype that implements the `IoctlRequestContent` trait.
+/// It also provides a constructor and implements `From` and `Deref` traits for the new type.
+///
+/// It's made so we can easily create new types for ioctl requests without repeating boilerplate code,
+/// and prevents collisions with existing types in the `IoctlReqData` enum.
+macro_rules! make_newtype {
+    ($vis:vis $name:ident($inner:ty)) => {
+        #[binrw::binrw]
+        #[derive(Debug, PartialEq, Eq)]
+        pub struct $name(pub $inner);
+
+        impl $name {
+            pub fn new(inner: $inner) -> Self {
+                Self(inner)
+            }
+        }
+
+        impl From<$inner> for $name {
+            fn from(inner: $inner) -> Self {
+                Self(inner)
+            }
+        }
+
+        impl Deref for $name {
+            type Target = $inner;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl DerefMut for $name {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
+        }
+    };
+}
+
+macro_rules! make_req_newtype {
+    ($vis:vis $name:ident($inner:ty)) => {
+        make_newtype!($vis $name($inner));
+        impl IoctlRequestContent for $name {
+            fn get_bin_size(&self) -> u32 {
+                self.0.get_bin_size()
+            }
+        }
+    }
+}
+
+macro_rules! make_res_newtype {
+    ($fsctl:ident: $vis:vis $name:ident($inner:ty)) => {
+        make_newtype!($vis $name($inner));
+        impl FsctlResponseContent for $name {
+            const FSCTL_CODES: &'static [FsctlCodes] = &[FsctlCodes::$fsctl];
+        }
+    }
+}
+
+make_req_newtype!(pub PipePeekRequest(()));
+make_req_newtype!(pub SrvEnumerateSnapshotsRequest(()));
+make_req_newtype!(pub SrvRequestResumeKeyRequest(()));
+make_req_newtype!(pub QueryNetworkInterfaceInfoRequest(()));
+make_req_newtype!(pub PipeWaitRequest(IoctlBuffer));
+make_req_newtype!(pub PipeTransceiveRequest(IoctlBuffer));
+make_req_newtype!(pub SetReparsePointRequest(IoctlBuffer));
+make_req_newtype!(pub FileLevelTrimRequest(IoctlBuffer));
+make_req_newtype!(pub SrvCopyChunkCopyWrite(SrvCopychunkCopy));
+
+make_res_newtype!(
+    PipePeek: pub PipePeekResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    SrvEnumerateSnapshots: pub SrvEnumerateSnapshotsResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    QueryNetworkInterfaceInfo: pub NetworkInterfaceInfoResponse(NetworkInterfaceInfo)
+);
+make_res_newtype!( // TODO: Concrete type
+    SrvCopychunkWrite: pub SrvCopyChunkCopyWriteResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    LmrRequestResiliency: pub LmrRequestResiliencyResponse(IoctlBuffer)
+);
+make_res_newtype!(
+    PipeWait: pub PipeWaitResponse(IoctlBuffer)
+);
+make_res_newtype!(
+    PipeTransceive: pub PipeTransceiveResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    SetReparsePoint: pub SetReparsePointResponse(IoctlBuffer)
+);
+make_res_newtype!( // TODO: Concrete type
+    FileLevelTrim: pub FileLevelTrimResponse(RespGetDfsReferral)
+);
 
 #[cfg(test)]
 mod tests {

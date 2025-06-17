@@ -411,10 +411,9 @@ impl ResourceHandle {
     /// # Returns
     /// A `Result` containing the requested information, as bound to [`FsctlRequest::Response`].
     #[maybe_async]
-    pub async fn send_fsctl<T: FsctlRequest>(&self, request: T) -> crate::Result<T::Response> {
-        const DEFAULT_RESPONSE_OUT_SIZE: usize = 1024;
-        const DEFAULT_RESPONSE_IN_SIZE: usize = 0;
-        self.send_fsctl_with_options(request, DEFAULT_RESPONSE_IN_SIZE, DEFAULT_RESPONSE_OUT_SIZE)
+    pub async fn fsctl<T: FsctlRequest>(&self, request: T) -> crate::Result<T::Response> {
+        const DEFAULT_RESPONSE_OUT_SIZE: u32 = 1024;
+        self.fsctl_with_options(request, DEFAULT_RESPONSE_OUT_SIZE)
             .await
     }
 
@@ -428,32 +427,79 @@ impl ResourceHandle {
     /// # Returns
     /// A `Result` containing the requested information, as bound to [`FsctlRequest::Response`].
     #[maybe_async]
-    pub async fn send_fsctl_with_options<T: FsctlRequest>(
+    pub async fn fsctl_with_options<T: FsctlRequest>(
         &self,
         request: T,
-        max_input_response: usize,
-        max_output_response: usize,
+        max_output_response: u32,
     ) -> crate::Result<T::Response> {
+        const NO_INPUT_IN_RESPONSE: u32 = 0;
+        self._ioctl(
+            T::FSCTL_CODE as u32,
+            request.into(),
+            NO_INPUT_IN_RESPONSE,
+            max_output_response,
+            IoctlRequestFlags::new().with_is_fsctl(true),
+        )
+        .await?
+        .parse_fsctl::<T::Response>()
+    }
+
+    /// Sends an IOCTL message for the current resource (file).
+    /// # Arguments
+    /// * `ctl_code` - The control code for the IOCTL request.
+    /// * `request` - The request data to send.
+    /// * `max_output_response` - The maximum output response size.
+    /// # Returns
+    /// A `Result` containing the response data as a vector of bytes.
+    #[maybe_async]
+    pub async fn ioctl(
+        &self,
+        ctl_code: u32,
+        request: Vec<u8>,
+        max_output_response: u32,
+    ) -> crate::Result<Vec<u8>> {
+        const NO_INPUT_IN_RESPONSE: u32 = 0;
+        let response = self
+            ._ioctl(
+                ctl_code,
+                IoctlReqData::Ioctl(request.into()),
+                NO_INPUT_IN_RESPONSE,
+                max_output_response,
+                IoctlRequestFlags::new(),
+            )
+            .await?;
+        Ok(response.out_buffer)
+    }
+
+    /// (Internal)
+    #[maybe_async]
+    async fn _ioctl(
+        &self,
+        ctl_code: u32,
+        req_data: IoctlReqData,
+        max_in: u32,
+        max_out: u32,
+        flags: IoctlRequestFlags,
+    ) -> crate::Result<IoctlResponse> {
         self.handler
             .send_recvo(
                 RequestContent::Ioctl(IoctlRequest {
-                    ctl_code: T::FSCTL_CODE as u32,
+                    ctl_code,
                     file_id: self.file_id,
-                    max_input_response: max_input_response as u32,
-                    max_output_response: max_output_response as u32,
-                    flags: IoctlRequestFlags::new().with_is_fsctl(true),
-                    buffer: request.into(),
+                    max_input_response: max_in,
+                    max_output_response: max_out,
+                    flags,
+                    buffer: req_data,
                 }),
                 ReceiveOptions::new().with_allow_async(true),
             )
             .await?
             .message
             .content
-            .to_ioctl()?
-            .parse_fsctl::<T::Response>()
+            .to_ioctl()
     }
 
-    /// Querys the file system information for the current file.
+    /// Queries the file system information for the current file.
     /// # Type Parameters
     /// * `T` - The type of information to query. Must implement the [QueryFileSystemInfoValue] trait.
     /// # Returns
