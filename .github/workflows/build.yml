@@ -6,7 +6,6 @@ on:
   pull_request_target:
     types: [ "opened", "synchronize", "reopened" ]
     branches: [ "main" ]
-  # manual:
   workflow_dispatch:
 
 env:
@@ -14,7 +13,6 @@ env:
 
 jobs:
   test:
-
     runs-on: ubuntu-latest
     container: 
       image: rustlang/rust:nightly
@@ -22,6 +20,8 @@ jobs:
     strategy:
       matrix:
         compile_features: [ async, multi_threaded, single_threaded ]
+    env:
+      COMMON_FEATURES: "sign,encrypt,compress,kerberos"
 
     services:
       samba:
@@ -39,8 +39,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Build/${{ matrix.compile_features }}
-      run: cargo build --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress,kerberos"
+    - name: Add QUIC tests
+      if: ${{ matrix.compile_features == 'async' }}
+      run: echo "COMMON_FEATURES=${COMMON_FEATURES},quic" >> $GITHUB_ENV
     - name: Format/${{ matrix.compile_features }}
       run: |
         rustup component add rustfmt
@@ -48,14 +49,16 @@ jobs:
     - name: Lint/${{ matrix.compile_features }}
       run: |
         rustup component add clippy
-        cargo clippy --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress,kerberos" -- -D warnings
+        cargo clippy --verbose --no-default-features --features "${{ matrix.compile_features }},${COMMON_FEATURES}" -- -D warnings
     - name: Tests/${{ matrix.compile_features }}
       run: |
         export SMB_RUST_TESTS_SERVER=samba
-        cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress,kerberos" -- --nocapture
+        cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},${COMMON_FEATURES}" -- --nocapture
         # Test without encryption and compression
         cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign" -- --nocapture
         # Test signing with specific algorithms
         cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign_cmac" -- --nocapture
         cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign_gmac" -- --nocapture
         cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign_hmac" -- --nocapture
+    - name: Build/${{ matrix.compile_features }}
+      run: cargo build --verbose --no-default-features --features "${{ matrix.compile_features }},${COMMON_FEATURES}"
