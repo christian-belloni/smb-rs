@@ -104,6 +104,8 @@ impl CopyFile {
                 Local(to_local) => block_copy(from_remote, to_local, 16).await?,
                 Remote(to_remote) => {
                     if to.path.as_remote().unwrap().server == self.path.as_remote().unwrap().server
+                        && to.path.as_remote().unwrap().share
+                            == self.path.as_remote().unwrap().share
                     {
                         // Use server-side copy if both files are on the same server
                         to_remote.srv_copy(&from_remote).await?

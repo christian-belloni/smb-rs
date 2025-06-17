@@ -52,7 +52,7 @@ pub async fn info(cmd: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
             log::info!("{}", cmd.path);
             log::info!("  - Size: ~{}kB", file.get_len().await?.div_ceil(1024));
             log::info!("  - Creation time: {}", info.creation_time);
-            log::info!("  - Creation time: {}", info.creation_time);
+            log::info!("  - Last write time: {}", info.last_write_time);
             log::info!("  - Last access time: {}", info.last_access_time);
             show_security_info(&file, cmd).await?;
         }

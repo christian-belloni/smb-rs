@@ -232,7 +232,7 @@ impl File {
         let resume_key_response = from.send_fsctl(SrvRequestResumeKeyRequest(())).await?;
         let resume_key = resume_key_response.resume_key;
 
-        let chunks = (0..=other_end_of_file)
+        let chunks = (0..other_end_of_file)
             .step_by(CHUNK_SIZE)
             .map(|start| {
                 let len_left = other_end_of_file - start;
