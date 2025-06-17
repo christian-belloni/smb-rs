@@ -42,9 +42,13 @@ jobs:
     - name: Build/${{ matrix.compile_features }}
       run: cargo build --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress,kerberos"
     - name: Format/${{ matrix.compile_features }}
-      run: cargo fmt --verbose --check
+      run: |
+        rustup component add rustfmt
+        cargo fmt --verbose --check
     - name: Lint/${{ matrix.compile_features }}
-      run: cargo clippy --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress,kerberos" -- -D warnings
+      run: |
+        rustup component add clippy
+        cargo clippy --verbose --no-default-features --features "${{ matrix.compile_features }},sign,encrypt,compress,kerberos" -- -D warnings
     - name: Tests/${{ matrix.compile_features }}
       run: |
         export SMB_RUST_TESTS_SERVER=samba
