@@ -100,18 +100,15 @@ $(
 
 // TODO: Enable non-fsctl ioctls. currently, we only support FSCTLs.
 ioctl_req_data! {
-    // The following FSCTLs do not provide an input buffer:
     PipePeek: PipePeekRequest, PipePeekResponse,
     SrvEnumerateSnapshots: SrvEnumerateSnapshotsRequest, SrvEnumerateSnapshotsResponse,
     SrvRequestResumeKey: SrvRequestResumeKeyRequest, SrvRequestResumeKey,
     QueryNetworkInterfaceInfo: QueryNetworkInterfaceInfoRequest, NetworkInterfaceInfo,
-    // The following FSCTLs provide a specific data structure as input buffer:
     SrvCopychunk: SrvCopychunkCopy, SrvCopychunkResponse,
-    SrvCopychunkWrite: SrvCopyChunkCopyWrite,SrvCopyChunkCopyWriteResponse,
+    SrvCopychunkWrite: SrvCopyChunkCopyWrite, SrvCopychunkResponse,
     SrvReadHash: SrvReadHashReq, SrvReadHashRes,
     LmrRequestResiliency: NetworkResiliencyRequest, LmrRequestResiliencyResponse,
     ValidateNegotiateInfo: ValidateNegotiateInfoRequest, ValidateNegotiateInfoResponse,
-    // And the rest provide some input buffer.
     DfsGetReferrals: ReqGetDfsReferral, RespGetDfsReferral,
     PipeWait: PipeWaitRequest, PipeWaitResponse,
     PipeTransceive: PipeTransceiveRequest, PipeTransceiveResponse,
@@ -119,6 +116,7 @@ ioctl_req_data! {
     DfsGetReferralsEx: ReqGetDfsReferralEx, RespGetDfsReferral,
     FileLevelTrim: FileLevelTrimRequest, FileLevelTrimResponse,
     QueryAllocatedRanges: QueryAllocRangesItem, QueryAllocRangesResult,
+    OffloadRead: OffloadReadRequest, OffloadReadResponse,
 }
 
 #[bitfield]

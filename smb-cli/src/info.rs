@@ -49,8 +49,9 @@ pub async fn info(cmd: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
     match resource {
         Resource::File(file) => {
             let info: FileBasicInformation = file.query_info().await?;
+            let size_kb = file.get_len().await?.div_ceil(1024);
             log::info!("{}", cmd.path);
-            log::info!("  - Size: ~{}kB", file.get_len().await?.div_ceil(1024));
+            log::info!("  - Size: ~{size_kb}kB");
             log::info!("  - Creation time: {}", info.creation_time);
             log::info!("  - Last write time: {}", info.last_write_time);
             log::info!("  - Last access time: {}", info.last_access_time);

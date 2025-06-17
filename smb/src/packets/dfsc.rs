@@ -359,9 +359,9 @@ struct ReferralEntryFlagsV4 {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::*;
+    use crate::packets::smb2::IoctlRequestContent;
+    use std::io::Cursor;
 
     #[test]
     pub fn test_write_req() {
@@ -371,6 +371,7 @@ mod tests {
         };
         let mut buf = Vec::new();
         req.write_le(&mut Cursor::new(&mut buf)).unwrap();
+        assert_eq!(buf.len() as u32, req.get_bin_size());
         assert_eq!(
             buf,
             &[

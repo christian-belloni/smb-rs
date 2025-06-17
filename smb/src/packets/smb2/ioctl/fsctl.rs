@@ -1,4 +1,5 @@
 //! FSCTL codes and structs.
+use crate::packets::binrw_util::prelude::*;
 use binrw::{io::TakeSeekExt, prelude::*, NullWideString};
 use modular_bitfield::prelude::*;
 
@@ -18,6 +19,7 @@ use std::ops::{Deref, DerefMut};
 #[repr(u32)]
 pub enum FsctlCodes {
     DfsGetReferrals = 0x00060194,
+    OffloadRead = 0x00094264,
     PipePeek = 0x0011400C,
     PipeWait = 0x00110018,
     PipeTransceive = 0x0011C017,
@@ -102,9 +104,11 @@ pub enum SrvHashRetrievalType {
     FileBased = 2,
 }
 
+/// Sent to request resiliency for a specified open file. This request is not valid for the SMB 2.0.2 dialect.
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct NetworkResiliencyRequest {
+    /// The requested time the server holds the file open after a disconnect before releasing it. This time is in milliseconds.
     pub timeout: u32,
     #[bw(calc = 0)]
     pub _reserved: u32,
@@ -315,7 +319,7 @@ impl FsctlResponseContent for RespGetDfsReferral {
 
 impl IoctlRequestContent for ReqGetDfsReferral {
     fn get_bin_size(&self) -> u32 {
-        (size_of::<u16>() + self.request_file_name.len() * size_of::<u16>()) as u32
+        (size_of::<u16>() + (self.request_file_name.len() + 1) * size_of::<u16>()) as u32
     }
 }
 
@@ -359,6 +363,213 @@ impl From<Vec<QueryAllocRangesItem>> for QueryAllocRangesResult {
 }
 
 impl_fsctl_response!(QueryAllocatedRanges, QueryAllocRangesResult);
+
+/// The FSCTL_PIPE_WAIT Request requests that the server wait until either a time-out interval elapses,
+/// or an instance of the specified named pipe is available for connection.
+///
+/// [MS-FSCC 2.3.49](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/f030a3b9-539c-4c7b-a893-86b795b9b711)
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct PipeWaitRequest {
+    /// specifies the maximum amount of time, in units of 100 milliseconds,
+    /// that the function can wait for an instance of the named pipe to be available.
+    pub timeout: u64,
+    #[bw(calc = name.len() as u32)]
+    name_length: u32,
+    /// Whether the Timeout parameter will be ignored.
+    /// FALSE Indicates that the server MUST wait forever. Any value in [`timeout`] must be ignored.
+    pub timeout_specified: Boolean,
+    #[bw(calc = 0)]
+    _padding: u8,
+    /// A Unicode string that contains the name of the named pipe. Name MUST not include the "\pipe\",
+    /// so if the operation was on \\server\pipe\pipename, the name would be "pipename".
+    #[br(args(name_length as u64))]
+    pub name: SizedWideString,
+}
+
+impl IoctlRequestContent for PipeWaitRequest {
+    fn get_bin_size(&self) -> u32 {
+        (size_of::<u64>()
+            + size_of::<u32>()
+            + size_of::<Boolean>()
+            + size_of::<u8>()
+            + self.name.size() as usize) as u32
+    }
+}
+
+/// Stores data for a reparse point.
+///
+/// [MS-FSCC 2.3.81](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/4dc2b168-f177-4eec-a14b-25a51cbba2cf)
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SetReparsePointRequest {
+    /// Contains the reparse point tag that uniquely identifies the owner of the reparse point.
+    #[bw(assert((reparse_tag & 0x80000000 == 0) == reparse_guid.is_some()))]
+    pub reparse_tag: u32,
+    #[bw(calc = reparse_data.len() as u32)]
+    reparse_data_length: u32,
+    /// Applicable only for reparse points that have a GUID.
+    /// See [MS-FSCC 2.1.2.3](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/a4d08374-0e92-43e2-8f88-88b94112f070)
+    // Internal note: (HighBit(arseTag) == 0)Has
+    #[br(if(reparse_tag & 0x80000000 == 0))]
+    pub reparse_guid: Option<Guid>,
+    /// Reparse-specific data for the reparse point
+    #[br(count = reparse_data_length)]
+    pub reparse_data: Vec<u8>,
+}
+
+impl IoctlRequestContent for SetReparsePointRequest {
+    fn get_bin_size(&self) -> u32 {
+        (size_of::<u32>()
+            + size_of::<u32>()
+            + self.reparse_guid.as_ref().map_or(0, |_| size_of::<Guid>())
+            + self.reparse_data.len()) as u32
+    }
+}
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileLevelTrimRequest {
+    /// Reserved
+    #[bw(calc = 0)]
+    _key: u32,
+    #[bw(calc = ranges.len() as u32)]
+    num_ranges: u32,
+    /// Array of ranges that describe the portions of the file that are to be trimmed.
+    #[br(count = num_ranges)]
+    pub ranges: Vec<FileLevelTrimRange>,
+}
+
+/// [MSDN](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-file_level_trim_range)
+///
+/// Supports [`std::mem::size_of`].
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileLevelTrimRange {
+    /// Offset, in bytes, from the start of the file for the range to be trimmed.
+    pub offset: u64,
+    /// Length, in bytes, for the range to be trimmed.
+    pub length: u64,
+}
+
+impl IoctlRequestContent for FileLevelTrimRequest {
+    fn get_bin_size(&self) -> u32 {
+        (size_of::<u32>() + size_of::<u32>() + self.ranges.len() * size_of::<FileLevelTrimRange>())
+            as u32
+    }
+}
+
+/// [MS-FSCC 2.3.46](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/6b6c8b8b-c5ac-4fa5-9182-619459fce7c7)
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct PipePeekResponse {
+    /// The current state of the pipe
+    pub named_pipe_state: NamedPipeState,
+    #[bw(calc = data.len() as u32)]
+    /// The size, in bytes, of the data available to read from the pipe.
+    read_data_available: u32,
+    /// Specifies the number of messages available in the pipe if the pipe has been created as a message-type pipe. Otherwise, this field is 0
+    pub number_of_messages: u32,
+    /// Specifies the length of the first message available in the pipe if the pipe has been created as a message-type pipe. Otherwise, this field is 0.
+    pub message_length: u32,
+    /// The data from the pipe.
+    #[br(count = read_data_available as u64)]
+    pub data: Vec<u8>,
+}
+
+impl_fsctl_response!(PipePeek, PipePeekResponse);
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[brw(repr(u32))]
+pub enum NamedPipeState {
+    Connected = 0x00000003,
+    Closing = 0x00000004,
+}
+
+/// [MS-SMB 2.2.7.2.2.1](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb/5a43eb29-50c8-46b6-8319-e793a11f6226)
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SrvEnumerateSnapshotsResponse {
+    /// The number of snapshots that the underlying object store contains of this file.
+    pub number_of_snap_shots: u32,
+    /// This value MUST be the number of snapshots that are returned in this response.
+    /// If this value is less than NumberofSnapshots,
+    /// then there are more snapshots than were able to fit in this response.
+    pub number_of_snap_shots_returned: u32,
+    /// The length, in bytes, of the SnapShotMultiSZ field.
+    #[bw(calc = PosMarker::default())]
+    snap_shot_array_size: PosMarker<u32>,
+    /// A list of snapshots, described as strings, that take on the following form: @GMT-YYYY.MM.DD-HH.MM.SS
+    #[br(map_stream = |s| s.take_seek(snap_shot_array_size.value as u64))]
+    pub snap_shots: MultiSz,
+}
+
+impl_fsctl_response!(SrvEnumerateSnapshots, SrvEnumerateSnapshotsResponse);
+
+/// [MS-FSCC 2.3.14](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/b949a580-d8db-439b-a791-17ddc7565c4b)
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct FileLevelTrimResponse {
+    /// The number of input ranges that were processed.
+    pub num_ranges_processed: u32,
+}
+
+impl_fsctl_response!(FileLevelTrim, FileLevelTrimResponse);
+
+/// [MS-FSCC 2.3.41](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/5d41cf62-9ebc-4f62-b7d7-0d085552b6dd)
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct OffloadReadRequest {
+    #[bw(calc = 0x20)]
+    #[br(assert(_size == 0x20))]
+    _size: u32,
+    /// The flags to be set for this operation. Currently, no flags are defined.
+    pub flags: u32,
+    /// Time to Live (TTL) value in milliseconds for the generated Token. A value of 0 indicates a default TTL interval.
+    pub token_time_to_live: u32,
+    #[bw(calc = 0)]
+    _reserved: u32,
+    /// the file offset, in bytes, of the start of a range of bytes in a file from which to generate the Token.
+    /// MUST be aligned to a logical sector boundary on the volume.
+    pub file_offset: u64,
+    /// the requested range of the file from which to generate the Token.
+    /// MUST be aligned to a logical sector boundary on the volume
+    pub copy_length: u64,
+}
+
+impl IoctlRequestContent for OffloadReadRequest {
+    fn get_bin_size(&self) -> u32 {
+        (size_of::<u32>() * 4 + size_of::<u64>() * 2) as u32
+    }
+}
+
+/// [MS-FSCC 2.3.42](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/b98a8325-e6ec-464a-bc1b-8216b74f5828)
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct OffloadReadResponse {
+    #[bw(calc = 528)]
+    #[br(assert(_size == 528))]
+    _size: u32,
+
+    // Note: this is a reduction of the flags field.
+    /// The data beyond the current range is logically equivalent to zero.
+    pub all_zero_beyond_current_range: Boolean,
+    _padding: u8,
+    _padding2: u16,
+
+    /// contains the amount, in bytes, of data that the Token logically represents.
+    /// This value indicates a contiguous region of the file from the beginning of the requested offset in the input.
+    /// This value can be smaller than the CopyLength field specified in the request data element,
+    /// which indicates that less data was logically represented (logically read) with the Token than was requested.
+    pub transfer_length: u64,
+
+    /// The generated Token to be used as a representation of the data contained within the portion of the file specified in the input request.
+    /// The contents of this field MUST NOT be modified during subsequent operations.
+    pub token: [u8; 512], // TODO: Parse as STORAGE_OFFLOAD_TOKEN
+}
+
+impl_fsctl_response!(OffloadRead, OffloadReadResponse);
 
 /// This macro wraps an existing type into a newtype that implements the `IoctlRequestContent` trait.
 /// It also provides a constructor and implements `From` and `Deref` traits for the new type.
@@ -423,43 +634,46 @@ make_req_newtype!(pub PipePeekRequest(()));
 make_req_newtype!(pub SrvEnumerateSnapshotsRequest(()));
 make_req_newtype!(pub SrvRequestResumeKeyRequest(()));
 make_req_newtype!(pub QueryNetworkInterfaceInfoRequest(()));
-make_req_newtype!(pub PipeWaitRequest(IoctlBuffer));
 make_req_newtype!(pub PipeTransceiveRequest(IoctlBuffer));
-make_req_newtype!(pub SetReparsePointRequest(IoctlBuffer));
-make_req_newtype!(pub FileLevelTrimRequest(IoctlBuffer));
 make_req_newtype!(pub SrvCopyChunkCopyWrite(SrvCopychunkCopy));
 
 make_res_newtype!(
-    PipePeek: pub PipePeekResponse(IoctlBuffer)
-);
-make_res_newtype!( // TODO: Concrete type
-    SrvEnumerateSnapshots: pub SrvEnumerateSnapshotsResponse(IoctlBuffer)
-);
-make_res_newtype!( // TODO: Concrete type
-    QueryNetworkInterfaceInfo: pub NetworkInterfaceInfoResponse(NetworkInterfaceInfo)
-);
-make_res_newtype!( // TODO: Concrete type
-    SrvCopychunkWrite: pub SrvCopyChunkCopyWriteResponse(IoctlBuffer)
-);
-make_res_newtype!( // TODO: Concrete type
-    LmrRequestResiliency: pub LmrRequestResiliencyResponse(IoctlBuffer)
-);
-make_res_newtype!(
-    PipeWait: pub PipeWaitResponse(IoctlBuffer)
+    PipeWait: pub PipeWaitResponse(())
 );
 make_res_newtype!(
     PipeTransceive: pub PipeTransceiveResponse(IoctlBuffer)
 );
-make_res_newtype!( // TODO: Concrete type
-    SetReparsePoint: pub SetReparsePointResponse(IoctlBuffer)
+make_res_newtype!(
+    SetReparsePoint: pub SetReparsePointResponse(())
 );
-make_res_newtype!( // TODO: Concrete type
-    FileLevelTrim: pub FileLevelTrimResponse(RespGetDfsReferral)
+
+make_res_newtype!(
+    LmrRequestResiliency: pub LmrRequestResiliencyResponse(())
 );
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_fsctl_request_offload_write() {
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        let req = OffloadReadRequest {
+            flags: 0,
+            token_time_to_live: 0,
+            file_offset: 0,
+            copy_length: 10485760,
+        };
+        req.write_le(&mut cursor).unwrap();
+        assert_eq!(cursor.position(), req.get_bin_size() as u64);
+        assert_eq!(
+            cursor.into_inner(),
+            [
+                0x20, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa0, 0x0, 0x0, 0x0, 0x0, 0x0
+            ]
+        );
+    }
 
     #[test]
     fn test_fsctl_request_resumekey_read() {
@@ -507,6 +721,7 @@ mod tests {
         };
         let mut cursor = std::io::Cursor::new(Vec::new());
         req.write_le(&mut cursor).unwrap();
+        assert_eq!(cursor.position(), req.get_bin_size() as u64);
         assert_eq!(
             cursor.into_inner(),
             [
