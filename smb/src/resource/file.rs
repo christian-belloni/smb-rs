@@ -198,6 +198,66 @@ impl File {
         log::debug!("Flushed {}.", self.handle.name());
         Ok(())
     }
+
+    /// Performs a server-side copy from another file on the same server.
+    /// # Arguments
+    /// * `from` - The file to copy from.
+    /// # Notes
+    /// * This copy must be performed against a file from the same share (tree) as this file.
+    #[maybe_async]
+    pub async fn srv_copy(&self, from: &File) -> crate::Result<()> {
+        if !self.access.file_write_data() {
+            return Err(Error::InvalidState(
+                "No write permission on destination file".to_string(),
+            ));
+        }
+        if !from.access.file_read_data() {
+            return Err(Error::InvalidState(
+                "No read permission on source file".to_string(),
+            ));
+        }
+
+        // Even if we weren't testing it properly, the remote would have returned
+        // [Status::ObjectNameNotFound] error for unmatching trees.
+        if !self.same_tree(from) {
+            return Err(Error::InvalidArgument(
+                "Source and destination files must be opened from the same share (tree)"
+                    .to_string(),
+            ));
+        }
+
+        let other_end_of_file = from.get_len().await?;
+        self.set_len(other_end_of_file).await?;
+
+        let resume_key_response = from.send_fsctl(SrvRequestResumeKeyRequest(())).await?;
+        let resume_key = resume_key_response.resume_key;
+
+        let chunks = (0..=other_end_of_file)
+            .step_by(CHUNK_SIZE)
+            .map(|start| {
+                let len_left = other_end_of_file - start;
+                SrvCopychunkItem {
+                    source_offset: start,
+                    target_offset: start,
+                    length: std::cmp::min(CHUNK_SIZE as u32, len_left as u32),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
+        let req = SrvCopychunkCopy {
+            source_key: resume_key,
+            chunks,
+        };
+        let copy_response = self.send_fsctl(req).await?;
+        if copy_response.total_bytes_written as u64 != other_end_of_file {
+            return Err(Error::InvalidArgument(format!(
+                "Expected to write {} bytes, but wrote {} bytes",
+                other_end_of_file, copy_response.total_bytes_written
+            )));
+        }
+        Ok(())
+    }
 }
 
 // Despite being available, seeking means nothing here,

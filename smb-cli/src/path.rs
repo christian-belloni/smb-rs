@@ -3,6 +3,8 @@ use std::str::FromStr;
 use smb::UncPath;
 
 /// Remote (UNC) or local path.
+///
+/// See [`smb::UncPath`]
 #[derive(Debug, Clone)]
 pub enum Path {
     Local(std::path::PathBuf),

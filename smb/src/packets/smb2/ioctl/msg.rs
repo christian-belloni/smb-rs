@@ -103,10 +103,10 @@ ioctl_req_data! {
     // The following FSCTLs do not provide an input buffer:
     PipePeek: PipePeekRequest, PipePeekResponse,
     SrvEnumerateSnapshots: SrvEnumerateSnapshotsRequest, SrvEnumerateSnapshotsResponse,
-    SrvRequestResumeKey: SrvRequestResumeKeyRequest, SrvRequestResumeKeyResponse,
+    SrvRequestResumeKey: SrvRequestResumeKeyRequest, SrvRequestResumeKey,
     QueryNetworkInterfaceInfo: QueryNetworkInterfaceInfoRequest, NetworkInterfaceInfo,
     // The following FSCTLs provide a specific data structure as input buffer:
-    SrvCopychunk: SrvCopychunkCopy, SrvCopychunkCopyResponse,
+    SrvCopychunk: SrvCopychunkCopy, SrvCopychunkResponse,
     SrvCopychunkWrite: SrvCopyChunkCopyWrite,SrvCopyChunkCopyWriteResponse,
     SrvReadHash: SrvReadHashReq, SrvReadHashRes,
     LmrRequestResiliency: NetworkResiliencyRequest, LmrRequestResiliencyResponse,
@@ -197,13 +197,7 @@ make_res_newtype!( // TODO: Concrete type
     SrvEnumerateSnapshots: pub SrvEnumerateSnapshotsResponse(IoctlBuffer)
 );
 make_res_newtype!( // TODO: Concrete type
-    SrvRequestResumeKey: pub SrvRequestResumeKeyResponse(IoctlBuffer)
-);
-make_res_newtype!( // TODO: Concrete type
     QueryNetworkInterfaceInfo: pub NetworkInterfaceInfoResponse(NetworkInterfaceInfo)
-);
-make_res_newtype!( // TODO: Concrete type
-    SrvCopychunk: pub SrvCopychunkCopyResponse(IoctlBuffer)
 );
 make_res_newtype!( // TODO: Concrete type
     SrvCopychunkWrite: pub SrvCopyChunkCopyWriteResponse(IoctlBuffer)
