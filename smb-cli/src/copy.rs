@@ -29,9 +29,14 @@ pub struct CopyCmd {
     pub to: Path,
 }
 
-enum CopyFile {
+enum CopyFileValue {
     Local(Mutex<fs::File>),
     Remote(File),
+}
+
+struct CopyFile {
+    path: Path,
+    value: CopyFileValue,
 }
 
 impl CopyFile {
@@ -43,7 +48,7 @@ impl CopyFile {
         cmd: &CopyCmd,
         read: bool,
     ) -> Result<Self, smb::Error> {
-        match path {
+        let value = match path {
             Path::Local(path_buf) => {
                 let file = fs::OpenOptions::new()
                     .read(read)
@@ -53,7 +58,7 @@ impl CopyFile {
                     .truncate(!read)
                     .open(path_buf)
                     .await?;
-                Ok(CopyFile::Local(Mutex::new(file)))
+                CopyFileValue::Local(Mutex::new(file))
             }
             Path::Remote(unc_path) => {
                 client
@@ -62,6 +67,11 @@ impl CopyFile {
                 let create_args = if read {
                     FileCreateArgs::make_open_existing(
                         FileAccessMask::new().with_generic_read(true),
+                    )
+                } else if cmd.force {
+                    FileCreateArgs::make_overwrite(
+                        FileAttributes::new().with_archive(true),
+                        CreateOptions::new(),
                     )
                 } else {
                     FileCreateArgs::make_create_new(
@@ -73,27 +83,35 @@ impl CopyFile {
                     .create_file(unc_path, &create_args)
                     .await?
                     .unwrap_file();
-                Ok(CopyFile::Remote(file))
+                CopyFileValue::Remote(file)
             }
-        }
+        };
+        Ok(CopyFile {
+            path: path.clone(),
+            value,
+        })
     }
 
     #[maybe_async]
     async fn copy_to(self, to: CopyFile) -> Result<(), smb::Error> {
-        match self {
-            CopyFile::Local(from_local) => match to {
-                CopyFile::Local(_) => unreachable!(),
-                CopyFile::Remote(to_remote) => {
-                    file_util::block_copy(from_local, to_remote, 16).await?
-                }
+        use CopyFileValue::*;
+        match self.value {
+            Local(from_local) => match to.value {
+                Local(_) => unreachable!(),
+                Remote(to_remote) => block_copy(from_local, to_remote, 16).await?,
             },
-            CopyFile::Remote(from_remote) => match to {
-                CopyFile::Local(to_local) => {
-                    file_util::block_copy(from_remote, to_local, 16).await?
-                }
-                CopyFile::Remote(to_remote) => {
-                    // TODO: If same connection, use fsctls to copy file in-server.
-                    file_util::block_copy(from_remote, to_remote, 8).await?
+            Remote(from_remote) => match to.value {
+                Local(to_local) => block_copy(from_remote, to_local, 16).await?,
+                Remote(to_remote) => {
+                    if to.path.as_remote().unwrap().server == self.path.as_remote().unwrap().server
+                        && to.path.as_remote().unwrap().share
+                            == self.path.as_remote().unwrap().share
+                    {
+                        // Use server-side copy if both files are on the same server
+                        to_remote.srv_copy(&from_remote).await?
+                    } else {
+                        block_copy(from_remote, to_remote, 8).await?
+                    }
                 }
             },
         }

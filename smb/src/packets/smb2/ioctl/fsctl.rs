@@ -37,7 +37,6 @@ pub enum FsctlCodes {
 
 /// The Length of source/dest keys in SrvCopyChunk* FSCTLs contents.
 /// MS-SMB 2.2.31.1
-
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
 pub struct SrvCopychunkCopy {
@@ -47,7 +46,7 @@ pub struct SrvCopychunkCopy {
     #[bw(calc = 0)]
     _reserved: u32,
     #[br(count = chunk_count)]
-    pub chunks: Vec<SrvCopychunk>,
+    pub chunks: Vec<SrvCopychunkItem>,
 }
 
 impl SrvCopychunkCopy {
@@ -57,7 +56,7 @@ impl SrvCopychunkCopy {
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct SrvCopychunk {
+pub struct SrvCopychunkItem {
     pub source_offset: u64,
     pub target_offset: u64,
     pub length: u32,
@@ -65,13 +64,13 @@ pub struct SrvCopychunk {
     _reserved: u32,
 }
 
-impl SrvCopychunk {
+impl SrvCopychunkItem {
     pub const SIZE: usize = size_of::<u64>() * 2 + size_of::<u32>() * 2;
 }
 
 impl IoctlRequestContent for SrvCopychunkCopy {
     fn get_bin_size(&self) -> u32 {
-        (Self::SIZE + self.chunks.len() * SrvCopychunk::SIZE) as u32
+        (Self::SIZE + self.chunks.len() * SrvCopychunkItem::SIZE) as u32
     }
 }
 
@@ -141,14 +140,6 @@ impl IoctlRequestContent for ValidateNegotiateInfoRequest {
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
-pub struct SrvCopychunkResponse {
-    pub chunks_written: u32,
-    pub chunk_bytes_written: u32,
-    pub total_bytes_written: u32,
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
 pub struct SrvSnapshotArray {
     pub number_of_snap_shots: u32,
     pub number_of_snap_shots_returned: u32,
@@ -157,18 +148,6 @@ pub struct SrvSnapshotArray {
     #[br(parse_with = binrw::helpers::until_eof, map_stream = |s| s.take_seek(snap_shot_array_size.value as u64))]
     #[bw(write_with = PosMarker::write_size, args(&snap_shot_array_size))]
     pub snap_shots: Vec<NullWideString>,
-}
-
-#[binrw::binrw]
-#[derive(Debug, PartialEq, Eq)]
-pub struct SrvRequestResumeKey {
-    pub resume_key: [u8; SrvCopychunkCopy::SRV_KEY_LENGTH],
-    #[bw(calc = 0)]
-    context_length: u32,
-    /// This should always be set to empty, according to MS-SMB2 2.2.32.3
-    #[br(count = context_length)]
-    #[bw(assert(context.len() == context_length as usize))]
-    pub context: Vec<u8>,
 }
 
 /// A trait that helps parsing FSCTL responses by matching the FSCTL code.
@@ -183,6 +162,30 @@ macro_rules! impl_fsctl_response {
         }
     };
 }
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SrvRequestResumeKey {
+    pub resume_key: [u8; SrvCopychunkCopy::SRV_KEY_LENGTH],
+    #[bw(calc = 0)]
+    context_length: u32,
+    /// This should always be set to empty, according to MS-SMB2 2.2.32.3
+    #[br(count = context_length)]
+    #[bw(assert(context.len() == context_length as usize))]
+    pub context: Vec<u8>,
+}
+
+impl_fsctl_response!(SrvRequestResumeKey, SrvRequestResumeKey);
+
+#[binrw::binrw]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SrvCopychunkResponse {
+    pub chunks_written: u32,
+    pub chunk_bytes_written: u32,
+    pub total_bytes_written: u32,
+}
+
+impl_fsctl_response!(SrvCopychunk, SrvCopychunkResponse);
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
@@ -388,7 +391,7 @@ mod tests {
         const TOTAL_SIZE: u32 = 10417096;
         let block_num = u32::div_ceil(TOTAL_SIZE, CHUNK_SIZE);
         for i in 0..block_num {
-            chunks.push(SrvCopychunk {
+            chunks.push(SrvCopychunkItem {
                 source_offset: (i * CHUNK_SIZE) as u64,
                 target_offset: (i * CHUNK_SIZE) as u64,
                 length: if i == block_num - 1 {

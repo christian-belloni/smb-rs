@@ -53,6 +53,18 @@ impl FileCreateArgs {
         }
     }
 
+    /// Returns arguments for creating a new file,
+    /// with the default access set to Generic All.
+    /// overwrites existing file, if it exists.
+    pub fn make_overwrite(attributes: FileAttributes, options: CreateOptions) -> FileCreateArgs {
+        FileCreateArgs {
+            disposition: CreateDisposition::OverwriteIf,
+            attributes,
+            options,
+            desired_access: FileAccessMask::new().with_generic_all(true),
+        }
+    }
+
     /// Returns arguments for opening a duplex pipe (rw).
     pub fn make_pipe() -> FileCreateArgs {
         FileCreateArgs {
@@ -576,6 +588,19 @@ impl ResourceHandle {
         self.handler
             .sendo_recvo(OutgoingMessage::new(msg), options)
             .await
+    }
+
+    /// Returns whether current resource is opened from the same tree as the other resource.
+    /// This is useful to check if two resources are opened from the same share instance.
+    ///
+    /// # Note
+    /// * Even if a resource is positioned in the same tree, if the tree was accessed using different
+    ///   share connections, this will return false!
+    pub fn same_tree(&self, other: &Self) -> bool {
+        Arc::ptr_eq(
+            &self.handler.upstream.handler,
+            &other.handler.upstream.handler,
+        )
     }
 
     #[cfg(feature = "async")]

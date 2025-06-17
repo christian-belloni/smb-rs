@@ -82,6 +82,7 @@ impl Client {
 
         if self.connections.contains_key(&share_unc) {
             log::warn!("Connection already exists for this UNC path. Reusing it.");
+            return Ok(());
         }
 
         let mut conn = Connection::build(share_unc.server.clone(), self.config.connection.clone())?;
