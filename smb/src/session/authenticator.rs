@@ -70,7 +70,7 @@ impl Authenticator {
     }
 
     fn make_sspi_target_name(server_fqdn: &str) -> String {
-        format!("cifs/{}", server_fqdn)
+        format!("cifs/{server_fqdn}")
     }
 
     fn get_context_requirements() -> ClientRequestFlags {
@@ -148,6 +148,6 @@ impl Authenticator {
             "!kerberos,!pku2u"
         };
         let ntlm_config = if config.ntlm { "ntlm" } else { "!ntlm" };
-        format!("{},{}", ntlm_config, krb_pku2u_config)
+        format!("{ntlm_config},{krb_pku2u_config}")
     }
 }

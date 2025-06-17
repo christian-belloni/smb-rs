@@ -37,10 +37,7 @@ where
         if count > max_count {
             return Err(binrw::Error::AssertFail {
                 pos: reader.stream_position()?,
-                message: format!(
-                    "NdrArray read count requested ({}) is more than the array's max count ({})",
-                    count, max_count
-                ),
+                message: format!("NdrArray read count requested ({count}) is more than the array's max count ({max_count})"),
             });
         }
         let mut data = Vec::with_capacity(count as usize);

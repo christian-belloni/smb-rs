@@ -45,7 +45,7 @@ impl AsyncBackend {
                     break;
                 }
                 Err(e) => {
-                    log::error!("Error in worker loop: {}", e);
+                    log::error!("Error in worker loop: {e}");
                 }
             }
         }
@@ -82,7 +82,7 @@ impl AsyncBackend {
                     break;
                 }
                 Err(e) => {
-                    log::error!("Error in worker loop: {}", e);
+                    log::error!("Error in worker loop: {e}",);
                 }
             }
         }

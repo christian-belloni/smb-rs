@@ -58,7 +58,7 @@ impl NotificationHandler {
                         while let Some(msg) = rx.recv().await {
                             Self::on_notification_message(&worker, msg)
                                 .await
-                                .unwrap_or_else(|e| log::error!("Error handling notification: {:?}", e));
+                                .unwrap_or_else(|e| log::error!("Error handling notification: {e:?}", ));
                         }
                     }
                 }
@@ -79,9 +79,8 @@ impl NotificationHandler {
             while !stopped_ref.load(Ordering::SeqCst) {
                 match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(notification) => {
-                        Self::on_notification_message(&worker, notification).unwrap_or_else(|e| {
-                            log::error!("Error handling notification: {:?}", e)
-                        });
+                        Self::on_notification_message(&worker, notification)
+                            .unwrap_or_else(|e| log::error!("Error handling notification: {e:?}"));
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
@@ -102,12 +101,12 @@ impl NotificationHandler {
     ) -> crate::Result<()> {
         match &msg.message.content {
             ResponseContent::ServerToClientNotification(notification) => {
-                log::info!("Received notification: {:?}", notification);
+                log::info!("Received notification: {notification:?}",);
                 match &notification.notification {
                     crate::packets::smb2::Notification::NotifySessionClosed(
                         notify_session_closed,
                     ) => {
-                        log::info!("Session closed notification: {:?}", notify_session_closed);
+                        log::info!("Session closed notification: {notify_session_closed:?}",);
                         if !msg.form.signed_or_encrypted() {
                             log::warn!("Session closed notification is not signed or encrypted - ignoring.");
                             return Ok(());
@@ -117,10 +116,10 @@ impl NotificationHandler {
                 }
             }
             ResponseContent::OplockBreakNotify(oplock) => {
-                log::info!("Received oplock break notification: {:?}", oplock);
+                log::info!("Received oplock break notification: {oplock:?}",);
             }
             _ => {
-                log::warn!("Received unexpected notification: {:?}", msg);
+                log::warn!("Received unexpected notification: {msg:?}",);
             }
         }
         Ok(())

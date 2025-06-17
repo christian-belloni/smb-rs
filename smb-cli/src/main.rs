@@ -7,9 +7,9 @@ use smb_cli::*;
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn Error>> {
-    _main().or_else(|e| {
-        log::error!("Error: {}", e);
-        Err(e)
+    _main().map_err(|e| {
+        log::error!("Error: {e}");
+        e
     })
 }
 
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     _main().await.map_err(|e| {
-        log::error!("Error: {}", e);
+        log::error!("Error: {e}");
         e
     })
 }

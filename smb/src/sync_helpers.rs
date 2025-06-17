@@ -2,12 +2,10 @@
 //! Async/Multi-threaded features in the library, according to the
 //! features enabled.
 #[cfg(not(feature = "async"))]
-pub use std::sync::{Mutex, MutexGuard, RwLock};
+pub use std::sync::{Mutex, MutexGuard, OnceLock as OnceCell, RwLock};
 
-#[cfg(feature = "single_threaded")]
-pub use std::cell::OnceCell;
 #[cfg(feature = "multi_threaded")]
-pub use std::{sync::mpsc, sync::OnceLock as OnceCell, thread::JoinHandle};
+pub use std::{sync::mpsc, thread::JoinHandle};
 #[cfg(not(feature = "async"))]
 use thiserror::Error;
 #[cfg(feature = "async")]
@@ -99,7 +97,7 @@ impl Semaphore {
         }
     }
 
-    pub fn acquire(&self) -> Result<SemaphorePermit, AcquireError> {
+    pub fn acquire(&self) -> Result<SemaphorePermit<'_>, AcquireError> {
         let mut guard = self.inner.lock().unwrap();
         while *guard == 0 {
             guard = self.condvar.wait(guard).unwrap();
@@ -111,7 +109,7 @@ impl Semaphore {
         })
     }
 
-    pub fn acquire_many(&self, count: u32) -> Result<SemaphorePermit, AcquireError> {
+    pub fn acquire_many(&self, count: u32) -> Result<SemaphorePermit<'_>, AcquireError> {
         let guard = self.inner.lock().unwrap();
         let mut guard = self.condvar.wait_while(guard, |c| *c < count).unwrap();
         *guard -= count;

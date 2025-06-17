@@ -103,8 +103,7 @@ impl Transformer {
             .get(&session_id)
             .cloned()
             .ok_or(crate::Error::InvalidState(format!(
-                "Session {} not found!",
-                session_id
+                "Session {session_id} not found!",
             )))
     }
 
@@ -291,7 +290,7 @@ impl Transformer {
         {
             Ok(_) => {}
             Err(e) => {
-                log::error!("Failed to verify incoming message: {:?}", e);
+                log::error!("Failed to verify incoming message: {e:?}",);
                 return Err(crate::Error::TranformFailed(TransformError {
                     outgoing: false,
                     phase: TransformPhase::SignVerify,

@@ -115,7 +115,7 @@ where
                 None => return Err(Error::TranformFailed(e)),
             },
             Err(e) => {
-                log::error!("Failed to transform message: {:?}", e);
+                log::error!("Failed to transform message: {e:?}");
                 return Err(e);
             }
         };
@@ -154,11 +154,11 @@ where
         let message_waiter = state.awaiting.remove(&msg_id);
         match message_waiter {
             Some(tx) => {
-                log::trace!("Waking up awaiting task for key {}.", msg_id);
+                log::trace!("Waking up awaiting task for key {msg_id}.");
                 T::send_notify(tx, msg)?;
             }
             None => {
-                log::trace!("Storing message until awaited: {}.", msg_id);
+                log::trace!("Storing message until awaited: {msg_id}.",);
                 state.pending.insert(msg_id, msg);
             }
         }
@@ -261,10 +261,7 @@ where
             false => None,
         };
 
-        log::trace!(
-            "Message with ID {} is passed to the worker for sending.",
-            id
-        );
+        log::trace!("Message with ID {id} is passed to the worker for sending.",);
 
         let message = T::wrap_msg_to_send(message);
 

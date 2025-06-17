@@ -100,7 +100,7 @@ impl Client {
             opened_conn_info.creds = Some((user_name.to_string(), password));
         }
 
-        log::debug!("Connected to share {} with user {}", share_unc, user_name);
+        log::debug!("Connected to share {share_unc} with user {user_name}");
         self.connections.insert(share_unc, opened_conn_info);
 
         Ok(())
@@ -111,8 +111,7 @@ impl Client {
             Ok(cst)
         } else {
             Err(crate::Error::InvalidArgument(format!(
-                "No connection found for {}. Use `share_connect` to create one.",
-                unc
+                "No connection found for {unc}. Use `share_connect` to create one.",
             )))
         }
     }
@@ -163,7 +162,7 @@ impl Client {
             .await?;
         match pipe {
             Resource::Pipe(file) => {
-                log::info!("Successfully opened pipe: {}", pipe_name);
+                log::info!("Successfully opened pipe: {pipe_name}",);
                 Ok(file)
             }
             _ => crate::Result::Err(Error::InvalidMessage(
@@ -209,7 +208,7 @@ impl<'a> DfsResolver<'a> {
                 .share_connect(ref_unc_path, dfs_creds.0.as_str(), dfs_creds.1.clone())
                 .await
             {
-                log::error!("Failed to open DFS referral: {}", e);
+                log::error!("Failed to open DFS referral: {e}",);
                 continue;
             };
 
@@ -218,13 +217,10 @@ impl<'a> DfsResolver<'a> {
                 ._create_file_internal(ref_unc_path, args)
                 .await
                 .map_err(|e| {
-                    log::error!("Failed to create file on DFS referral: {}", e);
+                    log::error!("Failed to create file on DFS referral: {e}",);
                     e
                 })?;
-            log::info!(
-                "Successfully created file on DFS referral: {}",
-                ref_unc_path
-            );
+            log::info!("Successfully created file on DFS referral: {ref_unc_path}",);
             return Ok(resource);
         }
         Err(Error::DfsReferralConnectionFail(dfs_path.clone()))
@@ -232,7 +228,7 @@ impl<'a> DfsResolver<'a> {
 
     #[maybe_async]
     async fn get_dfs_refs(&self, unc: &UncPath) -> crate::Result<Vec<UncPath>> {
-        log::debug!("Resolving DFS referral for {}", unc);
+        log::debug!("Resolving DFS referral for {unc}");
         let dfs_path_string = unc.to_string();
 
         let dfs_root = self.0.get_opened_conn_for_path(unc)?.tree.as_dfs_tree()?;
@@ -298,7 +294,7 @@ impl<'a> DfsResolver<'a> {
                     + &v4.refs.network_address.to_string()
                     + &dfs_path_string[suffix..];
                 let unc_path = UncPath::from_str(&unc_str_dest)?;
-                log::debug!("Resolved DFS referral to {}", unc_path);
+                log::debug!("Resolved DFS referral to {unc_path}",);
                 Ok(unc_path)
             }
             _ => Err(Error::UnsupportedOperation(

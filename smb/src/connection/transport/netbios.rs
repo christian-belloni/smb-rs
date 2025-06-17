@@ -73,8 +73,7 @@ impl NetBiosTransport {
             }
             x => {
                 return Err(Error::InvalidState(format!(
-                    "Unexpected NetBIOS session response: {:?}",
-                    x
+                    "Unexpected NetBIOS session response: {x:?}",
                 )));
             }
         }

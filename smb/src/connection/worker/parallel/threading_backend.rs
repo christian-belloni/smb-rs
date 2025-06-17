@@ -48,7 +48,7 @@ impl ThreadingBackend {
                     break;
                 }
                 Err(e) => {
-                    log::error!("Error in worker recv loop: {}", e);
+                    log::error!("Error in worker recv loop: {e}");
                 }
             }
         }
@@ -72,7 +72,7 @@ impl ThreadingBackend {
                     break;
                 }
                 Err(e) => {
-                    log::error!("Error in worker send loop: {}", e);
+                    log::error!("Error in worker send loop: {e}");
                 }
             }
         }

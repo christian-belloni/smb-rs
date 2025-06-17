@@ -183,17 +183,22 @@ pub struct LuidAttrData {
     pub attr: LsaprLuidAttributes,
 }
 
-/// [MS-LSAD 2.2.5.4](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-lsad/03c834c0-f310-4e0c-832e-b6e7688364d1)
-#[bitfield]
-#[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
-#[br(map = Self::from_bytes)]
-pub struct LsaprLuidAttributes {
-    #[allow(clippy::identity_op)]
-    pub is_default: bool,
-    pub is_enabled: bool,
-    #[skip]
-    __: B30,
+#[allow(clippy::identity_op)]
+mod lsapr_luid_attributes {
+    use super::*;
+    /// [MS-LSAD 2.2.5.4](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-lsad/03c834c0-f310-4e0c-832e-b6e7688364d1)
+    #[bitfield]
+    #[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
+    #[br(map = Self::from_bytes)]
+    pub struct LsaprLuidAttributes {
+        pub is_default: bool,
+        pub is_enabled: bool,
+        #[skip]
+        __: B30,
+    }
 }
+
+use lsapr_luid_attributes::LsaprLuidAttributes;
 
 type PrivilegeData = BlobData<LuidAttrData>;
 

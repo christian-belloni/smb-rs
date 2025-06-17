@@ -56,16 +56,12 @@ impl TcpTransport {
     #[cfg(not(feature = "async"))]
     fn connect_timeout(&mut self, endpoint: &SocketAddr) -> crate::Result<TcpStream> {
         if self.timeout == Duration::ZERO {
-            log::debug!("Connecting to {}.", endpoint);
-            return TcpStream::connect(&endpoint).map_err(Into::into);
+            log::debug!("Connecting to {endpoint}.");
+            return TcpStream::connect(endpoint).map_err(Into::into);
         }
 
-        log::debug!(
-            "Connecting to {} with timeout {:?}.",
-            endpoint,
-            self.timeout
-        );
-        TcpStream::connect_timeout(&endpoint, self.timeout).map_err(Into::into)
+        log::debug!("Connecting to {endpoint} with timeout {:?}.", self.timeout);
+        TcpStream::connect_timeout(endpoint, self.timeout).map_err(Into::into)
     }
 
     /// Connects to a NetBios server in the specified endpoint with a timeout.
@@ -74,13 +70,17 @@ impl TcpTransport {
     #[cfg(feature = "async")]
     async fn connect_timeout(&mut self, endpoint: &SocketAddr) -> crate::Result<TcpStream> {
         if self.timeout == Duration::ZERO {
-            log::debug!("Connecting to {}.", endpoint);
+            log::debug!("Connecting to {endpoint}.",);
             return TcpStream::connect(&endpoint).await.map_err(Into::into);
         }
 
         select! {
             res = TcpStream::connect(&endpoint) => res.map_err(Into::into),
-            _ = tokio::time::sleep(self.timeout) => Err(crate::Error::OperationTimeout(format!("Tcp connect to {}", endpoint), self.timeout)),
+            _ = tokio::time::sleep(self.timeout) => Err(
+                crate::Error::OperationTimeout(
+                    format!("Tcp connect to {endpoint}"), self.timeout
+                )
+            ),
         }
     }
 
@@ -116,16 +116,13 @@ impl TcpTransport {
     fn map_tcp_error(e: io::Error) -> crate::Error {
         if e.kind() == io::ErrorKind::ConnectionAborted || e.kind() == io::ErrorKind::UnexpectedEof
         {
-            log::error!(
-                "Got IO error: {} -- Connection Error, notify NotConnected!",
-                e
-            );
+            log::error!("Got IO error: {e} -- Connection Error, notify NotConnected!");
             return crate::Error::NotConnected;
         }
         if e.kind() == io::ErrorKind::WouldBlock {
-            log::trace!("Got IO error: {} -- with ErrorKind::WouldBlock.", e);
+            log::trace!("Got IO error: {e} -- with ErrorKind::WouldBlock.");
         } else {
-            log::error!("Got IO error: {} -- Mapping to IO error.", e);
+            log::error!("Got IO error: {e} -- Mapping to IO error.",);
         }
         e.into()
     }

@@ -87,11 +87,11 @@ impl Display for UncPath {
         write!(f, r"\\{}", self.server)?;
 
         if let Some(share) = &self.share {
-            write!(f, r"\{}", share)?;
+            write!(f, r"\{share}",)?;
         }
 
         if let Some(path) = &self.path {
-            write!(f, r"\{}", path)?;
+            write!(f, r"\{path}",)?;
         }
         Ok(())
     }

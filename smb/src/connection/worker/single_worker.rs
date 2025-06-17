@@ -1,12 +1,11 @@
-use std::{
-    cell::{OnceCell, RefCell},
-    sync::Arc,
-    time::Duration,
-};
-
 use crate::{
     connection::{transformer::Transformer, transport::SmbTransport},
     msg_handler::{IncomingMessage, OutgoingMessage, ReceiveOptions, SendMessageResult},
+};
+use std::sync::OnceLock;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use super::Worker;
@@ -16,25 +15,25 @@ pub struct SingleWorker {
     // for trait compatibility, we need to use RefCell here,
     // since we can't have mutable references to the same object in multiple threads,
     // which is useful in the async worker.
-    transport: RefCell<OnceCell<Box<dyn SmbTransport>>>,
+    transport: Mutex<OnceLock<Box<dyn SmbTransport>>>,
     transformer: Transformer,
-    timeout: RefCell<Option<Duration>>,
+    timeout: Mutex<Option<Duration>>,
 }
 
 impl Worker for SingleWorker {
     fn start(transport: Box<dyn SmbTransport>, timeout: Duration) -> crate::Result<Arc<Self>> {
         transport.set_read_timeout(timeout)?;
         Ok(Arc::new(Self {
-            transport: RefCell::new(OnceCell::from(transport)),
+            transport: Mutex::new(OnceLock::from(transport)),
             transformer: Transformer::default(),
-            timeout: RefCell::new(Some(timeout)),
+            timeout: Mutex::new(Some(timeout)),
         }))
     }
 
     fn stop(&self) -> crate::Result<()> {
         self.transport
-            .borrow_mut()
-            .take()
+            .lock()?
+            .get()
             .ok_or(crate::Error::NotConnected)?;
         Ok(())
     }
@@ -45,7 +44,7 @@ impl Worker for SingleWorker {
 
         let msg_to_send = self.transformer.transform_outgoing(msg)?;
 
-        let mut t = self.transport.borrow_mut();
+        let mut t = self.transport.lock()?;
         t.get_mut()
             .ok_or(crate::Error::NotConnected)?
             .send(msg_to_send.as_ref())?;
@@ -60,14 +59,17 @@ impl Worker for SingleWorker {
 
     fn receive_next(&self, options: &ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
         // Receive next message
-        let mut self_mut = self.transport.borrow_mut();
+        let mut self_mut = self.transport.lock()?;
         let transport = self_mut.get_mut().ok_or(crate::Error::NotConnected)?;
         let msg = transport.receive().map_err(|e| match e {
             crate::Error::IoError(ioe) => {
                 if ioe.kind() == std::io::ErrorKind::WouldBlock {
                     crate::Error::OperationTimeout(
                         "Receive next message".into(),
-                        self.timeout.borrow().unwrap_or(Duration::ZERO),
+                        self.timeout
+                            .lock()
+                            .map(|v| v.unwrap_or(Duration::ZERO))
+                            .unwrap_or(Duration::MAX),
                     )
                 } else {
                     crate::Error::IoError(ioe)
@@ -93,12 +95,13 @@ impl Worker for SingleWorker {
     }
 
     fn set_timeout(&self, timeout: Duration) -> crate::Result<()> {
-        self.transport
-            .borrow()
-            .get()
+        let mut transport = self.transport.lock()?;
+        transport
+            .get_mut()
             .ok_or(crate::Error::NotConnected)?
             .set_read_timeout(timeout)?;
-        self.timeout.replace(Some(timeout));
+        let mut timeout_ref = self.timeout.lock()?;
+        *timeout_ref = Some(timeout);
         Ok(())
     }
 }

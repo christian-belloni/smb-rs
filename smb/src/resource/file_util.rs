@@ -146,7 +146,7 @@ mod copy {
 
         const DEFAULT_JOBS: usize = 16;
         let jobs = if jobs == 0 {
-            log::debug!("No jobs specified, using default: {}", DEFAULT_JOBS);
+            log::debug!("No jobs specified, using default: {DEFAULT_JOBS}",);
             DEFAULT_JOBS
         } else {
             jobs
@@ -169,7 +169,7 @@ mod copy {
             max_chunk_size: CHUNK_SIZE,
             num_jobs: jobs,
         };
-        log::debug!("Starting parallel copy: {:?}", copy_state);
+        log::debug!("Starting parallel copy: {copy_state:?}",);
         start_parallel_copy(from, to, copy_state).await?;
 
         Ok(())
@@ -186,7 +186,7 @@ mod copy {
     ) -> crate::Result<()> {
         use tokio::task::JoinSet;
 
-        to.set_len(from.get_len().await? as u64).await?;
+        to.set_len(from.get_len().await?).await?;
 
         let to = Arc::new(to);
         let from = Arc::new(from);
@@ -244,7 +244,7 @@ mod copy {
         state: Arc<CopyState>,
         task_id: usize,
     ) -> crate::Result<()> {
-        log::debug!("Starting copy task {}", task_id);
+        log::debug!("Starting copy task {task_id}",);
 
         let mut curr_chunk = vec![0u8; state.max_chunk_size as usize];
 
@@ -269,16 +269,13 @@ mod copy {
             let bytes_read = from.read_at(&mut curr_chunk[..chunk_size], offset).await?;
             if bytes_read < chunk_size {
                 log::warn!(
-                "Task {}: Read less bytes than expected. File might be corrupt. Expected: {}, Read: {}",
-                task_id,
-                chunk_size,
-                bytes_read
+                "Task {task_id}: Read less bytes than expected. File might be corrupt. Expected: {chunk_size}, Read: {bytes_read}"
             );
             }
-            let valid_chunk_end = bytes_read as usize;
+            let valid_chunk_end = bytes_read;
             to.write_at(&curr_chunk[..valid_chunk_end], offset).await?;
         }
-        log::debug!("Copy task {} completed", task_id);
+        log::debug!("Copy task {task_id} completed",);
         Ok(())
     }
 }
@@ -313,9 +310,7 @@ mod copy {
             let bytes_read = from.read_at(&mut curr_chunk[..chunk_size], offset)?;
             if bytes_read < chunk_size {
                 log::warn!(
-                    "Read less bytes than expected. File might be corrupt. Expected: {}, Read: {}",
-                    chunk_size,
-                    bytes_read
+                    "Read less bytes than expected. File might be corrupt. Expected: {chunk_size}, Read: {bytes_read}"
                 );
             }
             to.write_at(&curr_chunk[..bytes_read], offset)?;

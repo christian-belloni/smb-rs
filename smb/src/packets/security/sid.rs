@@ -23,11 +23,11 @@ pub struct SID {
     pub sub_authority: Vec<u32>,
 }
 impl SID {
-    const PREFIX: &str = "S-1-";
+    const PREFIX: &'static str = "S-1-";
 
-    pub const S_ADMINISTRATORS: &str = "S-1-5-32-544";
-    pub const S_LOCAL_SYSTEM: &str = "S-1-5-18";
-    pub const S_EVERYONE: &str = "S-1-1-0";
+    pub const S_ADMINISTRATORS: &'static str = "S-1-5-32-544";
+    pub const S_LOCAL_SYSTEM: &'static str = "S-1-5-18";
+    pub const S_EVERYONE: &'static str = "S-1-1-0";
 }
 
 impl FromStr for SID {
@@ -74,7 +74,7 @@ impl std::fmt::Display for SID {
             write!(f, "0x{:x}", self.identifier_authority)?;
         }
         for sub_authority in &self.sub_authority {
-            write!(f, "-{}", sub_authority)?;
+            write!(f, "-{sub_authority}")?;
         }
         Ok(())
     }

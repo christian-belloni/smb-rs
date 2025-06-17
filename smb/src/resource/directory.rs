@@ -74,7 +74,7 @@ impl Directory {
                 return Ok(vec![]);
             }
             Err(e) => {
-                log::error!("Error querying directory: {}", e);
+                log::error!("Error querying directory: {e}");
                 return Err(e);
             }
         };
@@ -119,8 +119,8 @@ impl Directory {
     /// * An iterator over the directory contents, yielding [`QueryDirectoryInfoValue`] objects.
     /// # Notes
     /// * **IMPORTANT**: Calling this method BLOCKS ANY ADDITIONAL CALLS to this method on THIS structure instance.
-    /// Hence, you should not call this method on the same instance from multiple threads. This is for safety,
-    /// since SMB2 does not allow multiple queries on the same handle at the same time.
+    ///   Hence, you should not call this method on the same instance from multiple threads. This is for safety,
+    ///   since SMB2 does not allow multiple queries on the same handle at the same time.
     #[cfg(not(feature = "async"))]
     pub fn query_directory<'a, T>(
         &'a self,
@@ -185,7 +185,7 @@ impl Directory {
                 }
             }
             Err(e) => {
-                log::error!("Error watching directory: {}", e);
+                log::error!("Error watching directory: {e}");
                 return Err(e);
             }
         };

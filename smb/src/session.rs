@@ -49,7 +49,7 @@ impl Session {
     ) -> crate::Result<Session> {
         let req_security_mode = SessionSecurityMode::new().with_signing_enabled(true);
 
-        log::debug!("Setting up session for user {}.", user_name);
+        log::debug!("Setting up session for user {user_name}.");
 
         let username = Username::parse(user_name).map_err(|e| Error::SspiError(e.into()))?;
         let identity = AuthIdentity {
@@ -107,7 +107,7 @@ impl Session {
                     .session_ended(handler.session_id)
                     .await
                 {
-                    log::debug!("Failed to notify worker about session end: {}!", x);
+                    log::debug!("Failed to notify worker about session end: {x}!");
                 }
                 return Err(e);
             }
@@ -301,7 +301,7 @@ impl SessionMessageHandler {
     #[maybe_async]
     pub async fn logoff_async(&mut self) {
         self.logoff().await.unwrap_or_else(|e| {
-            log::error!("Failed to logoff: {}", e);
+            log::error!("Failed to logoff: {e}");
         });
     }
 
@@ -384,7 +384,7 @@ impl MessageHandler for SessionMessageHandler {
 impl Drop for SessionMessageHandler {
     fn drop(&mut self) {
         self.logoff().unwrap_or_else(|e| {
-            log::error!("Failed to logoff: {}", e);
+            log::error!("Failed to logoff: {e}",);
         });
     }
 }

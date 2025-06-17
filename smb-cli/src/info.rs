@@ -44,16 +44,16 @@ pub async fn info(info: &InfoCmd, cli: &Cli) -> Result<(), Box<dyn Error>> {
     match resource {
         Resource::File(file) => {
             let info: FileBasicInformation = file.query_info().await?;
-            log::info!("File info: {:?}", info);
+            log::info!("File info: {info:?}");
             let security = file
                 .query_security_info(AdditionalInfo::new().with_owner_security_information(true))
                 .await?;
-            log::info!("Security info: {:?}", security);
+            log::info!("Security info: {security:?}");
         }
         Resource::Directory(dir) => {
             let dir = Arc::new(dir);
             iterate_directory(&dir, "*", |info| {
-                log::info!("Directory info: {:?}", info);
+                log::info!("Directory info: {info:?}");
                 Ok(())
             })
             .await?;

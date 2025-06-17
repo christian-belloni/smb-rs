@@ -73,8 +73,7 @@ impl PipeRpcConnection {
             }
             _ => {
                 return Err(crate::Error::InvalidMessage(format!(
-                    "Expected BindAck, got: {:?}",
-                    bind_ack
+                    "Expected BindAck, got: {bind_ack:?}",
                 )));
             }
         };
@@ -136,8 +135,7 @@ impl PipeRpcConnection {
             }
             if ack_context.result != DceRpcCoPktBindAckDefResult::Acceptance {
                 return Err(crate::Error::InvalidMessage(format!(
-                    "BindAck result for syntax {} was not acceptance: {:?}",
-                    syntax, ack_context
+                    "BindAck result for syntax {syntax} was not acceptance: {ack_context:?}"
                 )));
             }
             if &ack_context.syntax != syntax {
@@ -150,7 +148,7 @@ impl PipeRpcConnection {
         }
 
         if let Some(context_id) = context_id_selected {
-            log::debug!("Selected context ID: {}", context_id);
+            log::debug!("Selected context ID: {context_id}");
             Ok(context_id)
         } else {
             Err(crate::Error::InvalidMessage(
@@ -284,8 +282,7 @@ impl BoundRpcConnection for PipeRpcConnection {
             DcRpcCoPktResponseContent::Response(dc_rpc_co_pkt_response) => dc_rpc_co_pkt_response,
             content => {
                 return Err(crate::Error::InvalidMessage(format!(
-                    "Expected DceRpcCoPktResponseContent::Response, got: {:?}",
-                    content
+                    "Expected DceRpcCoPktResponseContent::Response, got: {content:?}",
                 )));
             }
         };

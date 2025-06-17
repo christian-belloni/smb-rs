@@ -129,10 +129,7 @@ impl Resource {
         let access = match CreateContextRespData::first_mxac(&response.create_contexts) {
             Some(response) => response.maximal_access,
             _ => {
-                log::debug!(
-                    "No maximal access context found for file '{}', using default (full access).",
-                    name
-                );
+                log::debug!("No maximal access context found for file '{name}', using default (full access).");
                 FileAccessMask::from_bytes(u32::MAX.to_be_bytes())
             }
         };
@@ -586,7 +583,7 @@ impl ResourceHandle {
         self.close()
             .await
             .map_err(|e| {
-                log::error!("Error closing file: {}", e);
+                log::error!("Error closing file: {e}");
                 e
             })
             .ok();
@@ -629,9 +626,9 @@ impl MessageHandler for ResourceMessageHandle {
 impl Drop for ResourceHandle {
     fn drop(&mut self) {
         self.close()
-            .or_else(|e| {
-                log::error!("Error closing file: {}", e);
-                Err(e)
+            .map_err(|e| {
+                log::error!("Error closing file: {e}");
+                e
             })
             .ok();
     }

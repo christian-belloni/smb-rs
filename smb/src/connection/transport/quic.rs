@@ -57,7 +57,7 @@ impl QuicTransport {
                             log::info!("local server certificate not found");
                         }
                         Err(e) => {
-                            log::error!("failed to open local server certificate: {}", e);
+                            log::error!("failed to open local server certificate: {e}");
                         }
                     }
                 }

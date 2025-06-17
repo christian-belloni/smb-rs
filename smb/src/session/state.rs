@@ -34,9 +34,9 @@ struct SessionAlgos {
 }
 
 impl SessionAlgos {
-    const NO_PREAUTH_HASH_DERIVE_SIGN_CTX: &[u8] = b"SmbSign\x00";
-    const NO_PREAUTH_HASH_DERIVE_ECRNYPT_S2C_CTX: &[u8] = b"ServerOut\x00";
-    const NO_PREAUTH_HASH_DERIVE_ENCRYPT_C2S_CTX: &[u8] = b"ServerIn \x00";
+    const NO_PREAUTH_HASH_DERIVE_SIGN_CTX: &'static [u8] = b"SmbSign\x00";
+    const NO_PREAUTH_HASH_DERIVE_ECRNYPT_S2C_CTX: &'static [u8] = b"ServerOut\x00";
+    const NO_PREAUTH_HASH_DERIVE_ENCRYPT_C2S_CTX: &'static [u8] = b"ServerIn \x00";
 
     pub fn build(
         session_key: &KeyToDerive,
@@ -227,7 +227,7 @@ impl SessionInfo {
         }
 
         let algos = SessionAlgos::build(session_key, preauth_hash, info)?;
-        log::trace!("Session algos set up: {:?}", algos);
+        log::trace!("Session algos set up: {algos:?}");
         self.state = Some(SessionInfoState::SetUp { algos });
 
         Ok(())

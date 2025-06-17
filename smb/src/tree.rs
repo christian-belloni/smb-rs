@@ -86,7 +86,7 @@ impl Tree {
                 "Tree ID is not set in the response".to_string(),
             ))?;
 
-        log::info!("Connected to tree {} (#{})", name, tree_id);
+        log::info!("Connected to tree {name} (#{tree_id})");
 
         let tree_connect_info = TreeConnectInfo {
             tree_id,
@@ -196,7 +196,7 @@ impl Tree {
             .unwrap_or(false)
     }
 
-    pub fn as_dfs_tree(&self) -> crate::Result<DfsRootTreeRef> {
+    pub fn as_dfs_tree(&self) -> crate::Result<DfsRootTreeRef<'_>> {
         if !self.is_dfs_root() {
             return Err(Error::InvalidState("Tree is not a DFS tree".to_string()));
         }
@@ -252,7 +252,7 @@ impl TreeMessageHandler {
         self.disconnect()
             .await
             .map_err(|e| {
-                log::error!("Failed to disconnect from tree: {}", e);
+                log::error!("Failed to disconnect from tree: {e}");
                 e
             })
             .ok();
@@ -286,9 +286,9 @@ impl MessageHandler for TreeMessageHandler {
 impl Drop for TreeMessageHandler {
     fn drop(&mut self) {
         self.disconnect()
-            .or_else(|e| {
-                log::error!("Failed to disconnect from tree {}: {}", self.tree_name, e);
-                Err(e)
+            .map_err(|e| {
+                log::error!("Failed to disconnect from tree {}: {e}", self.tree_name);
+                e
             })
             .ok();
     }
