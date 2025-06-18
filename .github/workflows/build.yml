@@ -28,9 +28,10 @@ jobs:
         env:
           ACCOUNT_LocalAdmin: 123456
           SAMBA_CONF_LOG_LEVEL: 1
-          SAMBA_VOLUME_CONFIG_MyShare: "[MyShare]; path=/shares/MyShare; read only = no; browseable = yes; smb encrypt = desired"
+          SAMBA_VOLUME_CONFIG_MyShare: "[MyShare]; path=/shares/MyShare; read only = no; browseable = yes; create mask = 0777; directory mask = 0777; smb encrypt = desired"
           SAMBA_VOLUME_CONFIG_PublicShare: "[PublicShare]; path=/shares/PublicShare; read only = no; browseable = yes; guest ok = yes; smb encrypt = disabled"
           SAMBA_GLOBAL_CONFIG_smb_SPACE_ports: "139 445"
+          SAMBA_GLOBAL_CONFIG_smb_SPACE_encrypt: "auto"
         options: --name samba --privileged --cap-add NET_ADMIN
 
     steps:
@@ -49,6 +50,7 @@ jobs:
     - name: Tests/${{ matrix.compile_features }}
       run: |
         export SMB_RUST_TESTS_SERVER=samba
+        export RUST_LOG=debug
         cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},${COMMON_FEATURES}" -- --nocapture
         # Test without encryption and compression
         cargo test --verbose --no-default-features --features "${{ matrix.compile_features }},sign" -- --nocapture

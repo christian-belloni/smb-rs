@@ -24,10 +24,6 @@ impl MessageSigner {
         if calculated_signature != header.signature {
             return Err(Error::SignatureVerificationFailed);
         }
-        log::debug!(
-            "Signature verification passed (signature={}).",
-            header.signature
-        );
         Ok(())
     }
 
@@ -39,12 +35,6 @@ impl MessageSigner {
         // Update raw data to include the signature.
         let mut header_writer = Cursor::new(&mut raw_data[0..Header::STRUCT_SIZE]);
         header.write(&mut header_writer)?;
-
-        log::debug!(
-            "Message #{} signed (signature={}).",
-            header.message_id,
-            header.signature
-        );
         Ok(())
     }
 
