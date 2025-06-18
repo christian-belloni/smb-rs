@@ -11,7 +11,7 @@ use smb::{
         smb2::{AdditionalInfo, CreateOptions, Dialect},
     },
     resource::Directory,
-    FileCreateArgs,
+    ConnectionConfig, FileCreateArgs,
 };
 use std::sync::Arc;
 mod common;
@@ -48,14 +48,17 @@ async fn test_smb_integration_dialect_encrpytion_mode(
     force_dialect: Dialect,
     encryption_mode: EncryptionMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!(
-        "Testing with dialect: {:?}, enc? {:?}",
-        force_dialect,
-        encryption_mode
-    );
+    log::info!("Testing with dialect: {force_dialect:?}, enc? {encryption_mode:?}",);
+
+    let connection_config = ConnectionConfig {
+        min_dialect: Some(force_dialect),
+        max_dialect: Some(force_dialect),
+        encryption_mode,
+        ..Default::default()
+    };
 
     let (mut client, share_path) =
-        make_server_connection(TestConstants::DEFAULT_SHARE, None).await?;
+        make_server_connection(TestConstants::DEFAULT_SHARE, Some(connection_config)).await?;
 
     const TEST_FILE: &str = "test.txt";
     const TEST_DATA: &[u8] = b"Hello, World!";

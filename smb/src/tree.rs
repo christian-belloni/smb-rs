@@ -30,7 +30,6 @@ type Upstream = HandlerReference<SessionMessageHandler>;
 pub struct TreeConnectInfo {
     tree_id: u32,
     share_type: ShareType,
-    share_flags: ShareFlags,
 }
 
 /// A tree represents a share on the server.
@@ -78,6 +77,13 @@ impl Tree {
             )));
         }
 
+        // If encryption is required, make sure it is available.
+        if content.share_flags.encrypt_data() && conn_info.config.encryption_mode.is_disabled() {
+            return Err(Error::InvalidMessage(
+                "Server requires encryption, but client does not support it".to_string(),
+            ));
+        }
+
         let tree_id = response
             .message
             .header
@@ -91,11 +97,15 @@ impl Tree {
         let tree_connect_info = TreeConnectInfo {
             tree_id,
             share_type: content.share_type,
-            share_flags: content.share_flags,
         };
 
         let t = Tree {
-            handler: TreeMessageHandler::new(upstream, name.to_string(), tree_connect_info),
+            handler: TreeMessageHandler::new(
+                upstream,
+                name.to_string(),
+                tree_connect_info,
+                content.share_flags,
+            ),
             conn_info: conn_info.clone(),
             dfs,
         };
@@ -189,11 +199,7 @@ impl Tree {
     }
 
     pub fn is_dfs_root(&self) -> bool {
-        self.handler
-            .connect_info
-            .get()
-            .map(|info| info.share_flags.dfs_root() && info.share_flags.dfs())
-            .unwrap_or(false)
+        self.handler.share_flags.dfs_root() && self.handler.share_flags.dfs()
     }
 
     pub fn as_dfs_tree(&self) -> crate::Result<DfsRootTreeRef<'_>> {
@@ -208,6 +214,8 @@ pub struct TreeMessageHandler {
     upstream: Upstream,
     connect_info: OnceCell<TreeConnectInfo>,
     tree_name: String,
+
+    share_flags: ShareFlags,
 }
 
 impl TreeMessageHandler {
@@ -215,11 +223,13 @@ impl TreeMessageHandler {
         upstream: &Upstream,
         tree_name: String,
         info: TreeConnectInfo,
+        share_flags: ShareFlags,
     ) -> HandlerReference<TreeMessageHandler> {
         HandlerReference::new(TreeMessageHandler {
             upstream: upstream.clone(),
             connect_info: OnceCell::from(info),
             tree_name,
+            share_flags,
         })
     }
 
@@ -270,6 +280,9 @@ impl MessageHandler for TreeMessageHandler {
             None => 0,
         }
         .into();
+        if self.share_flags.encrypt_data() {
+            msg.encrypt = true;
+        }
         self.upstream.sendo(msg).await
     }
 
@@ -278,7 +291,16 @@ impl MessageHandler for TreeMessageHandler {
         &self,
         options: crate::msg_handler::ReceiveOptions<'_>,
     ) -> crate::Result<crate::msg_handler::IncomingMessage> {
-        self.upstream.recvo(options).await
+        let msg = self.upstream.recvo(options).await?;
+
+        // Make sure encryption is enforced if the share requires it.
+        if !msg.form.encrypted && self.share_flags.encrypt_data() {
+            return Err(Error::InvalidMessage(
+                "Received unencrypted message on encrypted share".to_string(),
+            ));
+        }
+
+        Ok(msg)
     }
 }
 

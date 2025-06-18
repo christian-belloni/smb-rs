@@ -1,7 +1,5 @@
 pub mod config;
 pub mod connection_info;
-#[cfg(not(feature = "single_threaded"))]
-pub mod notification_handler;
 pub mod preauth_hash;
 pub mod transformer;
 pub mod transport;
@@ -10,6 +8,7 @@ pub mod worker;
 use crate::dialects::DialectImpl;
 use crate::packets::guid::Guid;
 use crate::packets::smb2::{Command, Response};
+use crate::session::SessionMessageHandler;
 use crate::Error;
 use crate::{compression, sync_helpers::*};
 use crate::{
@@ -25,13 +24,14 @@ use binrw::prelude::*;
 pub use config::*;
 use connection_info::{ConnectionInfo, NegotiatedProperties};
 use maybe_async::*;
-#[cfg(not(feature = "single_threaded"))]
-use notification_handler::NotificationHandler;
 use rand::rngs::OsRng;
 use rand::Rng;
 use std::cmp::max;
-use std::sync::atomic::{AtomicU16, AtomicU64};
-use std::sync::Arc;
+use std::collections::HashMap;
+#[cfg(feature = "multi_threaded")]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 pub use transformer::TransformError;
 use transport::{make_transport, SmbTransport};
@@ -140,9 +140,7 @@ impl Connection {
                 ));
             }
             // Increase sequence number.
-            self.handler
-                .curr_msg_id
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.handler.curr_msg_id.fetch_add(1, Ordering::SeqCst);
         }
 
         WorkerImpl::start(transport, self.config.timeout()).await
@@ -318,19 +316,19 @@ impl Connection {
         };
 
         // Set capabilities to 0 if no SMB3 dialects are supported.
-        let capabilities = if supported_dialects.iter().all(|d| !d.is_smb3()) {
+        let capabilities = if supported_dialects.iter().max() < Some(&Dialect::Smb030) {
             GlobalCapabilities::new()
         } else {
-            let capabilities = GlobalCapabilities::new()
+            let mut capabilities = GlobalCapabilities::new()
                 .with_dfs(true)
                 .with_leasing(true)
                 .with_large_mtu(true)
-                .with_multi_channel(true)
-                .with_persistent_handles(true)
+                .with_multi_channel(false)
+                .with_persistent_handles(false)
                 .with_directory_leasing(true);
 
             if has_encryption {
-                capabilities.with_encryption(true);
+                capabilities.set_encryption(true);
             }
 
             // Enable notifications by client config + build config.
@@ -338,7 +336,7 @@ impl Connection {
                 && cfg!(not(feature = "single_threaded"))
                 && supported_dialects.contains(&Dialect::Smb0311)
             {
-                capabilities.with_notifications(true);
+                capabilities.set_notifications(true);
             }
             capabilities
         };
@@ -385,7 +383,9 @@ impl Connection {
 
         #[cfg(not(feature = "single_threaded"))]
         if !self.config.disable_notifications && info.negotiation.caps.notifications() {
-            self.handler.start_notification_handler().await?;
+            log::info!("Starting Notification job.");
+            self.handler.handler.start_notify().await?;
+            log::info!("Notification job started.");
         }
 
         self.handler.conn_info.set(Arc::new(info)).unwrap();
@@ -394,28 +394,52 @@ impl Connection {
         Ok(())
     }
 
+    /// Starts a new session with the specified user and password.
+    /// # Arguments
+    /// * `user_name` - The user to authenticate with.
+    /// * `password` - The password for the user.
+    /// # Returns
+    /// A [`Session`] object representing the authenticated session.
+    /// # Notes:
+    /// * You may use the [`ConnectionConfig`] to configure authentication options.
     #[maybe_async]
     pub async fn authenticate(&self, user_name: &str, password: String) -> crate::Result<Session> {
-        Session::setup(
+        let session = Session::setup(
             user_name,
             password,
             &self.handler,
             self.handler.conn_info.get().unwrap(),
         )
-        .await
+        .await?;
+        let session_handler = session.handler();
+        self.handler
+            .sessions
+            .lock()
+            .await?
+            .insert(session.session_id(), session_handler);
+        Ok(session)
     }
 }
 
 /// This struct is the internal message handler for the SMB client.
 pub struct ConnectionMessageHandler {
     client_guid: Guid,
+
     /// The number of extra credits to be requested by the client
     /// to enable larger requests/multiple outstanding requests.
     extra_credits_to_request: u16,
 
     worker: OnceCell<Arc<WorkerImpl>>,
-    #[cfg(not(feature = "single_threaded"))]
-    notification_handler: OnceCell<NotificationHandler>,
+
+    #[cfg(feature = "async")]
+    /// Cancellation token for stopping notifications.
+    stop_notifications: CancellationToken,
+    #[cfg(feature = "multi_threaded")]
+    /// Flag to stop notifications.
+    stop_notifications: Arc<AtomicBool>,
+
+    /// Holds the sessions created by this connection.
+    sessions: Mutex<HashMap<u64, Weak<SessionMessageHandler>>>,
 
     // Negotiation-related state.
     conn_info: OnceCell<Arc<ConnectionInfo>>,
@@ -439,7 +463,8 @@ impl ConnectionMessageHandler {
             curr_msg_id: AtomicU64::new(0),
             credit_pool: AtomicU16::new(1),
             #[cfg(not(feature = "single_threaded"))]
-            notification_handler: OnceCell::new(),
+            stop_notifications: Default::default(),
+            sessions: Mutex::new(HashMap::with_capacity(1)),
         }
     }
 
@@ -478,16 +503,15 @@ impl ConnectionMessageHandler {
 
                 let mut request = cost;
                 // Request additional credits if required: if balance < extra, add to request the diff:
-                let current_pool_size = self.credit_pool.load(std::sync::atomic::Ordering::SeqCst);
+                let current_pool_size = self.credit_pool.load(Ordering::SeqCst);
                 if current_pool_size < self.extra_credits_to_request {
                     request += self.extra_credits_to_request - current_pool_size;
                 }
 
                 msg.message.header.credit_charge = cost;
                 msg.message.header.credit_request = request;
-                msg.message.header.message_id = self
-                    .curr_msg_id
-                    .fetch_add(cost as u64, std::sync::atomic::Ordering::SeqCst);
+                msg.message.header.message_id =
+                    self.curr_msg_id.fetch_add(cost as u64, Ordering::SeqCst);
 
                 return Ok(());
             } else {
@@ -497,9 +521,7 @@ impl ConnectionMessageHandler {
         }
         // Default case: next sequence ID
         {
-            msg.message.header.message_id = self
-                .curr_msg_id
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            msg.message.header.message_id = self.curr_msg_id.fetch_add(1, Ordering::SeqCst);
         }
         Ok(())
     }
@@ -513,15 +535,11 @@ impl ConnectionMessageHandler {
                 // Update the pool size - return how many EXTRA credits were granted.
                 // also, handle the case where the server granted less credits than charged.
                 if charged_credits > granted_credits {
-                    self.credit_pool.fetch_sub(
-                        charged_credits - granted_credits,
-                        std::sync::atomic::Ordering::SeqCst,
-                    );
+                    self.credit_pool
+                        .fetch_sub(charged_credits - granted_credits, Ordering::SeqCst);
                 } else {
-                    self.credit_pool.fetch_add(
-                        granted_credits - charged_credits,
-                        std::sync::atomic::Ordering::SeqCst,
-                    );
+                    self.credit_pool
+                        .fetch_add(granted_credits - charged_credits, Ordering::SeqCst);
                 }
 
                 // Return the credits to the pool.
@@ -531,15 +549,69 @@ impl ConnectionMessageHandler {
         Ok(())
     }
 
-    #[cfg(not(feature = "single_threaded"))]
-    #[maybe_async]
-    async fn start_notification_handler(&self) -> crate::Result<()> {
+    #[cfg(feature = "async")]
+    async fn start_notify(self: &Arc<Self>) -> crate::Result<()> {
         let worker = self.worker.get().unwrap();
-        let handler = NotificationHandler::start(worker)?;
-        self.notification_handler
-            .set(handler)
-            .map_err(|_| Error::InvalidState("Notification handler already started".into()))?;
+        let worker = worker.clone();
+        const CHANNEL_BUFFER_SIZE: usize = 10;
+        let (tx, mut rx) = tokio::sync::mpsc::channel(CHANNEL_BUFFER_SIZE);
+        worker.start_notify_channel(tx)?;
+        let stop_notification = self.stop_notifications.clone();
+        let self_clone = self.clone();
+        tokio::spawn(async move {
+            loop {
+                select! {
+                    _ = stop_notification.cancelled() => {
+                        log::info!("Notification handler cancelled.");
+                        break;
+                    }
+                    else => {
+                        while let Some(msg) = rx.recv().await {
+                            self_clone.notify(msg).await.unwrap_or_else(|e| {
+                                log::error!("Error handling notification: {e:?}");
+                            });
+                        }
+                    }
+                }
+            }
+            log::info!("Notification handler thread stopped.");
+        });
         Ok(())
+    }
+
+    #[cfg(feature = "multi_threaded")]
+    fn start_notify(self: &Arc<Self>) -> crate::Result<()> {
+        let (tx, rx) = mpsc::channel();
+        let worker = self.worker.get().unwrap();
+        worker.start_notify_channel(tx)?;
+
+        const POLLING_INTERVAL: Duration = Duration::from_millis(100);
+        let stopped_ref = self.stop_notifications.clone();
+        let self_clone = self.clone();
+        std::thread::spawn(move || {
+            while !stopped_ref.load(Ordering::SeqCst) {
+                match rx.recv_timeout(POLLING_INTERVAL) {
+                    Ok(notification) => {
+                        self_clone.notify(notification).unwrap_or_else(|e| {
+                            log::error!("Error handling notification: {e:?}");
+                        });
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
+            }
+            log::info!("Notification handler thread stopped.");
+        });
+        Ok(())
+    }
+
+    #[cfg(not(feature = "single_threaded"))]
+    pub fn stop_notify(&self) {
+        #[cfg(feature = "async")]
+        self.stop_notifications.cancel();
+        #[cfg(not(feature = "async"))]
+        self.stop_notifications.store(true, Ordering::SeqCst);
+        log::info!("Notification handler stopped.");
     }
 }
 
@@ -599,5 +671,37 @@ impl MessageHandler for ConnectionMessageHandler {
         }
 
         Ok(msg)
+    }
+
+    #[maybe_async]
+    async fn notify(&self, msg: IncomingMessage) -> crate::Result<()> {
+        if msg.message.header.session_id == 0 {
+            log::warn!("Received notification without session ID: {msg:?}");
+            return Ok(());
+        }
+
+        // Avoid holding the lock while notifying the session further.
+        let session = {
+            let sessions = self.sessions.lock().await?;
+            let session = sessions.get(&msg.message.header.session_id);
+
+            if session.is_none() {
+                log::warn!(
+                    "Received notification for unknown session ID {}: {msg:?}",
+                    msg.message.header.session_id
+                );
+                return Ok(());
+            }
+
+            session.unwrap().upgrade().ok_or_else(|| {
+                Error::InvalidState(format!(
+                    "Session {} is no longer available",
+                    msg.message.header.session_id
+                ))
+            })?
+        };
+
+        session.notify(msg).await?;
+        Ok(())
     }
 }

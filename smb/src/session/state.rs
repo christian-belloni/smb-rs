@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use crate::dialects::DialectImpl;
-use crate::sync_helpers::*;
 
 use crate::connection::connection_info::ConnectionInfo;
 use crate::connection::preauth_hash::PreauthHashValue;
@@ -13,16 +12,6 @@ use crate::crypto::{
 use crate::packets::smb2::{Dialect, EncryptionCipher, SessionFlags, SigningAlgorithmId};
 
 use super::{MessageDecryptor, MessageEncryptor, MessageSigner};
-
-/// Holds the information of a session, to be used for actions requiring data from session,
-/// without accessing the entire session object.
-/// This struct should be single-per-session, and wrapped in a shared pointer.
-#[derive(Debug)]
-pub struct SessionInfo {
-    session_id: u64,
-    flags: OnceCell<SessionFlags>,
-    state: Option<SessionInfoState>,
-}
 
 /// Holds the algorithms used for the session --
 /// signing, encryption, and decryption algorithms.
@@ -137,10 +126,12 @@ impl SessionAlgos {
     ) -> Result<Option<(MessageEncryptor, MessageDecryptor)>, CryptoError> {
         // Not supported
         if !info.dialect.supports_encryption() {
+            dbg!("Dialect does not support encryption, not making encryptor/decryptor.");
             return Ok(None);
         }
         // Disabled in config
-        if info.config.encryption_mode.is_disabled() {
+        if dbg!(&info.config.encryption_mode).is_disabled() {
+            dbg!("Encryption is disabled in config, not making encryptor/decryptor.");
             return Ok(None);
         }
 
@@ -193,9 +184,26 @@ enum SessionInfoState {
     /// The session is not set up yet.
     Initialized,
     /// The session is set up, but not yet authenticated.
-    SetUp { algos: SessionAlgos },
+    SettingUp {
+        algos: SessionAlgos,
+        allow_unsigned: bool,
+    },
+    Ready {
+        algos: SessionAlgos,
+        flags: SessionFlags,
+        force_encryption: bool,
+    },
     /// The session is invalid, and should not be used anymore.
     Invalid,
+}
+
+/// Holds the information of a session, to be used for actions requiring data from session,
+/// without accessing the entire session object.
+/// This struct should be single-per-session, and wrapped in a shared pointer.
+#[derive(Debug)]
+pub struct SessionInfo {
+    session_id: u64,
+    state: Option<SessionInfoState>,
 }
 
 impl SessionInfo {
@@ -204,7 +212,6 @@ impl SessionInfo {
         Self {
             session_id,
             state: Some(SessionInfoState::Initialized),
-            flags: Default::default(),
         }
     }
 
@@ -228,27 +235,50 @@ impl SessionInfo {
 
         let algos = SessionAlgos::build(session_key, preauth_hash, info)?;
         log::trace!("Session algos set up: {algos:?}");
-        self.state = Some(SessionInfoState::SetUp { algos });
+
+        let info_allows_unsigned = info.config.allow_unsigned_guest_access;
+
+        self.state = Some(SessionInfoState::SettingUp {
+            algos,
+            allow_unsigned: info_allows_unsigned,
+        });
 
         Ok(())
     }
 
+    /// Turns the session into a ready state.
+    ///
     /// Verifies the session flags against the connection config, and sets them in the session info.
-    pub fn set_flags(
-        &mut self,
-        flags: SessionFlags,
-        conn_info: &ConnectionInfo,
-    ) -> crate::Result<()> {
-        // When session flags are finally set, make sure the server accepts encryption,
-        // if it is required for us. Also, make sure it is not a null/guest session.
-        if conn_info.config.encryption_mode.is_required()
-            && flags != SessionFlags::new().with_encrypt_data(true)
-        {
-            return Err(crate::Error::InvalidMessage(
-                "Encryption is required, but not enabled for this session by the server."
-                    .to_string(),
+    pub fn ready(&mut self, flags: SessionFlags, conn_info: &ConnectionInfo) -> crate::Result<()> {
+        if !self.is_setting_up() {
+            return Err(crate::Error::InvalidState(
+                "Session is not set up, cannot set flags.".to_string(),
             ));
         }
+
+        // When session flags are finally set, make sure the server accepts encryption,
+        // if it is required for us. Also, make sure it is not a null/guest session.
+
+        let force_encryption = if conn_info.config.encryption_mode.is_required() {
+            if !flags.encrypt_data() {
+                log::debug!("Note! session does not require encryption, but it is required by the connection config. Forcing encryption.");
+            }
+            let encryption_ok =
+                if let SessionInfoState::SettingUp { algos, .. } = self.state.as_ref().unwrap() {
+                    algos.encryptor.is_some() && algos.decryptor.is_some()
+                } else {
+                    false
+                };
+            if !encryption_ok {
+                return Err(crate::Error::InvalidMessage(
+                    "Encryption is required by the connection config, but is not available!"
+                        .to_string(),
+                ));
+            }
+            true
+        } else {
+            false
+        };
 
         if !conn_info.config.allow_unsigned_guest_access && flags.is_guest_or_null_session() {
             return Err(crate::Error::InvalidMessage(
@@ -256,9 +286,14 @@ impl SessionInfo {
             ));
         }
 
-        self.flags
-            .set(flags)
-            .map_err(|_| crate::Error::InvalidMessage("Session flags already set.".to_string()))?;
+        self.state = match self.state.take() {
+            Some(SessionInfoState::SettingUp { algos, .. }) => Some(SessionInfoState::Ready {
+                algos,
+                flags,
+                force_encryption,
+            }),
+            _ => panic!("SessionInfo::ready called in an invalid state!"),
+        };
         log::debug!("Session {} flags set: {:?}", self.session_id, flags);
         Ok(())
     }
@@ -270,50 +305,75 @@ impl SessionInfo {
         self.state = Some(SessionInfoState::Invalid);
     }
 
-    /// Returns whether encryption is set up for this session, and is specified in the session flags.
-    pub fn should_encrypt(&self) -> bool {
-        if let Some(SessionInfoState::SetUp { algos }) = &self.state {
-            algos.encryptor.is_some() && self.flags.get().is_some_and(|f| f.encrypt_data())
-        } else {
-            false
-        }
+    /// Returns whether the session is setting up.
+    pub fn is_setting_up(&self) -> bool {
+        matches!(self.state, Some(SessionInfoState::SettingUp { .. }))
     }
 
-    /// Returns whether the session is a guest or anonymous session.
-    pub fn is_guest_or_anonymous(&self) -> bool {
-        self.flags
-            .get()
-            .is_some_and(|f| f.is_guest_or_null_session())
+    /// Returns whether the session is ready for use.
+    pub fn is_ready(&self) -> bool {
+        matches!(self.state, Some(SessionInfoState::Ready { .. }))
     }
 
-    /// Returns whether the session is set up - can be used for signing and encryption.
-    pub fn is_set_up(&self) -> bool {
-        matches!(self.state, Some(SessionInfoState::SetUp { .. }))
-    }
-
-    /// Returns whether the session is invalid (by calling [`SessionInfo::invalidate`]).
+    /// Returns whether the session was invalidated (by calling [`SessionInfo::invalidate`]).
     pub fn is_invalid(&self) -> bool {
         matches!(self.state, Some(SessionInfoState::Invalid))
     }
 
-    pub fn decryptor(&self) -> Option<&MessageDecryptor> {
+    /// Returns whether encryption is needed for this session:
+    /// * Either because the session flags require it,
+    /// * Or because the connection config requires it.
+    ///   If the session is not ready, it will return an error.
+    pub fn should_encrypt(&self) -> crate::Result<bool> {
         match &self.state {
-            Some(SessionInfoState::SetUp { algos }) => algos.decryptor.as_ref(),
-            _ => None,
+            Some(SessionInfoState::Ready {
+                flags,
+                force_encryption,
+                ..
+            }) => Ok(flags.encrypt_data() || *force_encryption),
+            _ => Err(crate::Error::InvalidState(
+                "Session is not ready!".to_string(),
+            )),
         }
     }
 
-    pub fn encryptor(&self) -> Option<&MessageEncryptor> {
+    /// Returns whether the session is a guest or anonymous session.
+    /// If the session is not setting up or ready, it will return an error.
+    pub fn allow_unsigned(&self) -> crate::Result<bool> {
         match &self.state {
-            Some(SessionInfoState::SetUp { algos }) => algos.encryptor.as_ref(),
-            _ => None,
+            Some(SessionInfoState::Ready { flags, .. }) => Ok(flags.is_guest_or_null_session()),
+            Some(SessionInfoState::SettingUp { allow_unsigned, .. }) => Ok(*allow_unsigned),
+            _ => Err(crate::Error::InvalidState(
+                "Session is not setting up or ready!".to_string(),
+            )),
         }
     }
 
-    pub fn signer(&self) -> Option<&MessageSigner> {
+    pub fn decryptor(&self) -> crate::Result<Option<&MessageDecryptor>> {
         match &self.state {
-            Some(SessionInfoState::SetUp { algos }) => Some(&algos.signer),
-            _ => None,
+            Some(SessionInfoState::Ready { algos, .. }) => Ok(algos.decryptor.as_ref()),
+            _ => Err(crate::Error::InvalidState(
+                "Session is not ready, cannot get decryptor.".to_string(),
+            )),
+        }
+    }
+
+    pub fn encryptor(&self) -> crate::Result<Option<&MessageEncryptor>> {
+        match &self.state {
+            Some(SessionInfoState::Ready { algos, .. }) => Ok(algos.encryptor.as_ref()),
+            _ => Err(crate::Error::InvalidState(
+                "Session is not ready, cannot get encryptor.".to_string(),
+            )),
+        }
+    }
+
+    pub fn signer(&self) -> crate::Result<&MessageSigner> {
+        match &self.state {
+            Some(SessionInfoState::SettingUp { algos, .. }) => Ok(&algos.signer),
+            Some(SessionInfoState::Ready { algos, .. }) => Ok(&algos.signer),
+            _ => Err(crate::Error::InvalidState(
+                "Session is not ready or setting up, cannot get signer.".to_string(),
+            )),
         }
     }
 }

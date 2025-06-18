@@ -160,6 +160,24 @@ pub trait MessageHandler: Send + Sync {
     /// if there is one, using the provided `ReceiveOptions`.
     async fn recvo(&self, options: ReceiveOptions) -> crate::Result<IncomingMessage>;
 
+    /// Called when a server-to-client message is received.
+    ///
+    /// # Arguments
+    /// * `msg` - The message received from the server.
+    ///
+    /// # Returns
+    /// A result indicating whether the message was handled successfully.
+    ///
+    /// # Notes
+    /// * This method should generally be implemented by handlers, if there's a chance they are related
+    ///   to any supported notification messages.
+    /// * Unless the handler finishes handling the message fully, it should call the next handler in the chain.
+    /// * Default implementation does nothing.
+    async fn notify(&self, msg: IncomingMessage) -> crate::Result<()> {
+        log::debug!("Received notification message: {msg:?}");
+        Ok(())
+    }
+
     // -- Utility functions, accessible from references via Deref.
     #[maybe_async]
     async fn send(&self, msg: RequestContent) -> crate::Result<SendMessageResult> {
@@ -224,6 +242,10 @@ impl<T: MessageHandler> HandlerReference<T> {
         HandlerReference {
             handler: Arc::new(handler),
         }
+    }
+
+    pub fn weak(&self) -> std::sync::Weak<T> {
+        Arc::downgrade(&self.handler)
     }
 }
 

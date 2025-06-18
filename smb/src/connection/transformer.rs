@@ -170,17 +170,20 @@ impl Transformer {
                 "Should not sign and encrypt at the same time!"
             );
 
-            let signer = {
+            let mut signer = {
                 self.get_session(set_session_id)
                     .await?
                     .lock()
                     .await?
-                    .signer()
-                    .cloned()
+                    .signer()?
+                    .clone()
             };
-            if let Some(mut signer) = signer {
-                signer.sign_message(&mut msg.message.header, &mut data)?;
-            };
+            signer.sign_message(&mut msg.message.header, &mut data)?;
+            log::debug!(
+                "Message #{} signed (signature={}).",
+                msg.message.header.message_id,
+                msg.message.header.signature
+            );
         };
 
         // 2. Compress
@@ -202,7 +205,7 @@ impl Transformer {
         let data = {
             if msg.encrypt {
                 let session = self.get_session(set_session_id).await?;
-                let encryptor = { session.lock().await?.encryptor().cloned() };
+                let encryptor = { session.lock().await?.encryptor()?.cloned() };
                 if let Some(mut encryptor) = encryptor {
                     debug_assert!(should_encrypt && !should_sign);
                     let encrypted = encryptor.encrypt_message(data, set_session_id)?;
@@ -238,7 +241,7 @@ impl Transformer {
             let session = self
                 .get_session(encrypted_message.header.session_id)
                 .await?;
-            let decryptor = { session.lock().await?.decryptor().cloned() };
+            let decryptor = { session.lock().await?.decryptor()?.cloned() };
             form.encrypted = true;
             match decryptor {
                 Some(mut decryptor) => decryptor.decrypt_message(encrypted_message)?,
@@ -328,20 +331,15 @@ impl Transformer {
         // Verify signature (if required, according to the spec)
         let session_id = message.header.session_id;
         let session = self.get_session(session_id).await?;
-        let verifier = { session.lock().await?.signer().cloned() };
-        if let Some(mut verifier) = verifier {
-            verifier.verify_signature(&mut message.header, raw)?;
-            form.signed = true;
-            Ok(())
-        } else {
-            Err(crate::Error::TranformFailed(TransformError {
-                outgoing: false,
-                phase: TransformPhase::SignVerify,
-                session_id: Some(session_id),
-                why: "Message is signed, but no verifier is set up!",
-                msg_id: Some(message.header.message_id),
-            }))
-        }
+        let mut verifier = { session.lock().await?.signer()?.clone() };
+        verifier.verify_signature(&mut message.header, raw)?;
+        log::debug!(
+            "Message #{} verified (signature={}).",
+            message.header.message_id,
+            message.header.signature
+        );
+        form.signed = true;
+        Ok(())
     }
 }
 

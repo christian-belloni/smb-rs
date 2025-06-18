@@ -20,7 +20,7 @@ use crate::{
 use binrw::prelude::*;
 use maybe_async::*;
 use sspi::{AuthIdentity, Secret, Username};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 type Upstream = HandlerReference<ConnectionMessageHandler>;
 
 mod authenticator;
@@ -113,7 +113,7 @@ impl Session {
             }
         };
 
-        session_state.lock().await?.set_flags(flags, conn_info)?;
+        session_state.lock().await?.ready(flags, conn_info)?;
 
         log::info!("Session setup complete.");
         if flags.is_guest_or_null_session() {
@@ -188,11 +188,10 @@ impl Session {
                         Status::MoreProcessingRequired
                     };
                     let response = handler
-                        .recvo_internal(
+                        .recvo(
                             ReceiveOptions::new()
                                 .with_status(&[expected_status])
                                 .with_msg_id_filter(result.msg_id),
-                            is_auth_done,
                         )
                         .await?;
 
@@ -238,6 +237,7 @@ impl Session {
     /// # Notes
     /// See [`Session::dfs_tree_connect`] for connecting to a share as a DFS referral.
     #[maybe_async]
+    #[inline]
     pub async fn tree_connect(&self, name: &str) -> crate::Result<Tree> {
         self.do_tree_connect(name, false).await
     }
@@ -245,8 +245,19 @@ impl Session {
     /// Connects to the specified tree using the current session as a DFS referral.
     ///
     #[maybe_async]
+    #[inline]
     pub async fn dfs_tree_connect(&self, name: &str) -> crate::Result<Tree> {
         self.do_tree_connect(name, true).await
+    }
+
+    #[inline]
+    pub fn session_id(&self) -> u64 {
+        self.handler.session_id
+    }
+
+    #[inline]
+    pub fn handler(&self) -> Weak<SessionMessageHandler> {
+        self.handler.weak()
     }
 }
 
@@ -274,7 +285,7 @@ impl SessionMessageHandler {
     async fn logoff(&self) -> crate::Result<()> {
         {
             let state = self.session_state.lock().await?;
-            if !state.is_set_up() {
+            if !state.is_setting_up() {
                 log::trace!("Session not set up/already logged-off.");
                 return Ok(());
             }
@@ -285,18 +296,29 @@ impl SessionMessageHandler {
         let _response = self.send_recv(LogoffRequest {}.into()).await?;
 
         // This also invalidates the session object.
-        self.upstream
-            .handler
-            .worker()
-            .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
-            .session_ended(self.session_id)
-            .await?;
-
         log::info!("Session logged off.");
 
         Ok(())
     }
 
+    /// (Internal)
+    ///
+    /// Assures the sessions may not be used anymore.
+    #[maybe_async]
+    async fn _invalidate(&self) -> crate::Result<()> {
+        self.upstream
+            .handler
+            .worker()
+            .ok_or_else(|| Error::InvalidState("Worker not available!".to_string()))?
+            .session_ended(self.session_id)
+            .await
+    }
+
+    /// Logs off the session and invalidates it.
+    ///
+    /// # Notes
+    /// This method waits for the logoff response to be received from the server.
+    /// It is used when dropping the session.
     #[cfg(feature = "async")]
     #[maybe_async]
     pub async fn logoff_async(&mut self) {
@@ -305,44 +327,70 @@ impl SessionMessageHandler {
         });
     }
 
-    /// **UNSECURE METHOD: Only use within the session setup process.**
+    /// (Internal)
     ///
-    /// INTERNAL: Sends a message and receives a response.
+    /// # Returns
+    /// whether allowing unsigned incoming messages is okay for this session.
+    /// * If the session is ready, it checks whether signing is required by session flags.
+    /// * If the session is being set up, it allows unsigned messages if allowed in the configuration.
     #[maybe_async]
-    async fn recvo_internal(
-        &self,
-        options: ReceiveOptions<'_>,
-        skip_security_checks: bool,
-    ) -> crate::Result<IncomingMessage> {
+    #[inline]
+    async fn _is_incoming_unsigned_allowed(&self) -> crate::Result<bool> {
+        let session = self.session_state.lock().await?;
+        session.allow_unsigned()
+    }
+
+    /// (Internal)
+    ///
+    /// # Returns
+    /// whether incoming messages encryption should be enforced for this session.
+    #[maybe_async]
+    #[inline]
+    async fn _is_incoming_encrypted_required(&self) -> crate::Result<bool> {
+        let session = self.session_state.lock().await?;
+        Ok(session.is_ready() && session.should_encrypt()?)
+    }
+
+    /// (Internal)
+    ///
+    /// Verifies an [`IncomingMessage`] for the current session.
+    /// # Arguments
+    /// * `incoming` - The incoming message to verify.
+    /// # Returns
+    /// An empty [`crate::Result`] if the message is valid, or an error if the message is invalid.
+    #[maybe_async]
+    async fn _verify_incoming(&self, incoming: &IncomingMessage) -> crate::Result<()> {
         // allow unsigned messages only if the session is anonymous or guest.
         // this is enforced against configuration when setting up the session.
-        let unsigned_allowed = {
-            let session = self.session_state.lock().await?;
-            if session.is_invalid() {
-                return Err(Error::InvalidState("Session is invalid".to_string()));
-            }
-            session.is_guest_or_anonymous() || skip_security_checks
-        };
+        let unsigned_allowed = self._is_incoming_unsigned_allowed().await?;
+        let encryption_required = self._is_incoming_encrypted_required().await?;
 
-        let incoming = self.upstream.recvo(options).await?;
         // Make sure that it's our session.
         if incoming.message.header.session_id == 0 {
             return Err(Error::InvalidMessage(
                 "No session ID in message that got to session!".to_string(),
             ));
-        } else if incoming.message.header.session_id != self.session_id {
+        }
+        if incoming.message.header.session_id != self.session_id {
             return Err(Error::InvalidMessage(
                 "Message not for this session!".to_string(),
             ));
-        // And that it's an authenticated message.
-        } else if !incoming.form.signed_or_encrypted() && !unsigned_allowed {
+        }
+        // Make sure encryption is used when required.
+        if !incoming.form.encrypted && encryption_required {
+            return Err(Error::InvalidMessage(
+                "Message not encrypted, but encryption is required for the session!".to_string(),
+            ));
+        }
+        // and signed, unless allowed not to.
+        if !incoming.form.signed_or_encrypted() && !unsigned_allowed {
             return Err(Error::InvalidMessage(
                 "Message not signed or encrypted, but signing is required for the session!"
                     .to_string(),
             ));
         }
 
-        Ok(incoming)
+        Ok(())
     }
 }
 
@@ -355,13 +403,23 @@ impl MessageHandler for SessionMessageHandler {
                 return Err(Error::InvalidState("Session is invalid".to_string()));
             }
 
-            if session.is_set_up() {
-                // Encrypt?
-                if session.should_encrypt() {
+            // It is possible for a lower level to request encryption.
+            if msg.encrypt {
+                // Session must be ready to encrypt messages.
+                if !session.is_ready() {
+                    return Err(Error::InvalidState(
+                        "Session is not ready, cannot encrypt message".to_string(),
+                    ));
+                }
+            }
+            // Otherwise, we should check the session's configuration.
+            else if session.is_ready() || session.is_setting_up() {
+                // Encrypt if configured for the session,
+                if session.is_ready() && session.should_encrypt()? {
                     msg.encrypt = true;
                 }
-                // Sign instead?
-                else if !session.is_guest_or_anonymous() {
+                // Sign
+                else if !session.allow_unsigned()? {
                     msg.message.header.flags.set_signed(true);
                 }
                 // TODO: Re-check against config whether it's allowed to send/receive unsigned messages?
@@ -372,11 +430,32 @@ impl MessageHandler for SessionMessageHandler {
     }
 
     #[maybe_async]
-    async fn recvo(
-        &self,
-        options: crate::msg_handler::ReceiveOptions<'_>,
-    ) -> crate::Result<IncomingMessage> {
-        self.recvo_internal(options, false).await
+    async fn recvo(&self, options: ReceiveOptions<'_>) -> crate::Result<IncomingMessage> {
+        let incoming = self.upstream.recvo(options).await?;
+
+        self._verify_incoming(&incoming).await?;
+
+        Ok(incoming)
+    }
+
+    #[maybe_async]
+    async fn notify(&self, msg: IncomingMessage) -> crate::Result<()> {
+        self._verify_incoming(&msg).await?;
+
+        match &msg.message.content {
+            ResponseContent::ServerToClientNotification(s2c_notification) => {
+                match s2c_notification.notification {
+                    Notification::NotifySessionClosed(_) => self._invalidate().await,
+                }
+            }
+            _ => {
+                log::warn!(
+                    "Received unexpected message in session handler: {:?}",
+                    msg.message.content
+                );
+                Ok(())
+            }
+        }
     }
 }
 
