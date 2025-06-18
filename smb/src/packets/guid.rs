@@ -4,13 +4,16 @@ use binrw::prelude::*;
 use rand::{rngs::OsRng, Rng};
 
 /// Represents a standard, 16-byte GUID.
+///
+/// Supports [`std::mem::size_of`].
 #[derive(BinRead, BinWrite, Clone, Copy, PartialEq, Eq, Default)]
 #[brw(little)]
 pub struct Guid(u32, u16, u16, [u8; 8]);
 
 impl Guid {
-    /// Bytes
+    /// The size of a GUID, in Bytes
     pub const GUID_SIZE: usize = 16;
+    const _VALIDATE_SIZE_OF: [u8; Self::GUID_SIZE] = [0; size_of::<Self>()];
 
     pub const ZERO: Guid = Guid(0, 0, 0, [0; 8]);
 

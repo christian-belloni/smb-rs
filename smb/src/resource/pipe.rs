@@ -256,10 +256,9 @@ impl BoundRpcConnection for PipeRpcConnection {
         let res = self
             .pipe
             .handle
-            .send_fsctl_with_options(
+            .fsctl_with_options(
                 PipeTransceiveRequest::from(IoctlBuffer::from(req_data)),
-                0,
-                self.server_max_xmit_frag as usize,
+                self.server_max_xmit_frag as u32,
             )
             .await?;
 

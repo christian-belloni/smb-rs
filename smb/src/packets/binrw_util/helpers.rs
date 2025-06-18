@@ -1,6 +1,6 @@
+use binrw::{prelude::*, Endian, NullWideString};
 use std::io::{Read, Seek, Write};
-
-use binrw::{prelude::*, Endian};
+use std::ops::{Deref, DerefMut};
 
 #[binrw::writer(writer, endian)]
 pub fn write_u48(value: &u64) -> binrw::BinResult<()> {
@@ -82,8 +82,15 @@ mod test {
 
 /// A simple Boolean type that reads and writes as a single byte.
 /// Any non-zero value is considered `true`, as defined by MS-FSCC 2.1.8.
+/// Similar to the WinAPI `BOOL` type.
+///
+/// This type supports `std::size_of::<Boolean>() == 1`, ensuring it is 1 byte in size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Boolean(bool);
+
+impl Boolean {
+    const _VALIDATE_SIZE_OF: [u8; 1] = [0; size_of::<Self>()];
+}
 
 impl BinRead for Boolean {
     type Args<'a> = ();
@@ -115,5 +122,69 @@ impl BinWrite for Boolean {
 impl From<bool> for Boolean {
     fn from(value: bool) -> Self {
         Boolean(value)
+    }
+}
+
+/// A MultiSz (Multiple Null-terminated Wide Strings) type that reads and writes a sequence of
+/// null-terminated wide strings, ending with an additional null string.
+///
+/// Similar to the Registry [`REG_MULTI_SZ`](https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types) type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MultiSz(Vec<NullWideString>);
+
+impl BinRead for MultiSz {
+    type Args<'a> = ();
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        endian: Endian,
+        _: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let mut strings = Vec::new();
+        loop {
+            let string: NullWideString = NullWideString::read_options(reader, endian, ())?;
+            if string.is_empty() {
+                break;
+            }
+            strings.push(string);
+        }
+        Ok(MultiSz(strings))
+    }
+}
+
+impl BinWrite for MultiSz {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        endian: Endian,
+        _: Self::Args<'_>,
+    ) -> BinResult<()> {
+        for string in &self.0 {
+            string.write_options(writer, endian, ())?;
+        }
+        NullWideString::default().write_options(writer, endian, ())?;
+        Ok(())
+    }
+}
+
+impl Deref for MultiSz {
+    type Target = Vec<NullWideString>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for MultiSz {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<Vec<NullWideString>> for MultiSz {
+    fn from(strings: Vec<NullWideString>) -> Self {
+        MultiSz(strings)
     }
 }

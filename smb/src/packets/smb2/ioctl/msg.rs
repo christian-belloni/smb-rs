@@ -12,7 +12,6 @@ use crate::packets::{
     dfsc::{ReqGetDfsReferral, ReqGetDfsReferralEx, RespGetDfsReferral},
     smb2::FileId,
 };
-use std::ops::{Deref, DerefMut};
 
 #[binrw::binrw]
 #[derive(Debug, PartialEq, Eq)]
@@ -67,6 +66,7 @@ pub enum IoctlReqData {
         [<Fsctl $fsctl:camel>]($model),
     )+
 
+    /// General Ioctl request, providing a buffer as an input.
     Ioctl(IoctlBuffer),
 }
 
@@ -100,18 +100,15 @@ $(
 
 // TODO: Enable non-fsctl ioctls. currently, we only support FSCTLs.
 ioctl_req_data! {
-    // The following FSCTLs do not provide an input buffer:
     PipePeek: PipePeekRequest, PipePeekResponse,
     SrvEnumerateSnapshots: SrvEnumerateSnapshotsRequest, SrvEnumerateSnapshotsResponse,
     SrvRequestResumeKey: SrvRequestResumeKeyRequest, SrvRequestResumeKey,
     QueryNetworkInterfaceInfo: QueryNetworkInterfaceInfoRequest, NetworkInterfaceInfo,
-    // The following FSCTLs provide a specific data structure as input buffer:
     SrvCopychunk: SrvCopychunkCopy, SrvCopychunkResponse,
-    SrvCopychunkWrite: SrvCopyChunkCopyWrite,SrvCopyChunkCopyWriteResponse,
+    SrvCopychunkWrite: SrvCopyChunkCopyWrite, SrvCopychunkResponse,
     SrvReadHash: SrvReadHashReq, SrvReadHashRes,
     LmrRequestResiliency: NetworkResiliencyRequest, LmrRequestResiliencyResponse,
     ValidateNegotiateInfo: ValidateNegotiateInfoRequest, ValidateNegotiateInfoResponse,
-    // And the rest provide some input buffer.
     DfsGetReferrals: ReqGetDfsReferral, RespGetDfsReferral,
     PipeWait: PipeWaitRequest, PipeWaitResponse,
     PipeTransceive: PipeTransceiveRequest, PipeTransceiveResponse,
@@ -119,104 +116,8 @@ ioctl_req_data! {
     DfsGetReferralsEx: ReqGetDfsReferralEx, RespGetDfsReferral,
     FileLevelTrim: FileLevelTrimRequest, FileLevelTrimResponse,
     QueryAllocatedRanges: QueryAllocRangesItem, QueryAllocRangesResult,
+    OffloadRead: OffloadReadRequest, OffloadReadResponse,
 }
-
-/// This macro wraps an existing type into a newtype that implements the `IoctlRequestContent` trait.
-/// It also provides a constructor and implements `From` and `Deref` traits for the new type.
-///
-/// It's made so we can easily create new types for ioctl requests without repeating boilerplate code,
-/// and prevents collisions with existing types in the `IoctlReqData` enum.
-macro_rules! make_newtype {
-    ($vis:vis $name:ident($inner:ty)) => {
-        #[binrw::binrw]
-        #[derive(Debug, PartialEq, Eq)]
-        pub struct $name(pub $inner);
-
-        impl $name {
-            pub fn new(inner: $inner) -> Self {
-                Self(inner)
-            }
-        }
-
-        impl From<$inner> for $name {
-            fn from(inner: $inner) -> Self {
-                Self(inner)
-            }
-        }
-
-        impl Deref for $name {
-            type Target = $inner;
-
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
-
-        impl DerefMut for $name {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                &mut self.0
-            }
-        }
-    };
-}
-
-macro_rules! make_req_newtype {
-    ($vis:vis $name:ident($inner:ty)) => {
-        make_newtype!($vis $name($inner));
-        impl IoctlRequestContent for $name {
-            fn get_bin_size(&self) -> u32 {
-                self.0.get_bin_size()
-            }
-        }
-    }
-}
-
-macro_rules! make_res_newtype {
-    ($fsctl:ident: $vis:vis $name:ident($inner:ty)) => {
-        make_newtype!($vis $name($inner));
-        impl FsctlResponseContent for $name {
-            const FSCTL_CODES: &'static [FsctlCodes] = &[FsctlCodes::$fsctl];
-        }
-    }
-}
-
-make_req_newtype!(pub PipePeekRequest(()));
-make_req_newtype!(pub SrvEnumerateSnapshotsRequest(()));
-make_req_newtype!(pub SrvRequestResumeKeyRequest(()));
-make_req_newtype!(pub QueryNetworkInterfaceInfoRequest(()));
-make_req_newtype!(pub PipeWaitRequest(IoctlBuffer));
-make_req_newtype!(pub PipeTransceiveRequest(IoctlBuffer));
-make_req_newtype!(pub SetReparsePointRequest(IoctlBuffer));
-make_req_newtype!(pub FileLevelTrimRequest(IoctlBuffer));
-make_req_newtype!(pub SrvCopyChunkCopyWrite(SrvCopychunkCopy));
-
-make_res_newtype!(
-    PipePeek: pub PipePeekResponse(IoctlBuffer)
-);
-make_res_newtype!( // TODO: Concrete type
-    SrvEnumerateSnapshots: pub SrvEnumerateSnapshotsResponse(IoctlBuffer)
-);
-make_res_newtype!( // TODO: Concrete type
-    QueryNetworkInterfaceInfo: pub NetworkInterfaceInfoResponse(NetworkInterfaceInfo)
-);
-make_res_newtype!( // TODO: Concrete type
-    SrvCopychunkWrite: pub SrvCopyChunkCopyWriteResponse(IoctlBuffer)
-);
-make_res_newtype!( // TODO: Concrete type
-    LmrRequestResiliency: pub LmrRequestResiliencyResponse(IoctlBuffer)
-);
-make_res_newtype!(
-    PipeWait: pub PipeWaitResponse(IoctlBuffer)
-);
-make_res_newtype!(
-    PipeTransceive: pub PipeTransceiveResponse(IoctlBuffer)
-);
-make_res_newtype!( // TODO: Concrete type
-    SetReparsePoint: pub SetReparsePointResponse(IoctlBuffer)
-);
-make_res_newtype!( // TODO: Concrete type
-    FileLevelTrim: pub FileLevelTrimResponse(RespGetDfsReferral)
-);
 
 #[bitfield]
 #[derive(BinWrite, BinRead, Debug, Default, Clone, Copy, PartialEq, Eq)]
