@@ -45,24 +45,36 @@ impl Guid {
         if b[so + 8] != b'-' || b[so + 13] != b'-' || b[so + 18] != b'-' || b[so + 23] != b'-' {
             return Err("Invalid UUID format");
         }
+
+        /// A macro to perform the same as `parse_bytes(b, i)?`,
+        /// which is impossible in a const context.
+        macro_rules! parse_byte {
+            ($b:expr, $i:expr) => {
+                match parse_byte($b, $i) {
+                    Ok(val) => val,
+                    Err(e) => return Err(e),
+                }
+            };
+        }
+
         Ok(Guid(
             u32::from_be_bytes([
-                parse_byte(b, so),
-                parse_byte(b, so + 2),
-                parse_byte(b, so + 4),
-                parse_byte(b, so + 6),
+                parse_byte!(b, so),
+                parse_byte!(b, so + 2),
+                parse_byte!(b, so + 4),
+                parse_byte!(b, so + 6),
             ]),
-            u16::from_be_bytes([parse_byte(b, so + 9), parse_byte(b, so + 11)]),
-            u16::from_be_bytes([parse_byte(b, so + 14), parse_byte(b, so + 16)]),
+            u16::from_be_bytes([parse_byte!(b, so + 9), parse_byte!(b, so + 11)]),
+            u16::from_be_bytes([parse_byte!(b, so + 14), parse_byte!(b, so + 16)]),
             [
-                parse_byte(b, so + 19),
-                parse_byte(b, so + 21),
-                parse_byte(b, so + 24),
-                parse_byte(b, so + 26),
-                parse_byte(b, so + 28),
-                parse_byte(b, so + 30),
-                parse_byte(b, so + 32),
-                parse_byte(b, so + 34),
+                parse_byte!(b, so + 19),
+                parse_byte!(b, so + 21),
+                parse_byte!(b, so + 24),
+                parse_byte!(b, so + 26),
+                parse_byte!(b, so + 28),
+                parse_byte!(b, so + 30),
+                parse_byte!(b, so + 32),
+                parse_byte!(b, so + 34),
             ],
         ))
     }

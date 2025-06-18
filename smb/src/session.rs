@@ -285,8 +285,8 @@ impl SessionMessageHandler {
     async fn logoff(&self) -> crate::Result<()> {
         {
             let state = self.session_state.lock().await?;
-            if !state.is_setting_up() {
-                log::trace!("Session not set up/already logged-off.");
+            if !state.is_ready() {
+                log::trace!("Session not ready, or logged-off already, skipping logoff.");
                 return Ok(());
             }
         }

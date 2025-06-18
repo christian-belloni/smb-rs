@@ -126,12 +126,10 @@ impl SessionAlgos {
     ) -> Result<Option<(MessageEncryptor, MessageDecryptor)>, CryptoError> {
         // Not supported
         if !info.dialect.supports_encryption() {
-            dbg!("Dialect does not support encryption, not making encryptor/decryptor.");
             return Ok(None);
         }
         // Disabled in config
-        if dbg!(&info.config.encryption_mode).is_disabled() {
-            dbg!("Encryption is disabled in config, not making encryptor/decryptor.");
+        if info.config.encryption_mode.is_disabled() {
             return Ok(None);
         }
 
@@ -292,7 +290,7 @@ impl SessionInfo {
                 flags,
                 force_encryption,
             }),
-            _ => panic!("SessionInfo::ready called in an invalid state!"),
+            _ => unreachable!(),
         };
         log::debug!("Session {} flags set: {:?}", self.session_id, flags);
         Ok(())

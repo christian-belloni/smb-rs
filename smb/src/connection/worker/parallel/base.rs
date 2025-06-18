@@ -2,7 +2,7 @@ use crate::connection::transformer::Transformer;
 use crate::connection::transport::{SmbTransport, SmbTransportWrite};
 use crate::connection::worker::Worker;
 use crate::msg_handler::ReceiveOptions;
-use crate::packets::smb2::{Command, ResponseContent};
+use crate::packets::smb2::ResponseContent;
 use crate::sync_helpers::*;
 use maybe_async::*;
 use std::sync::atomic::AtomicBool;
@@ -133,9 +133,7 @@ where
                 msg.message.content,
                 ResponseContent::OplockBreakNotify(_)
                     | ResponseContent::ServerToClientNotification(_)
-            ) || (msg.message.header.command != Command::OplockBreak
-                && msg.message.header.command != Command::ServerToClientNotification)
-            {
+            ) {
                 return Err(Error::MessageProcessingError(
                     "Received notification message, but not an OPLOCK_BREAK or SERVER_TO_CLIENT_NOTIFICATION.".to_string(),
                 ));
