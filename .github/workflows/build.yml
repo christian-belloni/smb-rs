@@ -3,8 +3,7 @@ name: Build
 on:
   push:
     branches: [ "main" ]
-  pull_request_target:
-    types: [ "opened", "synchronize", "reopened" ]
+  pull_request:
     branches: [ "main" ]
   workflow_dispatch:
 
@@ -32,9 +31,6 @@ jobs:
           SAMBA_VOLUME_CONFIG_MyShare: "[MyShare]; path=/shares/MyShare; read only = no; browseable = yes; smb encrypt = desired"
           SAMBA_VOLUME_CONFIG_PublicShare: "[PublicShare]; path=/shares/PublicShare; read only = no; browseable = yes; guest ok = yes; smb encrypt = disabled"
           SAMBA_GLOBAL_CONFIG_smb_SPACE_ports: "139 445"
-        credentials:
-          username: ${{ github.actor }}
-          password: ${{ secrets.ACCESS_TOKEN }}
         options: --name samba --privileged --cap-add NET_ADMIN
 
     steps:
