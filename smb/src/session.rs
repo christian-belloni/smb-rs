@@ -187,11 +187,14 @@ impl Session {
                     } else {
                         Status::MoreProcessingRequired
                     };
+
+                    let skip_security_validation = !is_auth_done;
                     let response = handler
-                        .recvo(
+                        .recvo_internal(
                             ReceiveOptions::new()
                                 .with_status(&[expected_status])
                                 .with_msg_id_filter(result.msg_id),
+                            skip_security_validation,
                         )
                         .await?;
 
@@ -391,6 +394,36 @@ impl SessionMessageHandler {
         }
 
         Ok(())
+    }
+
+    /// **Insecure! Insecure! Insecure!**
+    ///
+    /// Same as [`SessionMessageHandler::recvo`], but possible skips security validation.
+    /// # Arguments
+    /// * `options` - The options for receiving the message.
+    /// * `skip_security_validation` - Whether to skip security validation of the incoming message.
+    ///   This shall only be used when authentication is still being set up.
+    /// # Returns
+    /// An [`IncomingMessage`] if the message is valid, or an error if the message is invalid.
+    #[maybe_async]
+    async fn recvo_internal(
+        &self,
+        options: ReceiveOptions<'_>,
+        skip_security_validation: bool,
+    ) -> crate::Result<IncomingMessage> {
+        let incoming = self.upstream.recvo(options).await?;
+
+        if !skip_security_validation {
+            self._verify_incoming(&incoming).await?;
+        } else {
+            // Note: this is performed here for extra security,
+            // while we could have just checked the session state, let's require
+            // the caller to explicitly state that it is okay to skip security validation.
+            let session = self.session_state.lock().await?;
+            assert!(session.is_initial());
+        }
+
+        Ok(incoming)
     }
 }
 

@@ -179,13 +179,14 @@ impl SessionAlgos {
 #[derive(Debug, Default)]
 enum SessionInfoState {
     #[default]
-    /// The session is not set up yet.
-    Initialized,
-    /// The session is set up, but not yet authenticated.
+    /// Initial state.
+    Initial,
+    /// The session is being set up, but not fully ready yet.
     SettingUp {
         algos: SessionAlgos,
         allow_unsigned: bool,
     },
+    /// The session is ready for use, with the given algorithms and flags.
     Ready {
         algos: SessionAlgos,
         flags: SessionFlags,
@@ -209,23 +210,24 @@ impl SessionInfo {
     pub fn new(session_id: u64) -> Self {
         Self {
             session_id,
-            state: Some(SessionInfoState::Initialized),
+            state: Some(SessionInfoState::Initial),
         }
     }
 
-    /// Returns the session ID of the session.
+    /// # Returns
+    /// The session's ID.
     pub fn id(&self) -> u64 {
         self.session_id
     }
 
-    /// Sets up the session state with the given session key and preauth hash.
+    /// Starts the session setup process.
     pub fn setup(
         &mut self,
         session_key: &KeyToDerive,
         preauth_hash: &Option<PreauthHashValue>,
         info: &ConnectionInfo,
     ) -> crate::Result<()> {
-        if !matches!(self.state, Some(SessionInfoState::Initialized)) {
+        if !matches!(self.state, Some(SessionInfoState::Initial)) {
             return Err(crate::Error::InvalidState(
                 "Session is not in state initialized, cannot set up.".to_string(),
             ));
@@ -301,6 +303,11 @@ impl SessionInfo {
     pub fn invalidate(&mut self) {
         log::debug!("Invalidating session {}", self.session_id);
         self.state = Some(SessionInfoState::Invalid);
+    }
+
+    /// Returns whether the session is only initialized (i.e. in the initial state).
+    pub fn is_initial(&self) -> bool {
+        matches!(self.state, Some(SessionInfoState::Initial))
     }
 
     /// Returns whether the session is setting up.
