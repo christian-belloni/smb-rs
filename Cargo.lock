@@ -1720,9 +1720,9 @@ checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
 name = "picky"
-version = "7.0.0-rc.14"
+version = "7.0.0-rc.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "162c4c060a9813dcae344eba16ea9281d1ca022ad733f13142d27b5b495eebc3"
+checksum = "83be360ca0cc8659abfbda932098e606fe52fa129508b92f0ce2998c00679170"
 dependencies = [
  "base64",
  "digest",
@@ -1790,9 +1790,9 @@ dependencies = [
 
 [[package]]
 name = "picky-krb"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd24e82ec97008ec01a89a40ba4eeacf09c573da78915674e7127bf33bced64d"
+checksum = "b45ffe5f2122cdda5e9059ab837a65ba1b77729db43fc1500f2fce6b27070eab"
 dependencies = [
  "aes",
  "byteorder",
@@ -2677,9 +2677,8 @@ dependencies = [
 
 [[package]]
 name = "sspi"
-version = "0.15.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f871490254320ccd1979e62fe3469e0976441f616d5cc98568e75f57a7d15567"
+version = "0.15.14"
+source = "git+https://github.com/christian-belloni/sspi-rs.git?branch=master#0e0571065f0166c98e79777fec0d5db4a82e696e"
 dependencies = [
  "async-dnssd",
  "async-recursion",
@@ -2718,7 +2717,7 @@ dependencies = [
  "uuid",
  "windows",
  "windows-registry",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
  "zeroize",
 ]
 
@@ -3503,6 +3502,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows-sys"
+version = "0.60.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
+dependencies = [
+ "windows-targets 0.53.2",
 ]
 
 [[package]]

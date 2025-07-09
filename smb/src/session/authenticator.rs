@@ -36,7 +36,7 @@ impl Authenticator {
             .as_ref()
             .unwrap_or(&String::from("smb-rs"))
             .clone();
-        let mut negotiate_ssp = Negotiate::new(NegotiateConfig::new(
+        let mut negotiate_ssp = Negotiate::new_client(NegotiateConfig::new(
             Box::new(NtlmConfig::default()),
             Some(Self::get_available_ssp_pkgs(&conn_info.config.auth_methods)),
             client_computer_name,

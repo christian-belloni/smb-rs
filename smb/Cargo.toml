@@ -31,7 +31,7 @@ paste = "1.0"
 url = "2.5.0"
 
 # APIs
-sspi = "0.15.12"
+sspi = { git = "https://github.com/christian-belloni/sspi-rs.git", branch = "master" }
 
 # Crypto
 hmac = "0.12.1"
@@ -58,7 +58,7 @@ rustls-platform-verifier = { version = "0.5", optional = true }
 [dev-dependencies]
 test-log = "0.2"
 serial_test = "3.2"
-temp-env = {version = "0.3.6", features = ["async_closure"]}
+temp-env = { version = "0.3.6", features = ["async_closure"] }
 
 [features]
 default = ["sign", "encrypt", "compress", "quic", "async", "kerberos"]
